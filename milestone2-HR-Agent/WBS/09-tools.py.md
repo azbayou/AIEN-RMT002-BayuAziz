@@ -3,7 +3,7 @@
 - **Target:** `TOOL_SCHEMAS` dan `ToolExecutor.execute`.
 - **Owner:** Agent AI; action safety direview pemilik repo.
 - **Dependency:** WBS-01, WBS-04, WBS-08.
-- **Status:** TODO
+- **Status:** CHECKPOINT - IMPLEMENTED
 
 ## Pekerjaan
 
@@ -18,3 +18,26 @@
 - Tidak ada tool untuk approval atau akses pegawai lain.
 - Prompt “tampilkan saldo EMP-002” tetap memakai identity bearer token.
 - Proposal valid memiliki TTL dan `requires_confirmation=True`.
+
+## Checkpoint
+
+- Empat tool strict sudah didefinisikan dengan `additionalProperties=False` dan schema
+  parameter lengkap.
+- Semua argumen divalidasi melalui model Pydantic; tool saldo menolak argumen tambahan dan
+  mengambil employee ID hanya dari `AuthContext`.
+- `prepare_leave_request` menjalankan validasi domain, menyimpan proposal bert-TTL, dan tidak
+  membuat leave request. Proposal selalu memerlukan konfirmasi.
+- Ticket dibuat untuk employee aktif; repository bertanggung jawab melakukan redaction summary.
+- Validasi compile dan regresi action/domain dilakukan setelah implementasi.
+- Tes fokus tambahan membuktikan schema strict, malformed/unknown call rejection,
+  identity spoofing rejection, dan proposal side-effect-free.
+- Kontrak `PrepareLeaveArgs`, `SearchPolicyArgs`, dan `TicketArgs` sekarang menolak field
+  tambahan dengan `extra="forbid"` sehingga input seperti `employee_id` tidak diabaikan.
+
+## TODO berikutnya
+
+1. Pastikan OpenAI Responses adapter menerima bentuk schema function yang digunakan provider,
+   termasuk test fake client untuk tool call dan retry.
+2. Tambahkan error mapping terstandar pada agent/API agar validation error tidak menjadi stack
+   trace atau membocorkan input sensitif.
+3. Verifikasi proposal ID generation/idempotency dan TTL pada repository production.

@@ -117,6 +117,8 @@ class LeaveBalance(BaseModel):
 
 
 class PrepareLeaveArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     start_date: date
     end_date: date
     leave_type: Literal["annual", "sick", "parental"]
@@ -124,11 +126,15 @@ class PrepareLeaveArgs(BaseModel):
 
 
 class SearchPolicyArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     query: str = Field(min_length=2, max_length=500)
     top_k: int = Field(default=3, ge=1, le=5)
 
 
 class TicketArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     category: Literal["policy_question", "leave_exception", "technical_issue", "privacy"]
     summary: str = Field(min_length=5, max_length=500)
 
