@@ -49,3 +49,12 @@ ini masih di harcode. cek lagi nanti
   belum tercakup.
 - Verifikasi semua jalur trace, ticket, error, dan provider memanggil `redact` sebelum
   logging atau persistence.
+
+## Checkpoint 2026-11-06
+
+- Status: **BELUM FINAL**; suite non-live lulus, tetapi daftar medical term masih hardcode
+  dan coverage call-site production belum lengkap.
+- Agent: pindahkan aturan medis ke konfigurasi/data yang direview atau batasi redaksi pada
+  label medis eksplisit, tambah edge tests, dan audit semua jalur logging/persistence.
+- Pemilik repo: review apakah pendekatan redaction memenuhi hard gate privasi dan setujui
+  daftar pola/konfigurasi medis sebelum submission.

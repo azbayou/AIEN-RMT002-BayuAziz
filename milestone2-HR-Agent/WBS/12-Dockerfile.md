@@ -40,3 +40,12 @@
    dan proses non-root dengan `docker inspect`.
 2. Jalankan seed dan suite pytest dari container setelah PostgreSQL/Redis tersedia.
 3. Review `build_runtime`/`PostgresRepository` sebelum menganggap delivery production final.
+
+## Checkpoint 2026-11-06
+
+- Status: **CHECKPOINT - IMPLEMENTED**; Docker Compose config valid, build API/Streamlit
+  sukses tanpa API key, image memakai `appuser`, dan 7 image tests lulus.
+- Agent: validasi command seed/test override, runtime health/readiness, dan dependency
+  behavior setelah PostgresRepository selesai.
+- Pemilik repo: jalankan `docker compose up`, seed tanpa `--reset` pada volume submission,
+  cek `/healthz`, `/readyz`, Streamlit, UID non-root, live tests, dan clean-checkout build.

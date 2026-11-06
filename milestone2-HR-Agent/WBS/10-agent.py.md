@@ -3,7 +3,7 @@
 - **Target:** `SYSTEM_INSTRUCTIONS` dan `AgentService.run`.
 - **Owner:** Agent AI; prompt policy dan release behavior direview pemilik repo.
 - **Dependency:** WBS-02, WBS-06, WBS-08, WBS-09.
-- **Status:** TODO
+- **Status:** CHECKPOINT - IMPLEMENTED
 
 ## Pekerjaan
 
@@ -39,3 +39,12 @@
 3. Pastikan error trace tidak tersimpan dua kali dan tambahkan status error pada ringkasan
    tool ketika tool gagal.
 4. Integrasikan error mapping dan authorization endpoint pada WBS-11.
+
+## Checkpoint 2026-11-06
+
+- Status: **CHECKPOINT - IMPLEMENTED**; agent reliability, tools/actions/domain, API
+  integration, suite non-live, dan Docker API/agent tests lulus.
+- Agent: tambah multi-turn/budget/timeout/valid-citation tests, rapikan Responses conversation
+  items, dan tandai tool error secara eksplisit.
+- Pemilik repo: review system instruction, abstention behavior, citation release rule, dan
+  pastikan prompt/chain-of-thought tidak masuk telemetry.

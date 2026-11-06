@@ -39,3 +39,12 @@
 3. Hubungkan schema ini dengan `PostgresRepository` dan retrieval pgvector; jangan membuat
    setup lab menjadi sumber kebenaran terpisah.
 4. Verifikasi seed container end-to-end setelah service PostgreSQL tersedia.
+
+## Checkpoint 2026-11-06
+
+- Status: **CHECKPOINT - IMPLEMENTED**; chunk parser acceptance test, deterministic parser,
+  compile, dan Docker build lulus.
+- Agent: lengkapi schema historical requests/proposals/tickets/traces, test idempotent seed,
+  validasi reset/dimensi/token hash, dan wiring PostgresRepository.
+- Pemilik repo: jalankan PostgreSQL/pgvector Compose, pilih mode seed/reset yang aman, dan
+  verifikasi data seed sebelum API startup.

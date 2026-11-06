@@ -37,3 +37,12 @@
 3. Hubungkan timeout dari `Settings.model_timeout_seconds` ke client/provider secara eksplisit.
 4. Verifikasi compatibility terhadap versi SDK OpenAI yang digunakan di environment live tanpa
    mengirim credential atau data sensitif ke test.
+
+## Checkpoint 2026-11-06
+
+- Status: **CHECKPOINT - IMPLEMENTED**; deterministic provider, compile, regression, dan
+  Docker image tests lulus; live SDK belum diverifikasi dengan credential nyata.
+- Agent: tambah fake-client tests untuk `store=False`, timeout, retry count, tool-call parsing,
+  usage, embedding dimension, dan strict schema compatibility.
+- Pemilik repo: sediakan model/credential live secara lokal dan lakukan live smoke test tanpa
+  menyimpan secret atau mengubah fixture sintetis.

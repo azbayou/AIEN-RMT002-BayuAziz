@@ -65,12 +65,12 @@
 - **Status WBS-00:** Selesai (DONE). Siap lanjut ke **WBS-01 (Implementasi `src/domain.py`)**.
 
 ==============================
-## Checkpoint Submission — 2026-11-05
+## Checkpoint Submission — 2026-11-06
 
 | WBS | Status checkpoint | Bukti | Kesimpulan sebelum submission |
 |---|---|---|---|
-| WBS-00 | DONE untuk baseline | Baseline terdokumentasi; hard gate sudah ditetapkan | Tidak perlu implementasi baru, tetapi laporan baseline perlu diperbarui bila suite berubah |
-| WBS-01 | DONE | `python -m pytest tests/test_domain.py` -> 5 passed | Tidak ada TODO wajib dari modul domain |
+| WBS-00 | DONE untuk baseline | Baseline dan hard gate terdokumentasi | Pemilik repo melakukan review final scope dan submission checklist |
+| WBS-01 | DONE | `tests/test_domain.py` dan suite non-live lulus | Tidak ada TODO implementasi wajib |
 | WBS-02 | BELUM FINAL | Redaction test terisolasi lulus; full file masih terblokir API/retrieval | Ganti daftar istilah medis hardcode dengan sumber konfigurasi/aturan yang direview, tambah edge test, dan pastikan semua call site telemetry melakukan redaction sebelum persist |
 | WBS-03 | BELUM FINAL | Validasi invalid model/message lulus; konfigurasi helper terkompilasi | Integrasikan pemeriksaan database, index, cache, dan model ke `/readyz`; tambah test kontrak dan problem-detail API; review kembali validator terhadap environment production |
 | WBS-04 | BELUM FINAL | `tests/test_actions.py` -> 3 passed; smoke auth/redaction lulus | Implementasikan loader employee dari fixture/seed, selesaikan `PostgresRepository` dengan parameterized SQL/transaction, dan tambah test owner isolation untuk proposal/request/trace |
@@ -85,11 +85,10 @@
 
 ### TODO sebelum submission
 
-1. Implementasikan WBS-05 cache, terutama degradation Redis tanpa mengubah correctness retrieval.
-2. Implementasikan WBS-06 provider live/fake dengan timeout, retry bounded, `store=False`, strict tools, dan safety ID ter-hash.
-3. Implementasikan WBS-07 setup/seed agar policy metadata, identity, saldo, dan hash token masuk ke storage.
-4. Implementasikan WBS-08 retrieval; hilangkan `NotImplementedError` dan pastikan citation berasal dari chunk hasil run yang sama.
-5. Implementasikan WBS-09 tools dengan validasi Pydantic dan identity dari `AuthContext`.
-6. Implementasikan WBS-10 agent dengan bounded loop, abstention, valid citation, usage, dan trace ter-redact.
-7. Implementasikan WBS-11 API, auth, authorization, problem detail, health/readiness, dan delapan endpoint.
-8. Jalankan ulang `python -m pytest -m "not live"`, lalu validasi Docker Compose, seed, readiness, dan hard gate submission.
+1. Agent: tambah test/cache/provider/retrieval edge cases dan selesaikan TODO yang tercantum pada WBS-02–11.
+2. Agent: implementasikan `PostgresRepository`, schema production lengkap, monitoring alerts, dan wiring readiness.
+3. Agent: verifikasi error mapping, trace redaction, citation validation, dan tool/provider compatibility.
+4. Pemilik repo: siapkan `.env` lokal dan credential/model live dari instruktur; jangan commit atau memasukkannya ke image.
+5. Pemilik repo + agent: jalankan Compose runtime, seed database, full pytest container, live tests, dan evaluator.
+6. Pemilik repo: review hard gate identity binding, pending-only action, valid citation, redacted trace, dan non-root image.
+7. Pemilik repo: perbarui risk register, evaluation report, architecture/demo artifacts, lalu lakukan clean-checkout submission validation.

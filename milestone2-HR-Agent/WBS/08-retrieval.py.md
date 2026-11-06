@@ -39,3 +39,12 @@
 3. Implementasikan vector/lexical search production di `PostgresRepository` dan verifikasi
    dimensi embedding terhadap schema pgvector.
 4. Tambahkan test citation metadata dan query multilingual/normalisasi whitespace.
+
+## Checkpoint 2026-11-06
+
+- Status: **CHECKPOINT - IMPLEMENTED**; retrieval acceptance, normalization smoke test,
+  suite non-live, dan Docker image tests lulus.
+- Agent: tambah cache/failure/version/citation edge tests dan implementasikan search production
+  melalui PostgresRepository.
+- Pemilik repo: validasi query “jatah cuti tahunan” dan citation pada database seed serta
+  uji Redis outage di Compose.

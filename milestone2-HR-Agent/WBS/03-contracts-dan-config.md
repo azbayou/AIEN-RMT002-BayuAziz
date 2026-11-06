@@ -39,3 +39,12 @@
 - Tambahkan tes request invalid, problem detail, environment live/fake, dan kompatibilitas
   response dengan client UI setelah API selesai.
 - Pastikan URL, credential, dan readiness detail tidak pernah dikembalikan dalam response.
+
+## Checkpoint 2026-11-06
+
+- Status: **BELUM FINAL**; model validation lulus dan suite non-live lulus, tetapi readiness
+  production masih bergantung pada wiring database/index/cache/provider.
+- Agent: tambah test problem detail, readiness dependency, environment live/fake, dan
+  pastikan `configuration_ready` dipakai secara konsisten.
+- Pemilik repo: review batas environment, model, embedding dimension, budget, dan timeout
+  yang akan digunakan pada deployment.

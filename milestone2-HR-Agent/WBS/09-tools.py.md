@@ -41,3 +41,12 @@
 2. Tambahkan error mapping terstandar pada agent/API agar validation error tidak menjadi stack
    trace atau membocorkan input sensitif.
 3. Verifikasi proposal ID generation/idempotency dan TTL pada repository production.
+
+## Checkpoint 2026-11-06
+
+- Status: **CHECKPOINT - IMPLEMENTED**; `tests/test_tools.py`, actions, domain, suite
+  non-live, dan compile lulus.
+- Agent: tambah provider fake-client compatibility, error mapping Agent/API, dan verifikasi
+  proposal pada repository production.
+- Pemilik repo: review allow-list empat tool, identity binding, pending-only action, dan
+  konfirmasi proposal sebelum demo/submission.

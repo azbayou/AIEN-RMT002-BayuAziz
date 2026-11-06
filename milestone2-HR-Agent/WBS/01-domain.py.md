@@ -18,3 +18,10 @@
 - Test `tests/test_domain.py` lulus.
 - Error memakai `DomainError` dengan pesan yang dapat diuji.
 - Modul tidak memanggil model, database, atau network.
+
+## Checkpoint 2026-11-06
+
+- Status: **DONE** untuk implementasi domain.
+- `tests/test_domain.py` lulus dan suite non-live terbaru mencatat 25 passed.
+- Agent: tidak ada TODO implementasi wajib pada WBS-01.
+- Pemilik repo: lakukan review aturan lead time dan pesan error terhadap kebijakan final sebelum submission.

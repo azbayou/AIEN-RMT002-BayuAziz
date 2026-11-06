@@ -48,3 +48,13 @@
 - Tambahkan test isolasi owner untuk proposal, request, trace, dan ticket, termasuk
   replay key sama serta conflict key berbeda.
 - Pastikan production path memakai PostgreSQL hasil seed, bukan data in-memory.
+
+## Checkpoint 2026-11-06
+
+- Status: **BELUM FINAL**; MemoryRepository action tests lulus, tetapi PostgresRepository
+  masih `NotImplementedError` dan identity MemoryRepository masih fixture hardcode.
+- Agent: implementasikan loader `data/employees.json` untuk test, lalu implementasikan
+  PostgreSQL pool, schema query parameterized, owner predicates, vector/lexical search,
+  transaksi confirmation, dan monitoring aggregation.
+- Pemilik repo: review schema/transaksi PostgreSQL, migration/reset policy, dan acceptance
+  data production sebelum seed dijalankan.

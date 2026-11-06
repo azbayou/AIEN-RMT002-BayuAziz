@@ -40,3 +40,12 @@
 3. Implementasikan `PostgresRepository` sebelum memakai `build_runtime` production.
 4. Integrasikan evaluasi monitoring rules dan problem-detail trace ID setelah telemetry/API
    contracts final.
+
+## Checkpoint 2026-11-06
+
+- Status: **CHECKPOINT - IMPLEMENTED**; API tests 4 passed, dependency regressions 15 passed,
+  suite non-live 25 passed, dan image tests lulus.
+- Agent: tambah test seluruh endpoint, alerts/readiness, invalid token/body, proposal owner/
+  expiry, dan implementasikan PostgresRepository sebelum production wiring.
+- Pemilik repo: gunakan token fixture berbeda antar persona, jalankan Compose runtime, review
+  authorization matrix, dan validasi OpenAPI/HTTP behavior.

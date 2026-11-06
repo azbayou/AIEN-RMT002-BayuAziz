@@ -35,3 +35,12 @@
 2. Tambahkan test Redis unavailable, invalid JSON, TTL, JSON-only payload, dan NullCache.
 3. Integrasikan `health()` cache ke endpoint `/readyz` tanpa menjadikan cache sebagai sumber
    kebenaran; Redis down harus tetap mengizinkan retrieval dari repository.
+
+## Checkpoint 2026-11-06
+
+- Status: **CHECKPOINT - IMPLEMENTED**; resilience smoke test, suite non-live, dan Docker
+  image validation lulus.
+- Agent: tambah test Redis unavailable/invalid JSON/TTL/cache hit dan pastikan versioned key
+  terhubung dari Settings ke retrieval/API.
+- Pemilik repo: validasi Redis runtime pada Compose dan pastikan outage Redis hanya
+  menurunkan performa, bukan correctness.
