@@ -99,7 +99,7 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
         configuration_ready = bool(settings.configuration_ready)
         ready = repository_ready and configuration_ready
         return {
-            "status": "ok" if ready else "degraded",
+            "status": "ready" if ready else "degraded",
             "ready": ready,
             "dependencies": {
                 "database": repository_ready,

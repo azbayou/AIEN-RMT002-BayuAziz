@@ -58,7 +58,11 @@ class AgentService:
                 if not turn.tool_calls:
                     answer = turn.text.strip() or answer
                     citations = self._citations_from_text(answer, retrieved)
-                    if not proposal and self._requires_evidence(request.message) and not citations:
+                    has_tool_evidence = any(
+                        t.name in ("get_my_leave_balance", "create_hr_ticket") and t.status == "ok"
+                        for t in tool_summaries
+                    )
+                    if not proposal and not has_tool_evidence and self._requires_evidence(request.message) and not citations:
                         answer = "Maaf, bukti kebijakan yang valid belum tersedia."
                         outcome = Outcome.abstained
                     else:
