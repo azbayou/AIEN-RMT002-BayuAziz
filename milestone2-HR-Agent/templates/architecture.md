@@ -1,6 +1,6 @@
-# Architecture Submission
+# Architecture Submission — Milestone 2
 
-Tambahkan diagram yang memuat UI, API, auth, agent loop, tools, retrieval, PostgreSQL, Redis, provider, telemetry, evaluator, trust boundaries, dan failure flow.
+Lihat dokumen arsitektur lengkap pada [architecture.md](../architecture.md).
 
 ## Architecture Decision Record
 

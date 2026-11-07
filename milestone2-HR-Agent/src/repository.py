@@ -3,13 +3,28 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import date, datetime, timezone
+import json
 from math import sqrt
+from pathlib import Path
 from threading import RLock
 from typing import Any, Protocol
 from uuid import uuid4
 
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+from psycopg.types.json import Jsonb
+
 from .contracts import ActionProposal, ActionResult, AuthContext, LeaveBalance, LeaveRequestView, PolicyChunk
 from .security import redact, token_hash
+
+_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
+
+
+def _load_employees() -> list[dict[str, Any]]:
+    path = _DATA_DIR / "employees.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"Employees catalog not found at {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 class Repository(Protocol):
@@ -36,27 +51,23 @@ class ConflictError(RuntimeError):
 class MemoryRepository:
     def __init__(self) -> None:
         self.chunks: list[PolicyChunk] = []
-        self.identities: dict[str, tuple[AuthContext, str]] = {
-            "EMP-001": (AuthContext(employee_id="EMP-001", display_name="Alya Pratama"), token_hash("token-alya")),
-            "EMP-002": (AuthContext(employee_id="EMP-002", display_name="Bima Santoso"), token_hash("token-bima")),
-            "ADM-001": (
-                AuthContext(employee_id="ADM-001", display_name="Monitoring Admin", role="monitoring_admin"),
-                token_hash("token-admin"),
-            ),
-        }
+        self.identities: dict[str, tuple[AuthContext, str]] = {}
+        self.balances: dict[str, list[LeaveBalance]] = {}
         today = date.today()
-        self.balances: dict[str, list[LeaveBalance]] = {
-            "EMP-001": [
-                LeaveBalance(leave_type="annual", available_days=8, as_of_date=today),
-                LeaveBalance(leave_type="sick", available_days=10, as_of_date=today),
-                LeaveBalance(leave_type="parental", available_days=60, as_of_date=today),
-            ],
-            "EMP-002": [
-                LeaveBalance(leave_type="annual", available_days=3, as_of_date=today),
-                LeaveBalance(leave_type="sick", available_days=10, as_of_date=today),
-                LeaveBalance(leave_type="parental", available_days=60, as_of_date=today),
-            ],
-        }
+        for emp in _load_employees():
+            emp_id = emp["employee_id"]
+            self.identities[emp_id] = (
+                AuthContext(
+                    employee_id=emp_id,
+                    display_name=emp["display_name"],
+                    role=emp.get("role", "employee"),
+                ),
+                token_hash(emp["token"]),
+            )
+            self.balances[emp_id] = [
+                LeaveBalance(leave_type=leave_type, available_days=days, as_of_date=today)
+                for leave_type, days in emp.get("balances", {}).items()
+            ]
         self.proposals: dict[str, tuple[str, ActionProposal]] = {}
         self.idempotency_keys: dict[str, str] = {}
         self.embeddings: dict[str, list[float]] = {}
@@ -185,11 +196,30 @@ class MemoryRepository:
 
     def monitoring_summary(self) -> dict[str, Any]:
         traces = list(self.traces.values())
+        total = len(traces)
         errors = sum(bool(trace.get("error")) for trace in traces)
+        latencies = [
+            float(trace.get("usage", {}).get("latency_ms", 0.0))
+            for trace in traces
+            if isinstance(trace.get("usage"), dict) and trace.get("usage", {}).get("latency_ms") is not None
+        ]
+        p95_latency = (
+            sorted(latencies)[max(0, int(len(latencies) * 0.95) - 1)]
+            if latencies
+            else 0.0
+        )
+        tool_calls_count = sum(
+            len(trace.get("tool_calls", []))
+            for trace in traces
+            if isinstance(trace.get("tool_calls"), list)
+        )
         return {
-            "total_traces": len(traces),
+            "run_count": total,
+            "total_traces": total,
             "error_count": errors,
-            "error_rate": errors / len(traces) if traces else 0.0,
+            "error_rate": errors / total if total else 0.0,
+            "p95_latency_ms": p95_latency,
+            "tool_calls": tool_calls_count,
         }
 
 
@@ -205,7 +235,280 @@ def redact_trace(value: Any) -> Any:
 
 class PostgresRepository:
     def __init__(self, database_url: str, embedding_dimensions: int) -> None:
-        # TODO(M2): Create a psycopg connection pool. Do not interpolate user input into SQL.
-        raise NotImplementedError
+        self.embedding_dimensions = embedding_dimensions
+        self.pool = ConnectionPool(
+            conninfo=database_url,
+            min_size=1,
+            max_size=8,
+            kwargs={"row_factory": dict_row},
+            open=True,
+        )
 
-    # TODO(M2): Implement transaction-safe persistence and pgvector/full-text queries.
+    def health(self) -> bool:
+        try:
+            with self.pool.connection() as connection:
+                connection.execute("SELECT 1").fetchone()
+            return True
+        except Exception:
+            return False
+
+    def authenticate(self, token: str) -> AuthContext | None:
+        hashed = token_hash(token)
+        with self.pool.connection() as connection:
+            row = connection.execute(
+                "SELECT employee_id, display_name, role FROM employees WHERE token_hash = %s",
+                (hashed,),
+            ).fetchone()
+        return AuthContext(**row) if row else None
+
+    @staticmethod
+    def _chunk(row: dict[str, Any]) -> PolicyChunk:
+        return PolicyChunk(**row)
+
+    def lexical_search(self, query: str, limit: int) -> list[PolicyChunk]:
+        with self.pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT chunk_id, document_id, title, section, version, effective_date, content,
+                       ts_rank(
+                           to_tsvector('simple', title || ' ' || section || ' ' || content),
+                           plainto_tsquery('simple', %s)
+                       ) AS score
+                FROM policy_chunks
+                WHERE to_tsvector('simple', title || ' ' || section || ' ' || content)
+                      @@ plainto_tsquery('simple', %s)
+                ORDER BY score DESC, chunk_id
+                LIMIT %s
+                """,
+                (query, query, limit),
+            ).fetchall()
+        return [self._chunk(row) for row in rows]
+
+    def vector_search(self, embedding: list[float], limit: int) -> list[PolicyChunk]:
+        if not embedding:
+            return []
+        vector = "[" + ",".join(str(float(value)) for value in embedding) + "]"
+        with self.pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT chunk_id, document_id, title, section, version, effective_date, content,
+                       1 - (embedding <=> %s::vector) AS score
+                FROM policy_chunks
+                WHERE vector_dims(embedding) = %s
+                ORDER BY embedding <=> %s::vector, chunk_id
+                LIMIT %s
+                """,
+                (vector, self.embedding_dimensions, vector, limit),
+            ).fetchall()
+        return [self._chunk(row) for row in rows]
+
+    def get_balances(self, employee_id: str) -> list[LeaveBalance]:
+        with self.pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT leave_type, available_days, as_of_date
+                FROM leave_balances
+                WHERE employee_id = %s
+                ORDER BY leave_type
+                """,
+                (employee_id,),
+            ).fetchall()
+        return [LeaveBalance(**row) for row in rows]
+
+    def has_overlap(self, employee_id: str, start: date, end: date) -> bool:
+        with self.pool.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT EXISTS (
+                    SELECT 1 FROM leave_requests
+                    WHERE employee_id = %s
+                      AND status = 'pending_manager_review'
+                      AND start_date <= %s AND end_date >= %s
+                ) AS overlaps
+                """,
+                (employee_id, end, start),
+            ).fetchone()
+        return bool(row["overlaps"])
+
+    def save_proposal(self, employee_id: str, proposal: ActionProposal) -> None:
+        with self.pool.connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO action_proposals
+                    (proposal_id, employee_id, action_type, leave_type, start_date, end_date,
+                     business_days, reason, validation_summary, expires_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (proposal_id) DO UPDATE SET
+                    employee_id = EXCLUDED.employee_id,
+                    action_type = EXCLUDED.action_type,
+                    leave_type = EXCLUDED.leave_type,
+                    start_date = EXCLUDED.start_date,
+                    end_date = EXCLUDED.end_date,
+                    business_days = EXCLUDED.business_days,
+                    reason = EXCLUDED.reason,
+                    validation_summary = EXCLUDED.validation_summary,
+                    expires_at = EXCLUDED.expires_at
+                """,
+                (
+                    proposal.proposal_id,
+                    employee_id,
+                    proposal.action_type,
+                    proposal.leave_type,
+                    proposal.start_date,
+                    proposal.end_date,
+                    proposal.business_days,
+                    proposal.reason,
+                    proposal.validation_summary,
+                    proposal.expires_at,
+                ),
+            )
+
+    def get_proposal(self, proposal_id: str) -> tuple[str, ActionProposal] | None:
+        with self.pool.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT employee_id, proposal_id, action_type, leave_type, start_date, end_date,
+                       business_days, reason, validation_summary, expires_at
+                FROM action_proposals
+                WHERE proposal_id = %s
+                """,
+                (proposal_id,),
+            ).fetchone()
+        if not row:
+            return None
+        owner = row.pop("employee_id")
+        return owner, ActionProposal(**row)
+
+    def confirm_proposal(self, employee_id: str, proposal_id: str, idempotency_key: str) -> ActionResult:
+        with self.pool.connection() as connection:
+            proposal = connection.execute(
+                """
+                SELECT proposal_id, action_type, leave_type, start_date, end_date, business_days,
+                       reason, validation_summary, expires_at
+                FROM action_proposals
+                WHERE proposal_id = %s AND employee_id = %s
+                FOR UPDATE
+                """,
+                (proposal_id, employee_id),
+            ).fetchone()
+            if not proposal:
+                raise KeyError("proposal not found")
+            expiry = proposal["expires_at"]
+            if expiry <= datetime.now(timezone.utc):
+                raise ConflictError("proposal expired")
+            existing = connection.execute(
+                """
+                SELECT request_id, idempotency_key, status
+                FROM leave_requests
+                WHERE proposal_id = %s AND employee_id = %s
+                FOR UPDATE
+                """,
+                (proposal_id, employee_id),
+            ).fetchone()
+            if existing:
+                if existing["idempotency_key"] != idempotency_key:
+                    raise ConflictError("proposal already confirmed with another key")
+                if existing["status"] != "pending_manager_review":
+                    raise ConflictError("proposal already finalized")
+                return ActionResult(
+                    request_id=existing["request_id"],
+                    idempotent_replay=True,
+                    audit_reference=f"audit-{existing['request_id']}",
+                )
+            request_id = proposal_id
+            connection.execute(
+                """
+                INSERT INTO leave_requests
+                    (request_id, proposal_id, employee_id, leave_type, start_date, end_date,
+                     business_days, status, idempotency_key)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending_manager_review', %s)
+                """,
+                (
+                    request_id,
+                    proposal_id,
+                    employee_id,
+                    proposal["leave_type"],
+                    proposal["start_date"],
+                    proposal["end_date"],
+                    proposal["business_days"],
+                    idempotency_key,
+                ),
+            )
+        return ActionResult(
+            request_id=request_id,
+            idempotent_replay=False,
+            audit_reference=f"audit-{request_id}",
+        )
+
+    def list_leave_requests(self, employee_id: str) -> list[LeaveRequestView]:
+        with self.pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT request_id, leave_type, start_date, end_date, business_days, status, created_at
+                FROM leave_requests
+                WHERE employee_id = %s
+                ORDER BY created_at, request_id
+                """,
+                (employee_id,),
+            ).fetchall()
+        return [LeaveRequestView(**row) for row in rows]
+
+    def create_ticket(self, employee_id: str, category: str, summary: str) -> str:
+        ticket_id = f"T-{uuid4().hex[:12]}"
+        with self.pool.connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO tickets (ticket_id, employee_id, category, summary)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (ticket_id, employee_id, category, redact(summary)),
+            )
+        return ticket_id
+
+    def save_trace(self, trace: dict[str, Any]) -> None:
+        trace_id = str(trace["trace_id"])
+        employee_id = str(trace["employee_id"])
+        with self.pool.connection() as connection:
+            connection.execute(
+                """
+                INSERT INTO traces (trace_id, employee_id, payload)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (trace_id) DO UPDATE SET
+                    employee_id = EXCLUDED.employee_id,
+                    payload = EXCLUDED.payload
+                """,
+                (trace_id, employee_id, Jsonb(redact_trace(trace))),
+            )
+
+    def get_trace(self, trace_id: str) -> dict[str, Any] | None:
+        with self.pool.connection() as connection:
+            row = connection.execute(
+                "SELECT payload FROM traces WHERE trace_id = %s",
+                (trace_id,),
+            ).fetchone()
+        return deepcopy(row["payload"]) if row else None
+
+    def monitoring_summary(self) -> dict[str, Any]:
+        with self.pool.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    COUNT(*) AS total_traces,
+                    COUNT(*) FILTER (WHERE COALESCE(payload->>'error', '') <> '') AS error_count,
+                    COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY NULLIF(payload->'usage'->>'latency_ms', '')::double precision), 0.0) AS p95_latency_ms,
+                    COALESCE(SUM(jsonb_array_length(CASE WHEN jsonb_typeof(payload->'tool_calls') = 'array' THEN payload->'tool_calls' ELSE '[]'::jsonb END)), 0) AS tool_calls
+                FROM traces
+                """
+            ).fetchone()
+        total = int(row["total_traces"])
+        errors = int(row["error_count"])
+        p95_latency = float(row["p95_latency_ms"]) if row["p95_latency_ms"] is not None else 0.0
+        tool_calls = int(row["tool_calls"]) if row["tool_calls"] is not None else 0
+        return {
+            "run_count": total,
+            "total_traces": total,
+            "error_count": errors,
+            "error_rate": errors / total if total else 0.0,
+            "p95_latency_ms": p95_latency,
+            "tool_calls": tool_calls,
+        }

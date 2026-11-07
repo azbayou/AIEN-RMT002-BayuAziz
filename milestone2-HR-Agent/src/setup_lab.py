@@ -122,6 +122,50 @@ def reset_and_seed(reset: bool = False) -> None:
                 );
                 CREATE INDEX IF NOT EXISTS policy_chunks_document_idx
                     ON policy_chunks (document_id, version);
+                CREATE TABLE IF NOT EXISTS action_proposals (
+                    proposal_id TEXT PRIMARY KEY,
+                    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+                    action_type TEXT NOT NULL,
+                    leave_type TEXT NOT NULL,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    business_days INTEGER NOT NULL CHECK (business_days > 0),
+                    reason TEXT,
+                    validation_summary TEXT[] NOT NULL,
+                    expires_at TIMESTAMPTZ NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS action_proposals_employee_idx
+                    ON action_proposals (employee_id, expires_at);
+                CREATE TABLE IF NOT EXISTS leave_requests (
+                    request_id TEXT PRIMARY KEY,
+                    proposal_id TEXT NOT NULL UNIQUE REFERENCES action_proposals(proposal_id),
+                    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+                    leave_type TEXT NOT NULL,
+                    start_date DATE NOT NULL,
+                    end_date DATE NOT NULL,
+                    business_days INTEGER NOT NULL CHECK (business_days > 0),
+                    status TEXT NOT NULL CHECK (status = 'pending_manager_review'),
+                    idempotency_key TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (employee_id, idempotency_key)
+                );
+                CREATE INDEX IF NOT EXISTS leave_requests_employee_dates_idx
+                    ON leave_requests (employee_id, start_date, end_date);
+                CREATE TABLE IF NOT EXISTS tickets (
+                    ticket_id TEXT PRIMARY KEY,
+                    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+                    category TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS traces (
+                    trace_id TEXT PRIMARY KEY,
+                    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+                    payload JSONB NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS traces_employee_idx
+                    ON traces (employee_id, created_at);
                 """
             )
             for employee in employees:

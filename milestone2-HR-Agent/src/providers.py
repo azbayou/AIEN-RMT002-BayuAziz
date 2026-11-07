@@ -108,10 +108,11 @@ class DeterministicProvider:
     def respond(self, **kwargs: Any) -> ModelTurn:
         self._response_number += 1
         input_data = kwargs.get("input_data", "")
-        text = input_data if isinstance(input_data, str) else json.dumps(input_data)
+        text = input_data if isinstance(input_data, str) else json.dumps(input_data, default=str)
         lowered = text.casefold()
         if isinstance(input_data, list) and any(
-            isinstance(item, dict) and "tool_call_id" in item for item in input_data
+            isinstance(item, dict) and ("tool_call_id" in item or item.get("type") == "function_call_output")
+            for item in input_data
         ):
             if "document_id" in text:
                 return ModelTurn(

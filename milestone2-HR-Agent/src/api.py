@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -142,6 +144,34 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
 
     @app.get("/api/v1/monitoring/alerts")
     def monitoring_alerts(auth: AuthContext = Depends(admin_auth)) -> list[dict[str, Any]]:
-        return []
+        summary = repository.monitoring_summary()
+        rules_path = Path(__file__).resolve().parents[1] / "data" / "monitoring_rules.json"
+        if not rules_path.is_file():
+            return []
+        try:
+            rules = json.loads(rules_path.read_text(encoding="utf-8"))
+        except Exception:
+            return []
+        alerts = []
+        samples = summary.get("run_count", summary.get("total_traces", 0))
+        for rule in rules:
+            if samples < rule.get("minimum_samples", 1):
+                continue
+            metric_val = summary.get(rule["metric"])
+            if metric_val is None:
+                continue
+            threshold = rule["threshold"]
+            op = rule.get("operator", "gt")
+            triggered = (metric_val > threshold) if op == "gt" else (metric_val >= threshold)
+            if triggered:
+                alerts.append({
+                    "rule_id": rule["rule_id"],
+                    "metric": rule["metric"],
+                    "current_value": metric_val,
+                    "threshold": threshold,
+                    "owner": rule.get("owner", "AI Platform"),
+                    "response": rule.get("response", ""),
+                })
+        return alerts
 
     return app

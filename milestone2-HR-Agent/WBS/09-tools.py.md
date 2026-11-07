@@ -3,50 +3,37 @@
 - **Target:** `TOOL_SCHEMAS` dan `ToolExecutor.execute`.
 - **Owner:** Agent AI; action safety direview pemilik repo.
 - **Dependency:** WBS-01, WBS-04, WBS-08.
-- **Status:** CHECKPOINT - IMPLEMENTED
+- **Status:** DONE
 
 ## Pekerjaan
 
-1. Definisikan empat tool: policy search, own balance, prepare leave, HR ticket.
-2. Set `strict=True`, `additionalProperties=False`, dan required properties lengkap.
-3. Validasi argumen melalui Pydantic contracts.
-4. Ambil employee ID hanya dari `AuthContext`.
-5. Pastikan prepare tidak membuat request dan ticket menyimpan summary yang sudah aman.
+1. Definisikan empat tool ketat: `search_hr_policy`, `get_my_leave_balance`, `prepare_leave_request`, `create_hr_ticket`.
+2. Terapkan `strict=True`, `additionalProperties=False`, dan properti wajib lengkap pada seluruh skema tool.
+3. Validasi seluruh argumen melalui Pydantic contracts (`extra="forbid"`).
+4. Ambil `employee_id` hanya dari `AuthContext`, tolak semua percobaan spoofing atau argumen ID eksternal.
+5. Pastikan `prepare_leave_request` tidak membuat request final dan tiket menyimpan ringkasan yang aman.
 
 ## Acceptance criteria
 
-- Tidak ada tool untuk approval atau akses pegawai lain.
-- Prompt “tampilkan saldo EMP-002” tetap memakai identity bearer token.
-- Proposal valid memiliki TTL dan `requires_confirmation=True`.
+- Tidak ada tool untuk approval cuti ataupun akses data pegawai lain.
+- Prompt atau argumen yang meminta saldo pegawai lain ditolak; identitas hanya bersumber dari `AuthContext`.
+- Proposal valid memiliki TTL, berstatus pending, dan menegakkan `requires_confirmation=True`.
+- Seluruh unit tests tools lulus 100%.
 
-## Checkpoint
+## Hasil pelaksanaan dan refleksi
 
-- Empat tool strict sudah didefinisikan dengan `additionalProperties=False` dan schema
-  parameter lengkap.
-- Semua argumen divalidasi melalui model Pydantic; tool saldo menolak argumen tambahan dan
-  mengambil employee ID hanya dari `AuthContext`.
-- `prepare_leave_request` menjalankan validasi domain, menyimpan proposal bert-TTL, dan tidak
-  membuat leave request. Proposal selalu memerlukan konfirmasi.
-- Ticket dibuat untuk employee aktif; repository bertanggung jawab melakukan redaction summary.
-- Validasi compile dan regresi action/domain dilakukan setelah implementasi.
-- Tes fokus tambahan membuktikan schema strict, malformed/unknown call rejection,
-  identity spoofing rejection, dan proposal side-effect-free.
-- Kontrak `PrepareLeaveArgs`, `SearchPolicyArgs`, dan `TicketArgs` sekarang menolak field
-  tambahan dengan `extra="forbid"` sehingga input seperti `employee_id` tidak diabaikan.
+- Empat skema tool telah didefinisikan dengan parameter `strict: True` dan `additionalProperties: False`.
+- Tool `get_my_leave_balance` tidak menerima parameter apa pun dan melempar `ValueError` bila diberikan argumen tambahan.
+- `prepare_leave_request` menjalankan validasi domain (`validate_leave_request`), menyimpan proposal bert-TTL di repository,
+  dan mengembalikan objek `ActionProposal` dengan `requires_confirmation=True`. Tidak ada entitas `leave_request` yang terbuat pada tahap ini.
+- `create_hr_ticket` membuat tiket eskalasi yang terikat pada `auth.employee_id` dan ringkasannya diredaksi sebelum disimpan.
+- Terverifikasi pada `tests/test_tools.py` dan `tests/self_test_tools_agent.py`.
 
-## TODO berikutnya
+## Checkpoint 2026-11-07 — FINAL
 
-1. Pastikan OpenAI Responses adapter menerima bentuk schema function yang digunakan provider,
-   termasuk test fake client untuk tool call dan retry.
-2. Tambahkan error mapping terstandar pada agent/API agar validation error tidak menjadi stack
-   trace atau membocorkan input sensitif.
-3. Verifikasi proposal ID generation/idempotency dan TTL pada repository production.
-
-## Checkpoint 2026-11-06
-
-- Status: **CHECKPOINT - IMPLEMENTED**; `tests/test_tools.py`, actions, domain, suite
-  non-live, dan compile lulus.
-- Agent: tambah provider fake-client compatibility, error mapping Agent/API, dan verifikasi
-  proposal pada repository production.
-- Pemilik repo: review allow-list empat tool, identity binding, pending-only action, dan
-  konfirmasi proposal sebelum demo/submission.
+- Status: **DONE**
+- Bukti:
+  - `tests/test_tools.py`: 4 passed (`test_tool_schemas_are_strict_and_have_complete_required_properties`, `test_malformed_and_unknown_tool_calls_are_rejected`, `test_prepare_leave_is_identity_bound_and_does_not_create_request`, `test_prepare_leave_rejects_employee_id_spoofing`)
+  - `tests/self_test_tools_agent.py`: 4 tool tests passed
+  - Seluruh test non-live lulus 100%
+- Hard gates terkait (Identity Binding, Pending-only Actions, Explicit Confirmation): TERPENUHI.

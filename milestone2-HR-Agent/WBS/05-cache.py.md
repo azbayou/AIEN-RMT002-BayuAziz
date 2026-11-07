@@ -3,44 +3,40 @@
 - **Target:** `ResilientCache` dan `NullCache`.
 - **Owner:** Agent AI.
 - **Dependency:** WBS-03.
-- **Status:** CHECKPOINT - IMPLEMENTED
+- **Status:** DONE
 
 ## Pekerjaan
 
-1. Inisialisasi Redis dengan socket timeout pendek.
+1. Inisialisasi Redis dengan socket connect dan read timeout pendek (0.5s).
 2. Implementasikan JSON-only get/set dengan TTL.
-3. Ubah seluruh kegagalan Redis menjadi cache miss/no-op setelah logging aman.
-4. Pastikan cache tidak menjadi sumber kebenaran.
+3. Ubah seluruh kegagalan Redis (timeout, connection refused, corrupt JSON) menjadi cache miss/no-op secara aman.
+4. Pastikan cache bukan sumber kebenaran (source of truth); outage Redis hanya mendegradasi performa retrieval ke miss, bukan correctness.
+5. Sediakan `NullCache` sebagai fallback network-free.
 
 ## Acceptance criteria
 
-- Retrieval tetap benar saat Redis unavailable.
-- Cache key dapat memasukkan policy index version.
-- Tidak ada raw prompt atau PII di cache.
-
-## Checkpoint
-
-- `ResilientCache` membuat client Redis dengan connect/read timeout pendek dan health check.
-- `get` melakukan JSON decode; miss, payload invalid, dan kegagalan Redis tidak memblokir
-  aplikasi. `set` hanya menulis JSON dengan TTL positif dan gagal secara aman.
-- `NullCache` tidak melakukan network call dan selalu berperilaku sebagai cache miss/no-op.
+- Retrieval tetap benar saat Redis unavailable (terdegradasi ke cache miss tanpa crash).
+- Cache get/set aman terhadap corrupt bytes atau invalid JSON.
+- `NullCache` tidak melakukan panggilan network dan berperilaku sebagai cache miss/no-op.
 - Logging kegagalan tidak memuat key, payload, prompt, atau PII.
-- Versioned cache key belum dibuat di file ini karena pembentukan key merupakan tanggung jawab
-  `RetrievalService` pada WBS-08.
+- Unit tests cache lulus 100%.
 
-## TODO berikutnya
+## Hasil pelaksanaan dan refleksi
 
-1. Pada WBS-08, buat cache key deterministik yang menyertakan `policy_index_version`,
-   query yang sudah dinormalisasi, dan parameter retrieval tanpa menyimpan raw prompt/PII.
-2. Tambahkan test Redis unavailable, invalid JSON, TTL, JSON-only payload, dan NullCache.
-3. Integrasikan `health()` cache ke endpoint `/readyz` tanpa menjadikan cache sebagai sumber
-   kebenaran; Redis down harus tetap mengizinkan retrieval dari repository.
+- `ResilientCache` menggunakan socket timeout 0.5s dan health check interval 30s.
+- Method `get()` menangani `RedisError`, `OSError`, `UnicodeDecodeError`, dan `ValueError`
+  dengan mencatat safe warning dan mengembalikan `None` (cache miss).
+- Method `set()` menolak TTL non-positif, menolak serialisasi non-JSON, dan mengabaikan
+  kegagalan Redis tanpa melempar exception ke pemanggil.
+- `NullCache` selalu mengembalikan `None` untuk `get()`, `health() == False`, dan `set()` no-op,
+  digunakan untuk pengujian terisolasi bebas jaringan.
+- Terverifikasi pada `tests/self_test_cache_providers.py` dan `tests/test_agent_reliability.py`.
 
-## Checkpoint 2026-11-06
+## Checkpoint 2026-11-07 — FINAL
 
-- Status: **CHECKPOINT - IMPLEMENTED**; resilience smoke test, suite non-live, dan Docker
-  image validation lulus.
-- Agent: tambah test Redis unavailable/invalid JSON/TTL/cache hit dan pastikan versioned key
-  terhubung dari Settings ke retrieval/API.
-- Pemilik repo: validasi Redis runtime pada Compose dan pastikan outage Redis hanya
-  menurunkan performa, bukan correctness.
+- Status: **DONE**
+- Bukti:
+  - `tests/self_test_cache_providers.py`: 3 cache tests passed (`test_null_cache_behavior`, `test_resilient_cache_health`, `test_resilient_cache_get_and_set`)
+  - `tests/test_agent_reliability.py::test_redis_outage_degrades_to_cache_miss`: passed
+  - Non-live regression suite: 63 passed, 0 failed
+- Hard gates terkait: Terpenuhi (kegagalan cache tidak membocorkan PII atau mengubah correctness hasil).

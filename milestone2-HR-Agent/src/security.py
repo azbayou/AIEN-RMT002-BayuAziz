@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from pathlib import Path
 import re
 
 
 _EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
-_PHONE_RE = re.compile(r"(?<!\w)(?:\+62|62|0)8[1-9](?:[\s.-]?\d){7,11}(?!\w)")
+_PHONE_RE = re.compile(r"(?<!\w)(?:\+?62[\s.-]?|0)8[1-9](?:[\s.-]?\d){7,11}(?!\w)")
 _TOKEN_RE = re.compile(
     r"(?<![\w-])(?:bearer\s+)?(?:token[-_][A-Z0-9._-]+|sk-[A-Z0-9._-]{8,}|"
     r"secret[-_][A-Z0-9._-]+|api[-_]?key[-_][A-Z0-9._-]+)(?![\w-])",
@@ -16,10 +18,32 @@ _MEDICAL_LABEL_RE = re.compile(
     r"(?i)\b(?:diagnosis|diagnosa|medical(?:\s+detail)?|medis|penyakit|"
     r"kondisi\s+kesehatan)\s*:\s*[^.;,\n]+"
 )
-_MEDICAL_TERM_RE = re.compile(
-    r"(?i)\b(?:diabetes|hipertensi|asma|kanker|depresi|covid(?:-19)?|"
-    r"flu|demam|migrain|cedera|sakit)\b"
-)
+
+_DATA_FILE = Path(__file__).resolve().parents[1] / "data" / "medical_terms.json"
+
+
+def _load_medical_terms() -> tuple[str, ...]:
+    """Load reviewable medical terms from data/medical_terms.json as single source of truth."""
+    if not _DATA_FILE.is_file():
+        raise FileNotFoundError(f"Medical terms catalog not found at {_DATA_FILE}")
+    data = json.loads(_DATA_FILE.read_text(encoding="utf-8"))
+    if not isinstance(data, list) or not all(isinstance(x, str) for x in data):
+        raise ValueError(f"Invalid medical terms catalog format in {_DATA_FILE}")
+    return tuple(data)
+
+
+def _build_medical_term_re(terms: tuple[str, ...] | None = None) -> re.Pattern:
+    active_terms = terms or _load_medical_terms()
+    # Sort descending by length so longer patterns like 'covid-19' precede 'covid'
+    sorted_terms = sorted(active_terms, key=len, reverse=True)
+    pattern_terms = "|".join(re.escape(term) for term in sorted_terms)
+    return re.compile(
+        rf"\b(?:{pattern_terms})\b|(?<!cuti\s)\bsakit\b",
+        re.IGNORECASE,
+    )
+
+
+_MEDICAL_TERM_RE = _build_medical_term_re()
 
 
 def token_hash(token: str) -> str:

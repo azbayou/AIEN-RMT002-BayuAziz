@@ -26,6 +26,7 @@ Copy-Item .env.example .env
 docker compose up -d postgres redis
 python -m pytest -m "not live"
 ```
+*(Pastikan parameter `OPENAI_API_KEY` dan `AGENT_MODEL` telah terkonfigurasi di `.env`)*.
 
 Isi `.env` dengan kredensial dan model yang ditetapkan instruktur. Di macOS/Linux, gunakan `source .venv/bin/activate` dan `cp .env.example .env`. Sebagian public tests memang gagal sampai TODO backend selesai. Setelah implementasi, jalankan `python -m src.setup_lab --reset`, API dengan `python -m uvicorn src.api:create_app --factory --reload`, lalu UI dengan `python -m streamlit run app.py` pada terminal kedua.
 
@@ -40,3 +41,83 @@ Alur host-Python di atas untuk pengembangan lokal. **Submission dinilai melalui 
 
 Lihat [brief.md](brief.md) untuk kontrak endpoint dan kategori kasus, dan [lab.md](lab.md) untuk langkah, checkpoint, serta troubleshooting.
 
+## 🌐 Akses Aplikasi & Dokumentasi
+
+- **Streamlit Web UI:** [http://localhost:8501](http://localhost:8501)
+  *(Pilih persona di sidebar kiri: Alya Pratama, Bima Satria, atau Citra Dewi).*
+- **FastAPI Swagger Interactive Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
+- **FastAPI OpenAPI JSON Specification:** [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
+
+---
+
+## 🧪 Menjalankan Pengujian (Testing Suite)
+
+### A. Pengujian Deterministik Non-Live (Dalam Container)
+Semua 38 unit & contract tests berjalan 100% tanpa akses jaringan luar:
+```bash
+docker compose exec -T api pytest -m "not live"
+```
+
+### B. Pengujian Integrasi PostgreSQL & pgvector
+```bash
+docker compose exec -T -e RUN_POSTGRES_TESTS=1 api pytest tests/test_repository_postgres.py
+```
+
+### C. Pengujian Live API
+```bash
+docker compose exec -T -e RUN_LIVE_TESTS=1 api pytest tests/test_live_api.py
+```
+
+### D. Pengujian WBS Self-Tests
+Verifikasi kepatuhan seluruh acceptance criteria WBS:
+```bash
+docker compose exec -T api pytest tests/self_test_*.py
+```
+
+### E. Menjalankan Evaluator Komprehensif (15 Skenario)
+Runner mengevaluasi seluruh skenario pengujian enterprise (grounded policy, cross-employee security, prompt injection, invalid past-date rejection, confirmation hard-gates):
+```bash
+docker compose exec -T api python -m src.run_evaluation --base-url http://localhost:8000 --token token-alya
+```
+
+Laporan evaluasi tersimpan di `outputs/evaluation_report.json` dengan hasil:
+- **Total Kasus:** 15 / 15 Passed (100% Pass Rate)
+- **Hard Gates:** 6 / 6 Passed
+- **Keputusan Rilis:** `release_decision: release`
+
+---
+
+## 👥 Persona & Matriks Otorisasi
+
+| Persona | ID Pegawai | Bearer Token | Hak Akses |
+|---|---|---|---|
+| **Alya Pratama** | `EMP-001` | `Bearer token-alya` | Akses kebijakan, saldo cuti pribadi, proposal cuti pribadi. |
+| **Bima Satria** | `EMP-002` | `Bearer token-bima` | Akses kebijakan, saldo cuti pribadi, terisolasi dari Alya. |
+| **Citra Dewi** | `EMP-003` | `Bearer token-citra` | Akses kebijakan, saldo cuti pribadi, terisolasi dari pihak lain. |
+| **HR Admin** | `ADMIN` | `Bearer token-admin` | Mengakses ringkasan monitoring operasional (`/api/v1/monitoring/summary`). |
+
+---
+
+## 🛡️ Ringkasan 6 Hard Gates Kepatuhan
+
+| # | Hard Gate | Status | Mekanisme Pencegahan |
+|---|---|:---:|---|
+| 1 | **Identity Binding** | ✅ PASSED | `employee_id` hanya diambil dari token bearer di `AuthContext`. Argumen model diabaikan. |
+| 2 | **Pending-only Action** | ✅ PASSED | Status cuti di database terkunci pada `pending_manager_review`; persetujuan otomatis diblokir. |
+| 3 | **Confirmation & Idempotency** | ✅ PASSED | Proposal memerlukan token konfirmasi ber-TTL; replay token menghasilkan respon konsisten tanpa data ganda. |
+| 4 | **Valid Citation & Abstain** | ✅ PASSED | Jawaban memvalidasi sitasi `[HR-XXX-XXX]` terhadap chunk retrieval aktif; wajib abstain jika bukti tidak valid. |
+| 5 | **Redacted Trace & PII** | ✅ PASSED | Sanitasi in-memory untuk nomor telepon, email, Bearer token, dan istilah medis (`data/medical_terms.json`). |
+| 6 | **Non-Root Docker Image** | ✅ PASSED | Dockerfile mengonfigurasi user `appuser` (UID 10001) dan build tidak memerlukan secret API key. |
+
+---
+
+## 📊 Monitoring Operasional & Rules
+
+Aturan monitoring dinilai secara dinamis melalui file konfigurasi [data/monitoring_rules.json](data/monitoring_rules.json):
+- `agent-error-spike`: Ambang batas `error_rate > 0.20` (minimum 5 sampel) &rarr; Owner: AI Platform.
+- `agent-latency-p95`: Ambang batas `p95_latency_ms > 8000 ms` (minimum 5 sampel) &rarr; Owner: AI Platform.
+
+Akses monitoring summary dapat dilihat melalui:
+```bash
+curl -H "Authorization: Bearer token-admin" http://localhost:8000/api/v1/monitoring/summary
+```

@@ -13,6 +13,15 @@ def test_business_days_excludes_weekend() -> None:
     assert business_days(date(2026, 9, 25), date(2026, 9, 28)) == 2
 
 
+def test_weekend_only_range_is_blocked() -> None:
+    with pytest.raises(DomainError, match="hari kerja"):
+        business_days(date(2026, 9, 26), date(2026, 9, 27))
+
+
+def test_business_day_boundaries_are_inclusive() -> None:
+    assert business_days(date(2026, 9, 28), date(2026, 9, 28)) == 1
+
+
 @pytest.mark.parametrize(
     "start,end,message",
     [
@@ -50,3 +59,16 @@ def test_unsupported_leave_type_is_rejected_by_contract() -> None:
             leave_type="study",
             reason=None,
         )
+
+
+def test_annual_leave_requires_three_business_days_lead_time() -> None:
+    balance = [LeaveBalance(leave_type="annual", available_days=8, as_of_date=date(2026, 1, 1))]
+    args = PrepareLeaveArgs(
+        start_date=date(2026, 9, 28), end_date=date(2026, 9, 28), leave_type="annual", reason=None
+    )
+    with pytest.raises(DomainError, match="tiga hari kerja"):
+        validate_leave_request(args, balance, False, date(2026, 9, 23))
+
+    valid = args.model_copy(update={"start_date": date(2026, 9, 29), "end_date": date(2026, 9, 29)})
+    days, _ = validate_leave_request(valid, balance, False, date(2026, 9, 23))
+    assert days == 1

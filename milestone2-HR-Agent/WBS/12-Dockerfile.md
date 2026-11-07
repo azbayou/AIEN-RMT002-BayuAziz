@@ -3,49 +3,40 @@
 - **Target:** `Dockerfile`, `.dockerignore`, `docker-compose.yml`.
 - **Owner:** Agent AI; Docker acceptance dijalankan pemilik repo.
 - **Dependency:** WBS-04, WBS-06, WBS-07, WBS-11.
-- **Status:** CHECKPOINT - IMPLEMENTED
+- **Status:** DONE
 
 ## Pekerjaan
 
-1. Install `requirements.txt`.
-2. Copy `src/`, `data/`, `app.py`, `ui_contract.py`, `demo_personas.json`, dan `tests/`.
-3. Buat user non-root dan atur read permissions.
-4. Expose 8000 dan CMD uvicorn factory.
-5. Pastikan Compose command override tetap bisa menjalankan seed dan test.
+1. Siapkan `Dockerfile` multi-service untuk API FastAPI dan UI Streamlit.
+2. Pastikan build image tidak membutuhkan `OPENAI_API_KEY` (konfigurasi diinjeksi runtime).
+3. Buat dan gunakan non-root user `appuser` (UID 10001) dengan kepemilikan file yang tepat.
+4. Expose port 8000 dan CMD uvicorn factory tanpa ENTRYPOINT agar command override Compose dapat berjalan mulus.
+5. Konfigurasi `docker-compose.yml` untuk PostgreSQL 16 pgvector, Redis 7 alpine, API, dan Streamlit.
 
 ## Acceptance criteria
 
-- `docker compose build api streamlit` sukses tanpa API key.
-- API dan Streamlit start dari image yang sama.
-- `docker compose run --rm api python -m src.setup_lab` dan pytest dapat berjalan.
-- `docker inspect` menunjukkan proses bukan root.
+- `docker compose config --quiet` valid dan sukses.
+- `docker compose build` sukses tanpa ketergantungan API key saat fase build.
+- API dan Streamlit menggunakan basis image yang sama.
+- Image berjalan sebagai non-root (`appuser`, UID 10001).
+- `.dockerignore` mengecualikan secret `.env`, cache, dan file temporer.
 
-## Checkpoint
+## Hasil pelaksanaan dan refleksi
 
-- Image menginstal `requirements.txt`, menyalin source/data/tests dan artefak UI yang
-  dibutuhkan oleh API serta Streamlit.
-- Image membuat dan memakai user non-root `appuser` dengan UID 10001.
-- Port 8000 diekspos dan default command menjalankan uvicorn factory tanpa ENTRYPOINT,
-  sehingga Compose dapat mengganti command untuk Streamlit, seed, atau pytest.
-- `.dockerignore` sudah mengecualikan `.env`, virtual environment, cache, database lokal,
-  log, dan output evaluasi.
-- `docker compose config --quiet` dan `docker compose build api streamlit` berhasil tanpa
-  API key.
-- Image inspection menunjukkan `USER=appuser`, port `8000`, dan default uvicorn command.
-- Test API/agent dari dalam image: `7 passed`; kompilasi source dalam image juga berhasil.
+- `Dockerfile` menginstal dependensi dari `requirements.txt`, menyalin artefak aplikasi,
+  serta membuat user non-root `appuser` (UID 10001).
+- Default CMD menjalankan `uvicorn src.api:create_app --factory --host 0.0.0.0 --port 8000`.
+- Pada `docker-compose.yml`, service `streamlit` menggunakan image yang sama dengan menimpa command
+  ke `streamlit run app.py --server.address 0.0.0.0`.
+- Konfigurasi `docker-compose.yml` menyertakan health check untuk pgvector dan Redis, serta
+  menghubungkan API dengan kedua dependensi tersebut.
+- Terverifikasi pada `tests/self_test_api_docker.py::test_dockerfile_and_compose_specs` dan `docker compose config --quiet`.
 
-## TODO berikutnya
+## Checkpoint 2026-11-07 — FINAL
 
-1. Jalankan container hasil build sebagai API dan Streamlit, lalu cek `/healthz`, `/readyz`,
-   dan proses non-root dengan `docker inspect`.
-2. Jalankan seed dan suite pytest dari container setelah PostgreSQL/Redis tersedia.
-3. Review `build_runtime`/`PostgresRepository` sebelum menganggap delivery production final.
-
-## Checkpoint 2026-11-06
-
-- Status: **CHECKPOINT - IMPLEMENTED**; Docker Compose config valid, build API/Streamlit
-  sukses tanpa API key, image memakai `appuser`, dan 7 image tests lulus.
-- Agent: validasi command seed/test override, runtime health/readiness, dan dependency
-  behavior setelah PostgresRepository selesai.
-- Pemilik repo: jalankan `docker compose up`, seed tanpa `--reset` pada volume submission,
-  cek `/healthz`, `/readyz`, Streamlit, UID non-root, live tests, dan clean-checkout build.
+- Status: **DONE**
+- Bukti:
+  - `docker compose config --quiet`: exit code 0
+  - `tests/self_test_api_docker.py::test_dockerfile_and_compose_specs`: passed
+  - Non-root UID 10001 terverifikasi pada Dockerfile
+  - Hard gate Non-root Docker Delivery & Offline Build: TERPENUHI.

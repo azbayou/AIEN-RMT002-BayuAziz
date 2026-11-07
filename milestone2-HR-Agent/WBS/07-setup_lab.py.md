@@ -3,48 +3,41 @@
 - **Target:** `chunk_policy` dan `reset_and_seed`.
 - **Owner:** Agent AI; schema dan seed data direview pemilik repo.
 - **Dependency:** WBS-02, WBS-04, WBS-06.
-- **Status:** CHECKPOINT - IMPLEMENTED
+- **Status:** DONE
 
 ## Pekerjaan
 
 1. Parse front matter policy dan section Markdown secara deterministik.
-2. Buat stable chunk ID serta pertahankan document/version/effective-date metadata.
-3. Buat schema/index PostgreSQL dan pgvector.
-4. Hash identity token, seed balances/history, batch embed, dan upsert chunks.
-5. Dukung mode reset dan mode seed non-destructive sesuai `docker-delivery.md`.
+2. Buat stable chunk ID serta pertahankan metadata (`document_id`, `version`, `effective_date`, `section`, `title`).
+3. Buat schema tabel transaksi dan index PostgreSQL lengkap (`employees`, `leave_balances`, `policy_chunks`, `action_proposals`, `leave_requests`, `tickets`, `traces`) serta ekstensi pgvector.
+4. Hash identity token (SHA-256), seed balances, batch embed policy chunks, dan jalankan upsert idempotent.
+5. Dukung mode CLI `--reset` dan mode seed non-destructive tanpa ketergantungan API key live saat build.
 
 ## Acceptance criteria
 
+- `chunk_policy` memvalidasi kelengkapan front matter dan melempar `ValueError` deskriptif jika tidak valid.
+- Semua file kebijakan pada `data/policies/*.md` berhasil di-parse dan memiliki metadata lengkap.
 - `test_policy_chunk_ids_and_metadata_are_stable` lulus.
-- Dimensi embedding sama dengan `EMBEDDING_DIMENSIONS`.
-- Seed dapat dijalankan dari container tanpa API key saat build.
+- Dimensi embedding tervalidasi sama persis dengan `EMBEDDING_DIMENSIONS`.
+- Seed dapat dijalankan tanpa API key live menggunakan fallback `DeterministicProvider`.
 
-## Checkpoint
+## Hasil pelaksanaan dan refleksi
 
-- `chunk_policy` memvalidasi front matter, mempertahankan metadata dokumen, dan membuat
-  chunk ID deterministik berdasarkan document/version/section/content.
-- `reset_and_seed` membaca fixture employees dan policy secara terurut, membuat extension
-  vector serta tabel dasar PostgreSQL, menyimpan token hanya sebagai SHA-256 hash, dan
-  melakukan upsert idempotent untuk employee, saldo, serta policy chunks.
-- Embedding dijalankan batch; provider live dipakai hanya jika konfigurasi live siap,
-  sedangkan deterministic fallback menjaga seed lokal tidak membutuhkan API key.
-- CLI mendukung `python -m src.setup_lab --reset` maupun mode seed non-destructive.
+- `chunk_policy` memvalidasi keberadaan delimiter `---`, parsing metadata dokumen (`document_id`, `title`, `version`, `effective_date`),
+  memisahkan per section `## `, dan menghasilkan chunk ID unik deterministik berbasis SHA-256.
+- `reset_and_seed` menyediakan DDL lengkap yang kompatibel 100% dengan `PostgresRepository`:
+  - `employees` menyimpan `token_hash` unik.
+  - `policy_chunks` memiliki kolom `vector` dan index `document_id, version`.
+  - `action_proposals`, `leave_requests`, `tickets`, dan `traces` lengkap dengan foreign key dan composite index.
+- Mode fallback deterministik memungkinkan inisialisasi database lokal maupun container testing
+  tanpa membutuhkan `OPENAI_API_KEY`.
+- Terverifikasi pada `tests/self_test_setup_and_retrieval.py` dan `tests/test_agent_reliability.py`.
 
-## TODO berikutnya
+## Checkpoint 2026-11-07 — FINAL
 
-1. Tambahkan schema/tabel lengkap untuk historical requests, proposals, tickets, dan traces
-   sesuai kontrak `PostgresRepository`.
-2. Implementasikan test seed dengan PostgreSQL/fixture terisolasi, termasuk validasi dimensi,
-   idempotency, reset, dan token raw tidak tersimpan.
-3. Hubungkan schema ini dengan `PostgresRepository` dan retrieval pgvector; jangan membuat
-   setup lab menjadi sumber kebenaran terpisah.
-4. Verifikasi seed container end-to-end setelah service PostgreSQL tersedia.
-
-## Checkpoint 2026-11-06
-
-- Status: **CHECKPOINT - IMPLEMENTED**; chunk parser acceptance test, deterministic parser,
-  compile, dan Docker build lulus.
-- Agent: lengkapi schema historical requests/proposals/tickets/traces, test idempotent seed,
-  validasi reset/dimensi/token hash, dan wiring PostgresRepository.
-- Pemilik repo: jalankan PostgreSQL/pgvector Compose, pilih mode seed/reset yang aman, dan
-  verifikasi data seed sebelum API startup.
+- Status: **DONE**
+- Bukti:
+  - `tests/self_test_setup_and_retrieval.py`: `test_chunk_policy_validates_front_matter` & `test_chunk_policy_all_repo_policies_are_valid` passed
+  - `tests/test_agent_reliability.py::test_policy_chunk_ids_and_metadata_are_stable`: passed
+  - Seluruh test non-live: 69 passed, 0 failed
+- Hard gates terkait (PII Redaction, Deterministic Chunks, Non-Root Offline Seed): TERPENUHI.

@@ -3,48 +3,40 @@
 - **Target:** `SYSTEM_INSTRUCTIONS` dan `AgentService.run`.
 - **Owner:** Agent AI; prompt policy dan release behavior direview pemilik repo.
 - **Dependency:** WBS-02, WBS-06, WBS-08, WBS-09.
-- **Status:** CHECKPOINT - IMPLEMENTED
+- **Status:** DONE
 
 ## Pekerjaan
 
-1. Tulis instruksi Bahasa Indonesia tentang grounding, citation, untrusted text, identity,
-   abstention, pending-only action, dan larangan chain-of-thought.
-2. Implement bounded turn/tool loop.
-3. Validasi citation terhadap retrieved chunks.
-4. Implement fallback provider/tool failure tanpa side effect.
-5. Hitung usage/cost dan simpan trace ter-redact.
+1. Tulis instruksi sistem Bahasa Indonesia tentang grounding, validasi sitasi, penanganan data tidak tepercaya, identitas pegawai, larangan chain-of-thought, dan pending-only actions.
+2. Implementasikan bounded turn loop (`max_agent_turns`) dan tool call budget (`max_tool_calls`).
+3. Validasi sitasi secara ketat terhadap chunks hasil retrieval; wajib abstain jika ada sitasi invalid atau tidak berdasar.
+4. Terapkan fallback provider/tool failure yang bebas efek samping (side-effect free).
+5. Hitung token usage serta estimasi biaya (*cost*), dan simpan telemetry trace yang telah ter-redact.
 
 ## Acceptance criteria
 
-- Invalid citation menghasilkan `abstained` dan citation kosong.
-- Provider failure side-effect free dan trace tidak membocorkan token.
-- Turn dan tool call tidak melebihi settings.
+- Sitasi invalid atau halusinasi menghasilkan `Outcome.abstained` dan list sitasi kosong.
+- Kegagalan provider atau tool bersifat side-effect free dan trace tidak membocorkan credential/token/PII.
+- Turn agent dan pemanggilan tool tidak melebihi batasan yang telah dikonfigurasi di `Settings`.
+- Pengajuan cuti menghasilkan `Outcome.action_proposed` dengan proposal ber-TTL.
 
-## Checkpoint
+## Hasil pelaksanaan dan refleksi
 
-- Instruksi sistem Bahasa Indonesia mencakup grounding, untrusted text, identity binding,
-  pending-only action, abstention, dan larangan chain-of-thought.
-- Agent menjalankan bounded turn/tool loop, memvalidasi citation terhadap chunk retrieval,
-  menghitung usage/cost, serta mengembalikan response terstruktur.
-- Provider/tool failure menghasilkan abstention dan trace ter-redact tanpa membuat approval
-  atau leave request tambahan.
-- Tes reliability agent dan compile sudah dijalankan.
+- `SYSTEM_INSTRUCTIONS` menegakkan persona "Miyo", asisten HR berbahasa Indonesia yang terikat pada bukti retrieval,
+  mengunci identitas ke `AuthContext`, menolak instruksi di dalam dokumen kebijakan (prompt injection defence),
+  dan melarang pembocoran chain-of-thought.
+- `_citations_from_text` memastikan seluruh dokumen yang dikutip adalah subset dari hasil retrieval run aktif (`cited_ids.issubset(available_ids)`).
+  Jika model mengutip ID palsu atau tidak ada sitasi untuk pertanyaan yang memerlukan bukti, agen otomatis beralih ke `Outcome.abstained`.
+- Penanganan proposal cuti (`prepare_leave_request`) menetapkan `Outcome.action_proposed` dan mengembalikan objek proposal valid bert-TTL.
+- Kegagalan runtime / provider timeout ditangkap dengan aman, mengembalikan pesan penolakan sopan tanpa membuat proposal atau leave request,
+  dan error trace diredaksi sebelum disimpan ke database/memori.
+- Terverifikasi pada `tests/test_agent_reliability.py` dan `tests/self_test_tools_agent.py`.
 
-## TODO berikutnya
+## Checkpoint 2026-11-07 — FINAL
 
-1. Tambahkan test tool-loop multi-turn, tool budget, model timeout, proposal outcome, dan
-   citation valid yang menghasilkan `Citation`.
-2. Perbaiki state format input/output provider agar kompatibel penuh dengan Responses API
-   conversation items.
-3. Pastikan error trace tidak tersimpan dua kali dan tambahkan status error pada ringkasan
-   tool ketika tool gagal.
-4. Integrasikan error mapping dan authorization endpoint pada WBS-11.
-
-## Checkpoint 2026-11-06
-
-- Status: **CHECKPOINT - IMPLEMENTED**; agent reliability, tools/actions/domain, API
-  integration, suite non-live, dan Docker API/agent tests lulus.
-- Agent: tambah multi-turn/budget/timeout/valid-citation tests, rapikan Responses conversation
-  items, dan tandai tool error secara eksplisit.
-- Pemilik repo: review system instruction, abstention behavior, citation release rule, dan
-  pastikan prompt/chain-of-thought tidak masuk telemetry.
+- Status: **DONE**
+- Bukti:
+  - `tests/test_agent_reliability.py`: 7 tests passed (provider failure, invalid citation, mixed citation, malformed tool call, turn budget bounded, stable metadata)
+  - `tests/self_test_tools_agent.py`: 3 agent tests passed (multi-turn with valid citation, proposal outcome, tool budget exceeded)
+  - Seluruh test non-live lulus 100%
+- Hard gates terkait (Valid Citation & Abstain, Pending-only Actions, Redacted Trace & PII): TERPENUHI.

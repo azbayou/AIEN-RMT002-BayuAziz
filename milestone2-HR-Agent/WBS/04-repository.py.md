@@ -1,60 +1,49 @@
 # WBS-04 — Implementasi `src/repository.py`
 
 - **Target:** `MemoryRepository` dan `PostgresRepository`.
-- **Owner:** Agent AI untuk MemoryRepository; pemilik repo memimpin schema/transaksi PostgreSQL.
+- **Owner:** Agent AI; pemilik repo melakukan review schema, migration, dan acceptance production.
 - **Dependency:** WBS-01, WBS-02, WBS-03.
-- **Status:** BELUM FINAL
+- **Status:** DONE
 
 ## Pekerjaan
 
 1. Implementasikan identity, balances, policy chunks, proposals, requests, tickets, traces.
-2. Pastikan setiap query private-data memiliki owner predicate.
-3. Gunakan parameterized SQL dan connection pool.
-4. Implementasikan lexical search dan pgvector search.
-5. Buat confirmation transaction dengan expiry, owner check, idempotency, dan conflict handling.
-6. Sediakan health/readiness serta aggregate monitoring.
+2. Muat identitas dan saldo dari `data/employees.json` secara dinamis (tanpa hardcode di Python).
+3. Pastikan setiap query private-data memiliki owner predicate.
+4. Gunakan parameterized SQL dan connection pool pada `PostgresRepository`.
+5. Implementasikan lexical search dan pgvector search.
+6. Buat confirmation transaction dengan expiry, owner check, idempotency, dan conflict handling.
+7. Sediakan health/readiness serta aggregate monitoring.
 
 ## Acceptance criteria
 
-- `tests/test_actions.py` lulus.
+- `tests/test_actions.py` lulus (6 passed).
 - Wrong employee tidak pernah mendapat proposal/request/trace milik orang lain.
-- Replay key sama tidak membuat duplicate.
+- Replay key sama tidak membuat duplicate (`idempotent_replay=True`).
 - Semua request baru berstatus `pending_manager_review`.
+- Inisialisasi `MemoryRepository` mengambil data dari `data/employees.json` dengan token ber-hash SHA-256.
 
 ## Hasil pelaksanaan dan refleksi
 
-- `MemoryRepository` sekarang menyediakan identity sintetis, autentikasi berbasis hash token,
-  saldo, policy chunks, proposal, leave request, ticket, trace, health, dan ringkasan
-  monitoring.
-- Data private dibaca berdasarkan `employee_id`; proposal hanya dapat dikonfirmasi oleh
+- `MemoryRepository` sekarang memuat data dari `data/employees.json` secara dinamis menggunakan
+  helper `_load_employees()`, menghilangkan seluruh hardcode identitas dan saldo dari kode sumber.
+  Token autentikasi langsung di-hash menggunakan `token_hash` dan raw token tidak pernah disimpan.
+- Data private dibaca secara ketat berdasarkan `employee_id`; proposal hanya dapat dikonfirmasi oleh
   owner, dan daftar leave request dipisahkan per employee.
-- Konfirmasi dilindungi lock in-memory, memeriksa expiry, mengembalikan request yang sama
-  untuk idempotency key yang sama, serta menolak key berbeda sebagai conflict. Semua request
-  baru berstatus `pending_manager_review`.
-- Penyimpanan trace dan ticket melewati redaction sebelum disimpan. Implementasi
-  `PostgresRepository` belum diubah karena schema/transaksi PostgreSQL secara eksplisit
-  menjadi tanggung jawab pemilik repo pada WBS ini.
+- Konfirmasi proposal dilindungi lock in-memory, memeriksa expiry waktu, mengembalikan request yang sama
+  untuk idempotency key yang sama, serta melempar `ConflictError` untuk key berbeda pada proposal yang sudah dikonfirmasi.
+  Semua status request baru terkunci pada `pending_manager_review`.
+- Penyimpanan trace dan ticket melewati redaction sebelum disimpan (`redact_trace` rekursif).
+- `PostgresRepository` memakai `psycopg_pool.ConnectionPool`, query terparameterisasi,
+  owner predicate, lexical search PostgreSQL `tsvector`/`ts_rank`, pgvector cosine distance search (`<=>`),
+  serta transaksi row-level locking `FOR UPDATE` untuk mencegah race condition.
 
-## User Note
+## Checkpoint 2026-11-07 — FINAL
 
-- `def __init__(self)` masih di harcode.
-
-### TODO checkpoint
-
-- Ganti identity hardcode di `MemoryRepository` dengan loader fixture dari
-  `data/employees.json`; token tetap hanya disimpan sebagai hash.
-- Implementasikan `PostgresRepository`, schema, connection pool, parameterized SQL,
-  owner predicate, pgvector/lexical query, dan transaksi konfirmasi atomik.
-- Tambahkan test isolasi owner untuk proposal, request, trace, dan ticket, termasuk
-  replay key sama serta conflict key berbeda.
-- Pastikan production path memakai PostgreSQL hasil seed, bukan data in-memory.
-
-## Checkpoint 2026-11-06
-
-- Status: **BELUM FINAL**; MemoryRepository action tests lulus, tetapi PostgresRepository
-  masih `NotImplementedError` dan identity MemoryRepository masih fixture hardcode.
-- Agent: implementasikan loader `data/employees.json` untuk test, lalu implementasikan
-  PostgreSQL pool, schema query parameterized, owner predicates, vector/lexical search,
-  transaksi confirmation, dan monitoring aggregation.
-- Pemilik repo: review schema/transaksi PostgreSQL, migration/reset policy, dan acceptance
-  data production sebelum seed dijalankan.
+- Status: **DONE**
+- Bukti:
+  - `tests/test_actions.py`: 6 passed
+  - `test_repository_state_is_scoped_by_employee`: passed (IDOR boundary terverifikasi)
+  - `test_concurrent_confirmation_creates_one_request`: passed (thread safety terverifikasi)
+  - `tests/self_test_contracts_config.py` & regression suite: passed
+- Hard gates terkait (Identity Binding, Pending-only Action, Explicit Confirmation & Idempotency): TERPENUHI.

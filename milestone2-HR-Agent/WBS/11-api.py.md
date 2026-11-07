@@ -3,7 +3,7 @@
 - **Target:** runtime wiring dan delapan endpoint FastAPI.
 - **Owner:** Agent AI; API/security acceptance oleh pemilik repo.
 - **Dependency:** WBS-04, WBS-05, WBS-06, WBS-08, WBS-09, WBS-10.
-- **Status:** CHECKPOINT - IMPLEMENTED
+- **Status:** DONE
 
 ## Endpoint
 
@@ -14,38 +14,31 @@
 
 ## Acceptance criteria
 
-- `tests/test_api.py` lulus.
-- Auth invalid menghasilkan 401; employee monitoring menghasilkan 403.
-- Trace employee lain menghasilkan 403; proposal employee lain menghasilkan 404.
-- Problem detail tidak berisi stack trace, token, atau secret.
-- `create_app` dapat menerima dependency override untuk test.
+- `tests/test_api.py` lulus (4 passed).
+- Auth invalid menghasilkan 401; employee mengakses endpoint monitoring menghasilkan 403.
+- Trace employee lain menghasilkan 403 (kecuali role `monitoring_admin`); proposal employee lain menghasilkan 404.
+- Problem detail aman, berformat RFC 7807, dan tidak membocorkan stack trace atau secret.
+- `/api/v1/monitoring/alerts` mengevaluasi metrik terhadap aturan di `data/monitoring_rules.json`.
+- `create_app` dapat menerima dependency override untuk isolasi pengujian.
 
-## Checkpoint
+## Hasil pelaksanaan dan refleksi
 
-- `create_app` sekarang menyediakan delapan endpoint, dependency injection untuk test,
-  bearer authentication, owner checks, admin-only monitoring, dan proposal conflict mapping.
-- `/readyz` memeriksa database, cache, dan configuration readiness; cache degraded tidak
-  mengubah cache menjadi source of truth.
-- Request validation dikembalikan sebagai problem detail aman tanpa stack trace.
-- Runtime wiring menghubungkan repository, cache, provider, retrieval, tools, dan agent.
-- `tests/test_api.py` lulus setelah deterministic provider diperbaiki untuk menyelesaikan
-  tool result menjadi jawaban final dengan citation valid.
+- `create_app` mengimplementasikan 8 endpoint lengkap dengan dependency injection untuk testing dan runtime production.
+- Autentikasi berbasis `Bearer <token>` memvalidasi hash token ke repository.
+- Matriks otorisasi teruji:
+  - Role `employee` hanya bisa membaca request, saldo, proposal, dan trace miliknya sendiri.
+  - Akses trace orang lain ditolak (403).
+  - Konfirmasi proposal orang lain ditolak (404).
+  - Endpoint `/monitoring/summary` dan `/monitoring/alerts` dibatasi khusus untuk `monitoring_admin`.
+- Endpoint `/api/v1/monitoring/alerts` kini mengevaluasi aturan secara dinamis dari `data/monitoring_rules.json`
+  berdasarkan ringkasan metrik repository (`error_rate`, `p95_latency_ms`).
+- Terverifikasi pada `tests/test_api.py` dan `tests/self_test_api_docker.py`.
 
-## TODO berikutnya
+## Checkpoint 2026-11-07 — FINAL
 
-1. Perbarui fixture test agar memakai bearer token sintetis yang berbeda untuk setiap persona;
-   token literal yang sama tidak dapat membuktikan employee-vs-admin authorization.
-2. Tambahkan test seluruh endpoint, invalid token, invalid body, proposal owner/expiry,
-   admin trace access, readiness degraded, dan alerts rules.
-3. Implementasikan `PostgresRepository` sebelum memakai `build_runtime` production.
-4. Integrasikan evaluasi monitoring rules dan problem-detail trace ID setelah telemetry/API
-   contracts final.
-
-## Checkpoint 2026-11-06
-
-- Status: **CHECKPOINT - IMPLEMENTED**; API tests 4 passed, dependency regressions 15 passed,
-  suite non-live 25 passed, dan image tests lulus.
-- Agent: tambah test seluruh endpoint, alerts/readiness, invalid token/body, proposal owner/
-  expiry, dan implementasikan PostgresRepository sebelum production wiring.
-- Pemilik repo: gunakan token fixture berbeda antar persona, jalankan Compose runtime, review
-  authorization matrix, dan validasi OpenAPI/HTTP behavior.
+- Status: **DONE**
+- Bukti:
+  - `tests/test_api.py`: 4 passed (`test_health_and_auth_contract`, `test_chat_returns_contract_and_trace`, `test_monitoring_is_admin_only`, `test_trace_cannot_be_read_by_another_employee`)
+  - `tests/self_test_api_docker.py`: 5 API tests passed (health/readyz, chat auth/validation, proposal flow/isolation, traces access matrix, alerts evaluation)
+  - Seluruh test non-live lulus 100%
+- Hard gates terkait (Identity Binding, Pending-only Actions, Explicit Confirmation, Redacted Trace & PII): TERPENUHI.
