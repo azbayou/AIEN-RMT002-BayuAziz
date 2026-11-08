@@ -1,11 +1,12 @@
-"""Interactive Enterprise Streamlit UI for Miyo HR Policy & Leave Assistant."""
+"""Interactive Enterprise Streamlit UI with Multi-Persona Login Portal for Miyo HR Assistant."""
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -48,11 +49,17 @@ def _ensure_api_running() -> None:
 _ensure_api_running()
 
 # ==============================================================================
+# Brand Assets & Paths
+# ==============================================================================
+GUNUNGAN_LOGO = str(Path(__file__).resolve().parent / "public" / "img" / "gunungan.png")
+MIYO_LOGO = str(Path(__file__).resolve().parent / "public" / "img" / "miyo.png")
+
+# ==============================================================================
 # Page Setup & Custom CSS Styling
 # ==============================================================================
 st.set_page_config(
     page_title="Miyo — Asisten HR Nusantara Digital",
-    page_icon="🧭",
+    page_icon=MIYO_LOGO if os.path.exists(MIYO_LOGO) else "🧭",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -66,26 +73,83 @@ st.markdown(
         padding-bottom: 2rem;
     }
     
-    /* Persona Card */
-    .persona-card {
-        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    /* Login Portal Cards */
+    .login-hero {
+        text-align: center;
+        padding: 1.5rem 1rem 1.8rem 1rem;
+    }
+    .login-badge {
+        display: inline-block;
+        background-color: #0369a1;
+        color: #e0f2fe;
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.05em;
+        padding: 4px 12px;
+        border-radius: 9999px;
+        margin-bottom: 0.8rem;
+        text-transform: uppercase;
+    }
+    .persona-login-card {
+        background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
         border: 1px solid #334155;
+        border-radius: 14px;
+        padding: 20px 18px;
+        text-align: center;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+        transition: transform 0.2s, border-color 0.2s;
+    }
+    .persona-login-card:hover {
+        border-color: #38bdf8;
+        transform: translateY(-2px);
+    }
+    .persona-avatar {
+        font-size: 2.8rem;
+        margin-bottom: 8px;
+    }
+    .persona-login-name {
+        font-weight: 800;
+        font-size: 1.15rem;
+        color: #f8fafc;
+        margin-bottom: 4px;
+    }
+    .persona-login-role {
+        font-size: 0.82rem;
+        color: #38bdf8;
+        font-weight: 600;
+        margin-bottom: 10px;
+    }
+    .persona-login-desc {
+        font-size: 0.85rem;
+        color: #94a3b8;
+        line-height: 1.4;
+        margin-bottom: 14px;
+    }
+
+    /* Sidebar Active User Card */
+    .user-profile-card {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid #38bdf8;
         border-radius: 12px;
         padding: 14px 16px;
         margin-bottom: 15px;
         color: #f8fafc;
     }
-    .persona-name {
+    .user-profile-name {
         font-weight: 700;
         font-size: 1.1rem;
         color: #38bdf8;
     }
-    .persona-role {
+    .user-profile-role {
         font-size: 0.82rem;
         color: #94a3b8;
         margin-bottom: 6px;
     }
-    .persona-scenario {
+    .user-profile-scenario {
         font-size: 0.85rem;
         color: #cbd5e1;
         line-height: 1.35;
@@ -185,7 +249,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # ==============================================================================
 # Helper Functions
 # ==============================================================================
@@ -219,52 +282,419 @@ def get_health_status() -> dict[str, Any]:
     return {"status": "offline", "ready": False}
 
 
-# ==============================================================================
-# Persona Selection & Session Initialization
-# ==============================================================================
+def _fallback_lead_days_from_file() -> int:
+    """Fallback cadangan membaca file kebijakan jika API/Agent sedang tidak aktif."""
+    try:
+        policy_file = Path(__file__).resolve().parent / "data" / "policies" / "annual-leave.md"
+        if policy_file.exists():
+            text = policy_file.read_text(encoding="utf-8").lower()
+            match_h = re.search(r"\bh-(\d+)\b", text)
+            if match_h:
+                return int(match_h.group(1))
+            kata_angka = {"satu": 1, "dua": 2, "tiga": 3, "empat": 4, "lima": 5, "tujuh": 7}
+            for word, val in kata_angka.items():
+                if f"{word} hari" in text:
+                    return val
+            match_num = re.search(r"(\d+)\s+hari", text)
+            if match_num:
+                return int(match_num.group(1))
+    except Exception:
+        pass
+    return 3
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _query_agent_for_lead_days(api_url: str, token: str, policy_mtime: float) -> int:
+    """Menanyakan langsung ke AI Agent melalui endpoint /chat untuk menganalisis kebijakan resmi via RAG."""
+    try:
+        query_msg = (
+            "Berapa hari minimal pengajuan cuti tahunan sebelum tanggal mulai menurut kebijakan HR? "
+            "Sebutkan angka harinya secara jelas."
+        )
+        resp = httpx.post(
+            f"{api_url}/chat",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"message": query_msg},
+            timeout=20.0,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            answer = data.get("answer", "").lower()
+
+            m_h = re.search(r"\bh-(\d+)\b", answer)
+            if m_h:
+                return int(m_h.group(1))
+
+            kata_angka = {"satu": 1, "dua": 2, "tiga": 3, "empat": 4, "lima": 5, "tujuh": 7}
+            for word, val in kata_angka.items():
+                if f"{word} hari" in answer:
+                    return val
+
+            m_num = re.search(r"(\d+)\s+hari", answer)
+            if m_num:
+                return int(m_num.group(1))
+    except Exception:
+        pass
+
+    return _fallback_lead_days_from_file()
+
+
+def get_annual_leave_lead_days_from_policy(token: str = "") -> int:
+    """Minta Agent AI membaca dan menganalisis kebijakan cuti tahunan via RAG (search_hr_policy).
+
+    Fungsi ini memanfaatkan AI Agent untuk mengekstrak ketentuan batas minimal (H-x)
+    langsung dari penelusuran dokumen kebijakan resmi perusahaan.
+    """
+    if not token:
+        active_persona = st.session_state.get("active_persona") or {}
+        token = active_persona.get("demo_token", "")
+
+    policy_file = Path(__file__).resolve().parent / "data" / "policies" / "annual-leave.md"
+    policy_mtime = policy_file.stat().st_mtime if policy_file.exists() else 0.0
+
+    if token:
+        return _query_agent_for_lead_days(API_URL, token, policy_mtime)
+
+    return _fallback_lead_days_from_file()
+
+
+def has_leave_intent(text: str) -> bool:
+    """Mendeteksi apakah pesan pengguna atau dialog memuat niat pengajuan/permohonan cuti."""
+    if not text:
+        return False
+    lower = text.lower()
+    intent_keywords = [
+        r"\b(?:mau|ingin|minta|request|ajukan|pengajuan|siapkan|buat|ambil|butuh|rencana)\s+.*cuti\b",
+        r"\b(?:permohonan|pengajuan)\s+cuti\b",
+        r"\bsiap(?:kan)?\s+cuti\b",
+        r"\bcuti\b.*(?:ajukan|request|ambil|minta|butuh|mau|ingin|rencana)",
+    ]
+    return any(re.search(p, lower) for p in intent_keywords)
+
+
+def get_min_start_date(leave_type: str, today: date, token: str = "") -> date:
+    """Calculate the earliest allowable start date based on company policy.
+
+    - Annual leave: Mengikuti analisis AI Agent terhadap dokumen kebijakan HR.
+    - Sick / Parental leave: Can start from today (past dates are strictly blocked).
+    """
+    if leave_type != "annual":
+        return today
+
+    lead_days = get_annual_leave_lead_days_from_policy(token)
+    # Hari kalender langsung (tidak mengabaikan akhir pekan)
+    return today + timedelta(days=lead_days)
+
+
+def render_leave_form() -> None:
+    """Interactive leave application form with policy guardrails and live validations."""
+    today = date.today()
+    active_persona = st.session_state.get("active_persona") or {}
+    token = active_persona.get("demo_token", "")
+
+    leave_options = {
+        "Cuti Tahunan": "annual",
+        "Cuti Sakit": "sick",
+        "Cuti Orang Tua": "parental",
+    }
+
+    leave_label = st.selectbox(
+        "Pilih Jenis Cuti:",
+        options=list(leave_options.keys()),
+        key="dlg_leave_type_select",
+        help="Pilih kategori cuti yang ingin diajukan sesuai hak Anda.",
+    )
+    leave_type = leave_options[leave_label]
+
+    min_start = get_min_start_date(leave_type, today, token)
+
+    # Sanitize session state if switching leave types changed the minimum date
+    current_start = st.session_state.get("dlg_start_date")
+    if current_start is not None and current_start < min_start:
+        st.session_state["dlg_start_date"] = min_start
+
+    col_d1, col_d2 = st.columns(2)
+    with col_d1:
+        start_val = st.session_state.get("dlg_start_date", min_start)
+        start_date = st.date_input(
+            "Tanggal Mulai:",
+            value=start_val,
+            min_value=min_start,
+            key="dlg_start_date",
+            help="Tanggal pertama cuti. Tidak bisa memilih sebelum tanggal minimal sesuai kebijakan.",
+        )
+
+    # Sanitize end_date relative to start_date
+    current_end = st.session_state.get("dlg_end_date")
+    if current_end is not None and current_end < start_date:
+        st.session_state["dlg_end_date"] = start_date
+
+    with col_d2:
+        end_val = st.session_state.get("dlg_end_date", start_date)
+        end_date = st.date_input(
+            "Tanggal Selesai:",
+            value=end_val,
+            min_value=start_date,
+            key="dlg_end_date",
+            help="Tanggal terakhir cuti (minimal sama dengan tanggal mulai).",
+        )
+
+    # Calculate business days (Monday-Friday)
+    work_days = sum(
+        (start_date + timedelta(days=i)).weekday() < 5
+        for i in range((end_date - start_date).days + 1)
+    )
+
+    # Policy guidelines banner
+    if leave_type == "annual":
+        lead_days = get_annual_leave_lead_days_from_policy(token)
+        actual_lead = (start_date - today).days
+        st.info(
+            f"🤖 **Hasil Analisis AI Agent (HR-LEAVE-001):**\n"
+            f"- AI Agent memverifikasi: Cuti tahunan wajib diajukan minimal **H-{lead_days}** ({lead_days} hari) sebelumnya.\n"
+            f"- Jarak tanggal mulai pengajuan yang Anda pilih: **{actual_lead} hari** ke depan.\n"
+            f"- Jatah cuti tahunan: 12 hari kerja/tahun kalender."
+        )
+    elif leave_type == "sick":
+        if work_days > 2:
+            st.warning(
+                f"⚠️ **Kebijakan Cuti Sakit (HR-LEAVE-002):**\n"
+                f"- Permohonan diajukan untuk **{work_days} hari kerja**.\n"
+                f"- Cuti sakit lebih dari **2 hari kerja berturut-turut** mewajibkan surat keterangan dokter "
+                f"yang diserahkan langsung melalui portal HR (bukan via chat asisten)."
+            )
+        else:
+            st.info(
+                "📌 **Kebijakan Cuti Sakit (HR-LEAVE-002):**\n"
+                "- Harap beri tahu manajer sesegera mungkin.\n"
+                "- Kerahasiaan medis terjamin, asisten tidak mencatat diagnosis detail."
+            )
+    elif leave_type == "parental":
+        st.info(
+            "📌 **Kebijakan Cuti Orang Tua (HR-LEAVE-003):**\n"
+            "- Berlaku bagi pegawai tetap dengan masa kerja minimal 6 bulan.\n"
+            "- Permohonan akan diverifikasi lebih lanjut oleh tim HR."
+        )
+
+    reason = st.text_area(
+        "Alasan / Keterangan Pengajuan (opsional):",
+        placeholder="Contoh: Keperluan keluarga mendesak / Pemulihan kesehatan",
+        max_chars=300,
+        key="dlg_reason_text",
+    )
+
+    if work_days == 0:
+        st.error("⚠️ Rentang tanggal yang dipilih tidak memiliki hari kerja (hanya akhir pekan). Silakan pilih tanggal kerja.")
+    else:
+        st.success(f"🗓️ Total Durasi: **{work_days} hari kerja** (tidak termasuk Sabtu & Minggu).")
+
+    col_btn_sub, col_btn_can = st.columns([1.3, 1])
+    with col_btn_sub:
+        can_submit = (work_days > 0)
+        if st.button("🚀 Siapkan Permohonan Cuti", type="primary", use_container_width=True, disabled=not can_submit):
+            reason_clean = reason.strip() if reason else ""
+            reason_param = f" dengan alasan: {reason_clean}" if reason_clean else ""
+            prompt = f"Siapkan {leave_label.lower()} ({leave_type}) dari {start_date.isoformat()} sampai {end_date.isoformat()}{reason_param}"
+            st.session_state["prompt_input"] = prompt
+            st.session_state["show_leave_modal"] = False
+            st.rerun()
+
+    with col_btn_can:
+        if st.button("Batal", use_container_width=True):
+            st.session_state["show_leave_modal"] = False
+            st.rerun()
+
+
+if hasattr(st, "dialog"):
+    @st.dialog("📝 Formulir Pengajuan Cuti", width="medium")
+    def leave_dialog():
+        render_leave_form()
+else:
+    def leave_dialog():
+        st.session_state["show_leave_modal"] = True
+
+
+# Load persona catalog from demo_personas.json
 personas_catalog = load_personas(Path(__file__).with_name("demo_personas.json"))
 
-# Initialize state
+# ==============================================================================
+# Session & Authentication State Management
+# ==============================================================================
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+if "active_persona" not in st.session_state:
+    st.session_state["active_persona"] = None
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
-if "pending_proposals" not in st.session_state:
-    st.session_state["pending_proposals"] = {}
 if "confirmed_proposals" not in st.session_state:
     st.session_state["confirmed_proposals"] = set()
 
-# Sidebar: Persona switcher & Identity management
-with st.sidebar:
-    st.title("🧭 Asisten Miyo")
-    st.caption("AI-Powered HR Policy & Action Assistant")
-    st.markdown("---")
+# ==============================================================================
+# VIEW 1: ENTERPRISE LOGIN PORTAL (Displayed when not logged in)
+# ==============================================================================
+if not st.session_state["authenticated"]:
+    col_hero_l, col_hero_m, col_hero_r = st.columns([2.2, 1.2, 2.2])
+    with col_hero_m:
+        if os.path.exists(GUNUNGAN_LOGO):
+            st.image(GUNUNGAN_LOGO, width=440)
 
-    persona = st.selectbox(
-        "Pilih Persona Demo:",
-        personas_catalog,
-        format_func=lambda item: f"{item['label']} ({item['employee_id']})",
-    )
-
-    # Sync persona state with ui_contract
-    prev_emp = st.session_state.get("active_employee_id")
-    select_persona(st.session_state, persona)
-    if prev_emp != persona["employee_id"]:
-        st.session_state["chat_history"] = []
-        st.session_state["pending_proposals"] = {}
-        st.session_state["confirmed_proposals"] = set()
-
-    token = persona["demo_token"]
-
-    # Persona Information Card
     st.markdown(
-        f"""
-        <div class="persona-card">
-            <div class="persona-name">👤 {persona['label']}</div>
-            <div class="persona-role">ID: <code>{persona['employee_id']}</code> · Role: { 'Admin' if 'ADM' in persona['employee_id'] else 'Pegawai' }</div>
-            <div class="persona-scenario">{persona['scenario']}</div>
+        """
+        <div class="login-hero" style="padding-top: 0.2rem;">
+            <span class="login-badge">Portal Masuk Terintegrasi</span>
+            <h1 style="color: #38bdf8; font-size: 2.2rem; font-weight: 800; margin-bottom: 0.2rem; margin-top: 0.2rem;">
+                NUSANTARA DIGITAL
+            </h1>
+            <h3 style="color: #f8fafc; font-weight: 500; font-size: 1.2rem; margin-top: 0;">
+                Asisten Kebijakan HR & Permohonan Cuti bersama <b>Miyo</b>
+            </h3>
+            <p style="color: #94a3b8; font-size: 0.95rem; max-width: 620px; margin: 0.6rem auto 1.5rem auto;">
+                Sistem layanan mandiri karyawan berbasis AI dengan otentikasi identitas, isolasi data pribadi, dan validasi kebijakan resmi terverifikasi.
+            </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+    login_tab1, login_tab2 = st.tabs(["👥 Pilih Persona Demo (Akses Cepat)", "🔑 Masuk dengan Bearer Token Manual"])
+
+    # Method 1: Interactive Persona Cards
+    with login_tab1:
+        st.markdown("Pilih salah satu profil karyawan demo untuk menguji skenario:")
+        cols = st.columns(len(personas_catalog))
+
+        # Metadata display icons & roles
+        persona_meta = {
+            "EMP-001": {"avatar": "👩‍💼", "badge": "Pegawai Reguler", "quota": "Saldo: 8 Hari Cuti Tahunan"},
+            "EMP-002": {"avatar": "👨‍💼", "badge": "Pegawai Reguler", "quota": "Saldo: 3 Hari Cuti Tahunan"},
+            "ADM-001": {"avatar": "🛡️", "badge": "Monitoring Admin", "quota": "Akses: Audit, Metrik, & SLI/SLA"},
+        }
+
+        for idx, p in enumerate(personas_catalog):
+            emp_id = p["employee_id"]
+            meta = persona_meta.get(emp_id, {"avatar": "👤", "badge": "Karyawan", "quota": ""})
+
+            with cols[idx]:
+                st.markdown(
+                    f"""
+                    <div class="persona-login-card">
+                        <div>
+                            <div class="persona-avatar">{meta['avatar']}</div>
+                            <div class="persona-login-name">{p['label']}</div>
+                            <div class="persona-login-role">ID: <code>{emp_id}</code> · {meta['badge']}</div>
+                            <div style="background-color: #334155; color: #f8fafc; padding: 3px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: 600; margin-bottom: 8px;">
+                                {meta['quota']}
+                            </div>
+                            <div class="persona-login-desc">{p['scenario']}</div>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+                if st.button(f"🚀 Masuk sebagai {p['label'].split('—')[0].strip()}", key=f"login_btn_{emp_id}", use_container_width=True, type="primary"):
+                    st.session_state["authenticated"] = True
+                    st.session_state["active_persona"] = p
+                    select_persona(st.session_state, p)
+                    st.session_state["chat_history"] = []
+                    st.session_state["confirmed_proposals"] = set()
+                    st.rerun()
+
+    # Method 2: Manual Bearer Token Input
+    with login_tab2:
+        st.markdown("Masukkan token otentikasi Bearer Anda untuk login manual:")
+        with st.form("manual_token_form"):
+            token_input = st.text_input(
+                "Bearer Token:",
+                type="password",
+                placeholder="contoh: token-alya atau token-admin",
+                help="Gunakan token demo sintetis yang terdaftar di sistem.",
+            )
+            submit_token = st.form_submit_button("🔓 Masuk ke Sistem", type="primary", use_container_width=True)
+
+            if submit_token:
+                cleaned_token = token_input.strip()
+                if not cleaned_token:
+                    st.error("Token otentikasi tidak boleh kosong.")
+                else:
+                    # Match against persona catalog
+                    matched_persona = next((p for p in personas_catalog if p["demo_token"] == cleaned_token), None)
+                    if matched_persona:
+                        st.session_state["authenticated"] = True
+                        st.session_state["active_persona"] = matched_persona
+                        select_persona(st.session_state, matched_persona)
+                        st.session_state["chat_history"] = []
+                        st.session_state["confirmed_proposals"] = set()
+                        st.success(f"Berhasil masuk sebagai {matched_persona['label']}!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("❌ Token otentikasi tidak dikenali atau tidak valid. Silakan gunakan token demo yang tersedia.")
+
+    st.markdown("---")
+    # Health status footer
+    h = get_health_status()
+    if h.get("ready"):
+        st.caption("🟢 Backend API & Database Neon Serverless Postgres Siap.")
+    else:
+        st.caption(f"🟡 Status Backend: {h.get('status', 'degraded')}")
+
+    # Stop rendering the rest of the application until logged in
+    st.stop()
+
+
+# ==============================================================================
+# VIEW 2: AUTHENTICATED DASHBOARD (Displayed after successful login)
+# ==============================================================================
+persona = st.session_state["active_persona"]
+token = persona["demo_token"]
+is_admin = "ADM" in persona["employee_id"]
+
+# Sidebar: User Profile & Actions
+with st.sidebar:
+    col_sb_logo, col_sb_txt = st.columns([1, 2.5])
+    with col_sb_logo:
+        if os.path.exists(MIYO_LOGO):
+            st.image(MIYO_LOGO, width=65)
+        else:
+            st.title("🧭")
+    with col_sb_txt:
+        st.markdown("<h3 style='margin:0; padding-top:6px; color:#38bdf8;'>Asisten Miyo</h3>", unsafe_allow_html=True)
+        st.caption("Nusantara Digital HR")
+    st.markdown("---")
+
+    # Active Logged-in User Profile Card
+    st.markdown(
+        f"""
+        <div class="user-profile-card">
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: #94a3b8; font-weight: 700; margin-bottom: 4px;">Akun Aktif</div>
+            <div class="user-profile-name">{'🛡️' if is_admin else '👤'} {persona['label']}</div>
+            <div class="user-profile-role">ID: <code>{persona['employee_id']}</code> · Role: <b>{'Monitoring Admin' if is_admin else 'Pegawai'}</b></div>
+            <div class="user-profile-scenario">{persona['scenario']}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Logout / Switch Persona Button
+    if st.button("🚪 Keluar / Ganti Akun", use_container_width=True, type="secondary"):
+        st.session_state["authenticated"] = False
+        st.session_state["active_persona"] = None
+        st.session_state["chat_history"] = []
+        st.session_state["confirmed_proposals"] = set()
+        st.rerun()
+
+    st.markdown("---")
+
+    # Leave Request Action for Employees
+    if not is_admin:
+        st.markdown("##### 📅 Formulir Cuti:")
+        if st.button("📝 Ajukan Permohonan Cuti", key="btn_open_leave_dialog", use_container_width=True, type="primary"):
+            if hasattr(st, "dialog"):
+                leave_dialog()
+            else:
+                st.session_state["show_leave_modal"] = True
+                st.rerun()
+        st.markdown("---")
 
     # Quick Suggestion Prompts
     st.markdown("##### 💡 Rekomendasi Pertanyaan:")
@@ -273,8 +703,7 @@ with st.sidebar:
         "Berapa sisa saldo cuti saya?",
         "Kapan surat dokter diperlukan?",
         "Boleh WFH berapa hari per minggu?",
-        "Siapkan cuti tahunan 2026-11-23 sampai 2026-11-24",
-    ]
+   ]
 
     for q in quick_queries:
         if st.button(q, key=f"quick_{q}", use_container_width=True):
@@ -283,36 +712,66 @@ with st.sidebar:
     st.markdown("---")
     if st.button("🧹 Bersihkan Percakapan", use_container_width=True):
         st.session_state["chat_history"] = []
-        st.session_state["pending_proposals"] = {}
+        st.session_state["confirmed_proposals"] = set()
         st.rerun()
+
+    # Brand Footer in Sidebar
+    if os.path.exists(GUNUNGAN_LOGO):
+        st.image(GUNUNGAN_LOGO, use_container_width=True)
+        st.markdown("<div style='text-align: center; font-size: 0.75rem; color: #64748b; margin-top: -6px; margin-bottom: 8px;'>PT Nusantara Digital</div>", unsafe_allow_html=True)
 
     # Health Indicator in Sidebar Footer
     health = get_health_status()
     if health.get("ready"):
-        st.success("🟢 Sistem Siap (pgvector & DB Terhubung)")
+        st.success("🟢 Terhubung ke Neon Cloud DB")
     else:
         st.warning(f"🟡 Status Sistem: {health.get('status', 'degraded')}")
 
-# ==============================================================================
-# Main Layout: Header & Tabs
-# ==============================================================================
-st.title("Asisten Kebijakan HR dan Cuti")
-st.caption("Pusat layanan mandiri kebijakan, penelusuran hak pegawai, dan pengajuan cuti bergaransi keamanan.")
+# Main Layout: Header with Nusantara Digital Gunungan & Miyo Mascot
+col_hdr_logo, col_hdr_content = st.columns([0.8, 6.2])
+with col_hdr_logo:
+    if os.path.exists(GUNUNGAN_LOGO):
+        st.image(GUNUNGAN_LOGO, width=240)
+with col_hdr_content:
+    st.markdown("<h2 style='margin-bottom:2px; color:#f8fafc;'>Asisten Kebijakan HR dan Cuti</h2>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='color:#38bdf8; font-weight:600; font-size:1.05rem; margin-bottom:4px;'>"
+        "PT Nusantara Digital · AI Partner: Miyo"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption("Pusat layanan mandiri kebijakan, penelusuran hak pegawai, dan pengajuan cuti bergaransi keamanan.")
+st.markdown("---")
 
-tab_chat, tab_requests, tab_monitoring = st.tabs(
-    ["💬 Percakapan Interaktif", "📋 Permintaan Cuti Saya", "📊 Monitoring Operasional"]
-)
+# Dynamic Tabs based on Role: Admins see Monitoring, Employees see Self-Service
+if is_admin:
+    tab_chat, tab_requests, tab_monitoring = st.tabs(
+        ["💬 Percakapan Interaktif", "📋 Permintaan Cuti Saya", "📊 Monitoring Operasional"]
+    )
+else:
+    tab_chat, tab_requests = st.tabs(
+        ["💬 Percakapan Interaktif", "📋 Permintaan Cuti Saya"]
+    )
+    tab_monitoring = None
 
 # ------------------------------------------------------------------------------
 # TAB 1: Conversational Chat
 # ------------------------------------------------------------------------------
 with tab_chat:
+    # Fallback container for leave form if running on older Streamlit without native modal dialog
+    if not hasattr(st, "dialog") and st.session_state.get("show_leave_modal", False):
+        with st.container():
+            st.markdown("### 📝 Formulir Pengajuan Cuti")
+            render_leave_form()
+            st.markdown("---")
+
     # Render past conversation history
-    for entry in st.session_state["chat_history"]:
-        with st.chat_message(entry["role"], avatar="👤" if entry["role"] == "user" else "🧭"):
+    assistant_avatar = MIYO_LOGO if os.path.exists(MIYO_LOGO) else "🧭"
+    for idx, entry in enumerate(st.session_state["chat_history"]):
+        with st.chat_message(entry["role"], avatar="👤" if entry["role"] == "user" else assistant_avatar):
             st.markdown(entry["content"])
 
-            # If there are citations attached
+            # If citations exist
             if entry.get("citations"):
                 with st.expander(f"📚 Sumber Kebijakan Terverifikasi ({len(entry['citations'])})", expanded=False):
                     for cite in entry["citations"]:
@@ -351,7 +810,7 @@ with tab_chat:
                         unsafe_allow_html=True,
                     )
 
-                    col_btn1, col_btn2 = st.columns([1, 4])
+                    col_btn1, col_btn2, col_btn3 = st.columns([1.2, 1.4, 2.5])
                     with col_btn1:
                         confirm_key = f"btn_confirm_{prop_id}"
                         if st.button("✅ Konfirmasi Pengajuan", key=confirm_key, type="primary"):
@@ -370,6 +829,43 @@ with tab_chat:
                                     f"🎉 Permintaan cuti #{confirmed['request_id']} berhasil diajukan dengan status `{confirmed['status']}`."
                                 )
                                 time.sleep(1)
+                                st.rerun()
+                    with col_btn2:
+                        if st.button("📅 Ubah via Formulir", key=f"btn_edit_prop_{prop_id}", type="secondary"):
+                            if hasattr(st, "dialog"):
+                                leave_dialog()
+                            else:
+                                st.session_state["show_leave_modal"] = True
+                                st.rerun()
+
+            # If dialogue expresses intent to request leave and proposal is not yet generated
+            if entry["role"] == "assistant" and not is_admin and not proposal:
+                prev_user_msg = (
+                    st.session_state["chat_history"][idx - 1].get("content", "")
+                    if idx > 0 and st.session_state["chat_history"][idx - 1].get("role") == "user"
+                    else ""
+                )
+                if has_leave_intent(prev_user_msg) or has_leave_intent(entry.get("content", "")):
+                    st.markdown(
+                        """
+                        <div style="background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border: 1px solid #0284c7; border-radius: 10px; padding: 12px 16px; margin-top: 10px; margin-bottom: 8px;">
+                            <div style="font-weight: 700; color: #38bdf8; font-size: 0.95rem; margin-bottom: 2px;">
+                                📅 Formulir Permohonan Cuti
+                            </div>
+                            <div style="font-size: 0.83rem; color: #cbd5e1;">
+                                Ingin langsung mengajukan cuti? Klik tombol di bawah untuk memilih tanggal via kalender interaktif, atau Anda tetap dapat mengetik permohonan secara manual di kolom chat.
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    col_form_btn, _ = st.columns([1.5, 2.5])
+                    with col_form_btn:
+                        if st.button("📝 Formulir Ajukan Permohonan Cuti", key=f"btn_form_chat_{idx}", type="primary"):
+                            if hasattr(st, "dialog"):
+                                leave_dialog()
+                            else:
+                                st.session_state["show_leave_modal"] = True
                                 st.rerun()
 
             # Technical details in collapsed expander
@@ -402,7 +898,8 @@ with tab_chat:
             st.markdown(prompt_to_send)
 
         # 2. Call FastAPI Backend
-        with st.chat_message("assistant", avatar="🧭"):
+        assistant_avatar = MIYO_LOGO if os.path.exists(MIYO_LOGO) else "🧭"
+        with st.chat_message("assistant", avatar=assistant_avatar):
             with st.spinner("Miyo sedang menelusuri kebijakan resmi dan memverifikasi data..."):
                 result = api_request("POST", API_PATHS["chat"], token, json={"message": prompt_to_send})
 
@@ -431,9 +928,17 @@ with tab_requests:
     st.subheader(f"Daftar Permohonan Cuti: {persona['label']}")
     st.caption("Daftar seluruh pengajuan cuti aktif dan historis milik identitas Anda.")
 
-    col_sync, _ = st.columns([1, 4])
+    col_sync, col_create, _ = st.columns([1, 1.3, 3])
     with col_sync:
         refresh_btn = st.button("🔄 Segarkan Data", use_container_width=True)
+    with col_create:
+        if not is_admin:
+            if st.button("📝 Buat Pengajuan Baru", key="btn_open_leave_tab2", use_container_width=True, type="primary"):
+                if hasattr(st, "dialog"):
+                    leave_dialog()
+                else:
+                    st.session_state["show_leave_modal"] = True
+                    st.rerun()
 
     leave_data = api_request("GET", API_PATHS["my_requests"], token)
 
@@ -486,13 +991,8 @@ with tab_requests:
 # ------------------------------------------------------------------------------
 # TAB 3: Operational Monitoring & Audit (Admin Only)
 # ------------------------------------------------------------------------------
-with tab_monitoring:
-    is_admin = "ADM" in persona["employee_id"]
-
-    if not is_admin:
-        st.warning("🔒 **Akses Dibatasi:** Tab monitoring hanya dapat diakses oleh persona `Monitoring Admin`.")
-        st.info("Pilih persona `Monitoring admin (ADM-001)` pada menu dropdown di sidebar kiri untuk membuka tab ini.")
-    else:
+if is_admin and tab_monitoring is not None:
+    with tab_monitoring:
         st.subheader("Ringkasan Telemetry & Audit Operasional")
         st.caption("Metrik agregat, monitoring ambang batas SLI/SLA, dan alert tindakan operasional.")
 
