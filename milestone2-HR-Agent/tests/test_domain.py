@@ -6,7 +6,12 @@ import pytest
 from pydantic import ValidationError
 
 from src.contracts import LeaveBalance, PrepareLeaveArgs
-from src.domain import DomainError, business_days, validate_leave_request
+from src.domain import (
+    DomainError,
+    business_days,
+    get_annual_leave_lead_days,
+    validate_leave_request,
+)
 
 
 def test_business_days_excludes_weekend() -> None:
@@ -72,3 +77,51 @@ def test_annual_leave_requires_three_business_days_lead_time() -> None:
     valid = args.model_copy(update={"start_date": date(2026, 9, 29), "end_date": date(2026, 9, 29)})
     days, _ = validate_leave_request(valid, balance, False, date(2026, 9, 23))
     assert days == 1
+
+
+def test_dynamic_annual_leave_lead_days() -> None:
+    # 1. Fallback from policy file or default (default is 3)
+    assert get_annual_leave_lead_days() == 3
+
+    # 2. Dynamic policy extraction
+    assert get_annual_leave_lead_days("Pengajuan dilakukan paling lambat dua hari kerja sebelum tanggal mulai") == 2
+    assert get_annual_leave_lead_days("Pengajuan minimal 4 hari kerja sebelumnya") == 4
+    assert get_annual_leave_lead_days("Pengajuan dilakukan minimal satu hari kerja sebelumnya") == 1
+    assert get_annual_leave_lead_days("Pengajuan minimal H-5 sebelum cuti") == 5
+    assert get_annual_leave_lead_days("Kebijakan tanpa klausul batas hari") == 3
+
+    # 3. Dynamic validation threshold
+    balance = [LeaveBalance(leave_type="annual", available_days=8, as_of_date=date(2026, 1, 1))]
+    # today: Wednesday 2026-09-23, start: Friday 2026-09-25 -> 1 business day lead time (Thursday 2026-09-24)
+    args_1d = PrepareLeaveArgs(
+        start_date=date(2026, 9, 25), end_date=date(2026, 9, 25), leave_type="annual", reason=None
+    )
+    # Default requires 3 days -> fails
+    with pytest.raises(DomainError, match="tiga hari kerja"):
+        validate_leave_request(args_1d, balance, False, date(2026, 9, 23))
+
+    # With policy specifying 1 day lead time -> passes
+    policy_1d = "Pengajuan dilakukan paling lambat satu hari kerja sebelum tanggal mulai."
+    days, _ = validate_leave_request(args_1d, balance, False, date(2026, 9, 23), policy_text=policy_1d)
+    assert days == 1
+
+    # With policy specifying 2 days lead time -> fails with dynamic message "dua hari kerja"
+    policy_2d = "Pengajuan dilakukan paling lambat dua hari kerja sebelum tanggal mulai."
+    with pytest.raises(DomainError, match="dua hari kerja"):
+        validate_leave_request(args_1d, balance, False, date(2026, 9, 23), policy_text=policy_2d)
+
+
+def test_validate_leave_request_reserves_pending_balance() -> None:
+    balance = [LeaveBalance(leave_type="annual", available_days=8, as_of_date=date(2026, 1, 1))]
+    args = PrepareLeaveArgs(
+        start_date=date(2026, 10, 5), end_date=date(2026, 10, 9), leave_type="annual", reason=None
+    )  # 5 business days
+    # With 0 pending days: 8 available >= 5 -> passes
+    days, _ = validate_leave_request(args, balance, False, date(2026, 9, 23), pending_days=0)
+    assert days == 5
+
+    # With 4 pending days: effective = 8 - 4 = 4 < 5 -> raises DomainError
+    with pytest.raises(DomainError, match="saldo cuti tidak cukup"):
+        validate_leave_request(args, balance, False, date(2026, 9, 23), pending_days=4)
+
+

@@ -17,12 +17,20 @@ class Outcome(str, Enum):
 class AuthContext(BaseModel):
     employee_id: str
     display_name: str
-    role: Literal["employee", "monitoring_admin"] = "employee"
+    role: Literal["employee", "manager", "monitoring_admin"] = "employee"
+    department: str | None = None
+    manager_id: str | None = None
+
+
+class ChatHistoryItem(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
 
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
     conversation_id: str | None = Field(default=None, max_length=100)
+    history: list[ChatHistoryItem] = Field(default_factory=list)
 
     @field_validator("message")
     @classmethod
@@ -57,6 +65,7 @@ class ActionProposal(BaseModel):
     validation_summary: list[str]
     expires_at: datetime
     requires_confirmation: Literal[True] = True
+    requires_attachment: bool = False
 
 
 class UsageSummary(BaseModel):
@@ -72,6 +81,7 @@ class ChatResponse(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     tool_calls: list[ToolCallSummary] = Field(default_factory=list)
     action_proposal: ActionProposal | None = None
+    action_proposals: list[ActionProposal] = Field(default_factory=list)
     trace_id: str
     usage: UsageSummary
 
@@ -95,6 +105,16 @@ class LeaveRequestView(BaseModel):
     business_days: int
     status: str
     created_at: datetime
+    employee_id: str | None = None
+    employee_name: str | None = None
+    reviewed_by: str | None = None
+    review_note: str | None = None
+    reviewed_at: datetime | None = None
+    has_attachment: bool = False
+    attachment_filename: str | None = None
+    attachment_content_type: str | None = None
+    attachment_size_bytes: int | None = None
+    attachment_uploaded_at: datetime | None = None
 
 
 class PolicyChunk(BaseModel):
@@ -139,6 +159,13 @@ class TicketArgs(BaseModel):
     summary: str = Field(min_length=5, max_length=500)
 
 
+class AnalyticsQueryArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    metric_focus: Literal["overview", "leave_trends", "balance_risks", "ai_operations"] = "overview"
+    low_balance_threshold: int = Field(default=3, ge=1, le=30)
+
+
 class ModelToolCall(BaseModel):
     call_id: str
     name: str
@@ -160,3 +187,59 @@ class ProblemDetail(BaseModel):
     status: int
     detail: str
     trace_id: str | None = None
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=100)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    profile: AuthContext
+
+
+class ManagerReviewRequest(BaseModel):
+    decision: Literal["approved", "rejected"]
+    review_note: str = Field(default="Reviewed by manager", min_length=3, max_length=300)
+
+
+class ManagerReviewResult(BaseModel):
+    request_id: str
+    employee_id: str
+    status: Literal["approved", "rejected"]
+    reviewed_by: str
+    review_note: str
+    reviewed_at: datetime
+    audit_reference: str
+
+
+class AudioTranscribeRequest(BaseModel):
+    audio_base64: str = Field(min_length=16, max_length=7_000_000)
+    filename: str = Field(default="recording.wav", max_length=100)
+    language: str = Field(default="id", min_length=2, max_length=10)
+
+
+class AudioTranscribeResponse(BaseModel):
+    text: str
+    language: str = "id"
+    duration_ms: int = Field(default=0, ge=0)
+
+
+class LeaveAttachmentUploadRequest(BaseModel):
+    filename: str = Field(min_length=3, max_length=120)
+    content_type: Literal["application/pdf", "image/png", "image/jpeg"]
+    content_base64: str = Field(min_length=8, max_length=7_500_000)
+
+
+class LeaveAttachmentView(BaseModel):
+    request_id: str
+    employee_id: str
+    filename: str
+    content_type: Literal["application/pdf", "image/png", "image/jpeg"]
+    file_size_bytes: int = Field(ge=1, le=5_242_880)
+    content_base64: str
+    uploaded_at: datetime
+
+

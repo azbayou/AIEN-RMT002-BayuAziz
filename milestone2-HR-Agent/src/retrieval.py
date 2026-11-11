@@ -24,6 +24,26 @@ class RetrievalService:
         self.cache_ttl_seconds = cache_ttl_seconds
         self.policy_index_version = policy_index_version
 
+    _SYNONYM_MAP: dict[str, str] = {
+        "jatah": "hak dan saldo cuti pegawai tetap",
+        "wfh": "kerja jarak jauh",
+        "remote": "kerja jarak jauh",
+        "probation": "masa percobaan kelayakan cuti",
+        "surat": "cuti sakit pemberitahuan dokumen pendukung",
+        "dokter": "cuti sakit pemberitahuan dokumen pendukung",
+        "carryover": "sisa cuti dibawa tahun berikutnya",
+        "dibawa": "sisa cuti dibawa tahun berikutnya",
+        "approval": "persetujuan cuti eskalasi manajer",
+    }
+
+    @classmethod
+    def _expand_query(cls, normalized: str) -> str:
+        tokens = set(re.findall(r"[a-z0-9]+", normalized))
+        expansions = [phrase for key, phrase in cls._SYNONYM_MAP.items() if key in tokens]
+        if not expansions:
+            return normalized
+        return f"{normalized} {' '.join(expansions)}"
+
 #Pakai Hybrid Search (Lexical + Semantic) untuk pencarian kebijakan.
     def search(self, query: str, top_k: int = 3) -> list[PolicyChunk]:
         normalized = " ".join(query.casefold().split())
@@ -38,40 +58,63 @@ class RetrievalService:
             except (TypeError, ValueError):
                 pass
 
-        lexical = self.repository.lexical_search(normalized, max(top_k * 3, 5))
+        expanded_query = self._expand_query(normalized)
+        lexical = self.repository.lexical_search(expanded_query, max(top_k * 3, 5))
         semantic: list[PolicyChunk] = []
+        embedding_degraded = False
         try:
-            embeddings = self.provider.embed([normalized])
+            embeddings = self.provider.embed([expanded_query])
             if embeddings:
                 semantic = self.repository.vector_search(embeddings[0], max(top_k * 3, 5))
-        except (RuntimeError, TimeoutError, ValueError, OSError):
+        except Exception:
             semantic = []
+            embedding_degraded = True
 
         candidates: dict[str, PolicyChunk] = {}
-        scores: dict[str, float] = {}
+        rrf_scores: dict[str, float] = {}
         for rank, chunk in enumerate(lexical, start=1):
             candidates[chunk.chunk_id] = chunk
-            scores[chunk.chunk_id] = scores.get(chunk.chunk_id, 0.0) + 1.0 / (60 + rank)
+            rrf_scores[chunk.chunk_id] = rrf_scores.get(chunk.chunk_id, 0.0) + 1.0 / (60 + rank)
         for rank, chunk in enumerate(semantic, start=1):
             candidates[chunk.chunk_id] = chunk
-            scores[chunk.chunk_id] = scores.get(chunk.chunk_id, 0.0) + 1.0 / (60 + rank)
+            rrf_scores[chunk.chunk_id] = rrf_scores.get(chunk.chunk_id, 0.0) + 1.0 / (60 + rank)
 
-        terms = set(re.findall(r"\w+", normalized))
+        stopwords = {"berapa", "apakah", "bagaimana", "kapan", "siapa", "yang", "dan", "di", "ke", "dari", "untuk", "pada", "saya", "aku", "bisa", "boleh", "per"}
+        raw_terms = set(re.findall(r"\w+", expanded_query))
+        terms = (raw_terms - stopwords) or raw_terms
 
-        def rank_key(chunk: PolicyChunk) -> tuple[float, int, str]:
+        combined_scores: dict[str, float] = {}
+        keyword_hits: dict[str, int] = {}
+        for chunk_id, chunk in candidates.items():
+            title_terms = set(
+                re.findall(
+                    r"\w+",
+                    f"{chunk.title} {chunk.section}".casefold(),
+                )
+            )
             content_terms = set(
                 re.findall(
                     r"\w+",
                     f"{chunk.title} {chunk.section} {chunk.content}".casefold(),
                 )
             )
-            keyword_score = len(terms & content_terms)
-            return (-scores[chunk.chunk_id], -keyword_score, chunk.chunk_id)
+            overlap = len(terms & content_terms) + len(terms & title_terms)
+            keyword_hits[chunk_id] = overlap
+            # Gabungkan RRF score dengan bobot keyword reranking (0.01 per kata kunci yang cocok)
+            combined_scores[chunk_id] = rrf_scores[chunk_id] + (0.01 * overlap)
 
-        results = sorted(candidates.values(), key=rank_key)[:top_k]
-        self.cache.set(
-            cache_key,
-            [chunk.model_dump(mode="json") for chunk in results],
-            self.cache_ttl_seconds,
-        )
+        def rank_key(chunk: PolicyChunk) -> tuple[float, int, str]:
+            return (-combined_scores[chunk.chunk_id], -keyword_hits[chunk.chunk_id], chunk.chunk_id)
+
+        ranked_chunks = sorted(candidates.values(), key=rank_key)[:top_k]
+        results = [
+            chunk.model_copy(update={"score": round(combined_scores[chunk.chunk_id], 6)})
+            for chunk in ranked_chunks
+        ]
+        if not embedding_degraded:
+            self.cache.set(
+                cache_key,
+                [chunk.model_dump(mode="json") for chunk in results],
+                self.cache_ttl_seconds,
+            )
         return results

@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import base64
 import hashlib
+import io
 import json
+import re
 import time
 from typing import Any, Protocol
 
+import httpx
 from openai import OpenAI
 
-from .contracts import ModelTurn
+from .contracts import ModelToolCall, ModelTurn
 from .security import token_hash
 
 
@@ -18,6 +22,7 @@ class ModelProvider(Protocol):
         tools: list[dict[str, Any]],
         safety_identifier: str, max_output_tokens: int,
     ) -> ModelTurn: ...
+    def transcribe(self, audio_bytes: bytes, filename: str = "recording.wav", language: str = "id") -> str: ...
 
 
 class OpenAIProvider:
@@ -26,8 +31,15 @@ class OpenAIProvider:
     def __init__(self, **kwargs: Any) -> None:
         self.model = kwargs.pop("model")
         self.embedding_model = kwargs.pop("embedding_model")
+        self.stt_model = kwargs.pop("stt_model", "whisper-1")
+        self.gemini_api_key = kwargs.pop("gemini_api_key", None)
+        self.gemini_stt_model = kwargs.pop("gemini_stt_model", "gemini-3.5-transcribe")
         self.max_retries = kwargs.pop("max_retries", 2)
-        self.client = kwargs.pop("client", None) or OpenAI(**kwargs)
+        client = kwargs.pop("client", None)
+        base_url = kwargs.pop("base_url", None)
+        if base_url and isinstance(base_url, str) and base_url.strip():
+            kwargs["base_url"] = base_url.strip()
+        self.client = client or OpenAI(**kwargs)
 
     @staticmethod
     def _transient(error: Exception) -> bool:
@@ -89,6 +101,87 @@ class OpenAIProvider:
             output_tokens=getattr(usage, "output_tokens", 0) if usage else 0,
         )
 
+    def _transcribe_with_gemini(self, audio_bytes: bytes, filename: str = "recording.wav", language: str = "id") -> str:
+        ext = (filename or "").split(".")[-1].lower()
+        mime_type = "audio/wav"
+        if ext == "webm" or audio_bytes.startswith(b"\x1a\x45\xdf\xa3"):
+            mime_type = "audio/webm"
+        elif ext == "mp3" or audio_bytes.startswith(b"ID3") or audio_bytes.startswith(b"\xff\xfb"):
+            mime_type = "audio/mp3"
+        elif ext == "ogg" or audio_bytes.startswith(b"OggS"):
+            mime_type = "audio/ogg"
+
+        b64_audio = base64.b64encode(audio_bytes).decode("ascii")
+
+        # Models to try: primary model from env (gemini-3.5-transcribe), then fast multimodal fallback
+        models_to_try = []
+        if self.gemini_stt_model:
+            models_to_try.append(self.gemini_stt_model)
+        for candidate in ("gemini-3.5-transcribe", "gemini-3.5-flash", "gemini-3.6-flash"):
+            if candidate not in models_to_try:
+                models_to_try.append(candidate)
+
+        last_error = None
+        for m in models_to_try:
+            clean_m = m.replace("models/", "")
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_m}:generateContent?key={self.gemini_api_key}"
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {
+                                "text": (
+                                    f"Transkripsikan rekaman suara Bahasa {language.upper()} berikut ini secara persis kata demi kata. "
+                                    "Hanya berikan teks transkripsi tanpa pengantar, tanpa tanda kutip, dan tanpa penjelasan tambahan."
+                                )
+                            },
+                            {
+                                "inlineData": {
+                                    "mimeType": mime_type,
+                                    "data": b64_audio,
+                                }
+                            },
+                        ]
+                    }
+                ]
+            }
+            try:
+                resp = httpx.post(url, json=payload, timeout=25.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        text = "".join(p.get("text", "") for p in parts if "text" in p).strip()
+                        if text:
+                            return text
+                else:
+                    last_error = f"HTTP {resp.status_code}: {resp.text[:150]}"
+            except Exception as err:
+                last_error = str(err)
+
+        if last_error:
+            raise RuntimeError(f"Gemini STT error: {last_error}")
+        return ""
+
+    def transcribe(self, audio_bytes: bytes, filename: str = "recording.wav", language: str = "id") -> str:
+        if not audio_bytes:
+            raise ValueError("audio payload must not be empty")
+
+        if self.gemini_api_key:
+            return self._transcribe_with_gemini(audio_bytes, filename=filename, language=language)
+
+        buffer = io.BytesIO(audio_bytes)
+        buffer.name = filename or "recording.wav"
+        response = self._call(
+            self.client.audio.transcriptions.create,
+            model=self.stt_model,
+            file=buffer,
+            language=language,
+        )
+        text = getattr(response, "text", "") if not isinstance(response, str) else response
+        return str(text).strip()
+
 
 class DeterministicProvider:
     """Network-free provider used by deterministic tests."""
@@ -101,7 +194,10 @@ class DeterministicProvider:
         vectors = []
         for text in texts:
             digest = hashlib.sha256(text.encode("utf-8")).digest()
-            values = [digest[index] / 255.0 for index in range(self.embedding_dimensions)]
+            values = [
+                ((digest[index % 32] + (index // 32)) % 256) / 255.0
+                for index in range(self.embedding_dimensions)
+            ]
             vectors.append(values)
         return vectors
 
@@ -109,15 +205,23 @@ class DeterministicProvider:
         self._response_number += 1
         input_data = kwargs.get("input_data", "")
         text = input_data if isinstance(input_data, str) else json.dumps(input_data, default=str)
-        lowered = text.casefold()
+        user_text = text
+        if isinstance(input_data, list):
+            for item in reversed(input_data):
+                if isinstance(item, dict) and item.get("role") == "user" and isinstance(item.get("content"), str):
+                    user_text = item["content"]
+                    break
+        lowered = user_text.casefold()
         if isinstance(input_data, list) and any(
             isinstance(item, dict) and ("tool_call_id" in item or item.get("type") == "function_call_output")
             for item in input_data
         ):
             if "document_id" in text:
+                doc_ids = re.findall(r'document_id\\?":\s*\\?"([A-Za-z0-9-]+)', text)
+                cited_doc = doc_ids[0] if doc_ids else "HR-LEAVE-001"
                 return ModelTurn(
                     response_id=f"deterministic-{self._response_number}",
-                    text="Berdasarkan kebijakan yang ditemukan, berikut jawabannya. [HR-LEAVE-001]",
+                    text=f"Berdasarkan kebijakan yang ditemukan, berikut jawabannya. [{cited_doc}]",
                     input_tokens=len(text.split()),
                     output_tokens=8,
                 )
@@ -127,14 +231,25 @@ class DeterministicProvider:
                 input_tokens=len(text.split()),
                 output_tokens=7,
             )
-        if "saldo" in lowered:
-            tool_calls = [{"call_id": f"call-{self._response_number}", "name": "get_my_leave_balance", "arguments": {}}]
-        elif any(term in lowered for term in ("cuti", "kebijakan", "jatah", "leave")):
-            tool_calls = [{
-                "call_id": f"call-{self._response_number}",
-                "name": "search_hr_policy",
-                "arguments": {"query": text[:500], "top_k": 3},
-            }]
+        available_tool_names = {t.get("name") for t in (kwargs.get("tools") or []) if isinstance(t, dict)}
+        if any(term in lowered for term in ("analitik", "analytics", "statistik", "tren")) and "get_team_hr_analytics" in available_tool_names:
+            tool_calls = [
+                ModelToolCall(
+                    call_id=f"call-{self._response_number}",
+                    name="get_team_hr_analytics",
+                    arguments={"metric_focus": "overview"},
+                )
+            ]
+        elif "saldo" in lowered:
+            tool_calls = [ModelToolCall(call_id=f"call-{self._response_number}", name="get_my_leave_balance", arguments={})]
+        elif any(term in lowered for term in ("cuti", "kebijakan", "jatah", "leave", "wfh", "remote", "probation", "surat", "dokter")):
+            tool_calls = [
+                ModelToolCall(
+                    call_id=f"call-{self._response_number}",
+                    name="search_hr_policy",
+                    arguments={"query": user_text[:500], "top_k": 3},
+                )
+            ]
         else:
             tool_calls = []
         return ModelTurn(
@@ -144,3 +259,15 @@ class DeterministicProvider:
             input_tokens=len(text.split()),
             output_tokens=0,
         )
+
+    def transcribe(self, audio_bytes: bytes, filename: str = "recording.wav", language: str = "id") -> str:
+        if not audio_bytes:
+            raise ValueError("audio payload must not be empty")
+        # Jika test mengirim teks UTF-8 diawali 'PROMPT:', kembalikan teks tersebut untuk simulasi
+        try:
+            decoded = audio_bytes.decode("utf-8")
+            if decoded.startswith("PROMPT:"):
+                return decoded[7:].strip()
+        except UnicodeDecodeError:
+            pass
+        return "Berapa sisa saldo cuti tahunan saya?"

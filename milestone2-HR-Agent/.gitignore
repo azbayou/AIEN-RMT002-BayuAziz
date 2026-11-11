@@ -4,5 +4,6 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 outputs/*.json
+!outputs/evaluation_report.json
 outputs/*.md
 .streamlit/secrets.toml

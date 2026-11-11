@@ -16,8 +16,11 @@ class Settings(BaseSettings):
     redis_url: str = "redis://redis:6379/0"
     openai_api_key: str | None = None
     openai_base_url: str | None = None
+    gemini_api_key: str | None = None
+    gemini_stt_model: str = "gemini-3.5-transcribe"
     agent_model: str = ""
     embedding_model: str = ""
+    stt_model: str = "whisper-1"
     embedding_dimensions: int = Field(default=1536, ge=64, le=4096)
     policy_index_version: str = "policies-2026-01"
     model_mode: Literal["live", "fake"] = "live"
@@ -33,6 +36,7 @@ class Settings(BaseSettings):
     @field_validator(
         "openai_api_key",
         "openai_base_url",
+        "gemini_api_key",
         "input_cost_per_1m",
         "output_cost_per_1m",
         mode="before",

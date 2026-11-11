@@ -11,7 +11,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY data/ ./data/
 COPY tests/ ./tests/
-COPY app.py ui_contract.py demo_personas.json pyproject.toml README.md ./
+COPY app.py app2.py ui_contract.py demo_personas.json pyproject.toml README.md ./
+COPY ui/ ./ui/
+COPY public/ ./public/
 
 RUN useradd --create-home --uid 10001 appuser \
     && chown -R appuser:appuser /app

@@ -23,3 +23,4 @@ def test_supplied_ui_uses_documented_api_paths() -> None:
     assert API_PATHS["chat"] == "/api/v1/chat"
     assert API_PATHS["confirm"].format(proposal_id="AP-1") == "/api/v1/action-proposals/AP-1/confirm"
 
+

@@ -1,0 +1,539 @@
+/* ==============================================================================
+   Miyo HR Assistant — Enterprise Design System (Tailwind Architecture)
+   Location: public/style.css
+   ============================================================================== */
+
+/* Base Design Tokens (Dark Theme Defaults) */
+:root {
+    --bg-app: #090d16;
+    --bg-surface: #0f172a;
+    --bg-surface-elevated: #1e293b;
+    --bg-card: #1e293b;
+    --bg-card-hover: #273549;
+    --border-subtle: #334155;
+    --border-focus: #38bdf8;
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --text-muted: #94a3b8;
+    --accent-sky: #38bdf8;
+    --accent-sky-dark: #0284c7;
+    --accent-emerald: #10b981;
+    --accent-rose: #f43f5e;
+    --accent-violet: #a855f7;
+    --accent-amber: #f59e0b;
+}
+
+/* Light Theme Variables */
+[data-theme="light"], .theme-light {
+    --bg-app: #f8fafc;
+    --bg-surface: #f1f5f9;
+    --bg-surface-elevated: #ffffff;
+    --bg-card: #ffffff;
+    --bg-card-hover: #f8fafc;
+    --border-subtle: #e2e8f0;
+    --border-focus: #0284c7;
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
+    --accent-sky: #0284c7;
+    --accent-sky-dark: #0369a1;
+    --accent-emerald: #059669;
+    --accent-rose: #e11d48;
+    --accent-violet: #9333ea;
+    --accent-amber: #d97706;
+}
+
+/* ------------------------------------------------------------------------------
+   1. Streamlit Native Container Overrides
+   ------------------------------------------------------------------------------ */
+.block-container {
+    padding-top: 1.5rem !important;
+    padding-bottom: 2.5rem !important;
+    max-width: 1280px !important;
+}
+
+/* Sidebar styling */
+[data-testid="stSidebar"] {
+    border-right: 1px solid var(--border-subtle) !important;
+}
+
+/* Sidebar Navigation Tabs (Pill Buttons) */
+[data-testid="stSidebar"] div[data-testid="stRadio"] > div[role="radiogroup"] {
+    gap: 6px !important;
+}
+
+[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"] {
+    background-color: var(--bg-surface-elevated) !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: 8px !important;
+    padding: 8px 14px !important;
+    font-size: 0.88rem !important;
+    font-weight: 600 !important;
+    color: var(--text-secondary) !important;
+    cursor: pointer !important;
+    transition: all 0.15s ease-in-out !important;
+    width: 100% !important;
+    margin-bottom: 2px !important;
+}
+
+[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"]:hover {
+    border-color: var(--accent-sky) !important;
+    color: var(--accent-sky) !important;
+    background-color: var(--bg-card-hover) !important;
+}
+
+[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) {
+    background-color: var(--accent-sky) !important;
+    border-color: var(--accent-sky-dark) !important;
+    color: #ffffff !important;
+    box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25) !important;
+}
+
+[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) p,
+[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) span,
+[data-testid="stSidebar"] div[data-testid="stRadio"] label[data-baseweb="radio"]:has(input:checked) div {
+    color: #ffffff !important;
+    font-weight: 700 !important;
+}
+
+[data-testid="stSidebar"] div[data-testid="stRadio"] input[type="radio"],
+[data-testid="stSidebar"] div[data-testid="stRadio"] div[data-testid="stRadioButton"] > div:first-child {
+    display: none !important;
+}
+
+/* Header bar */
+[data-testid="stHeader"] {
+    background-color: transparent !important;
+}
+
+/* Tabs styling */
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    gap: 8px;
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: 4px;
+}
+
+[data-testid="stTabs"] [data-baseweb="tab"] {
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    transition: all 0.2s ease-in-out;
+}
+
+[data-testid="stTabs"] [aria-selected="true"] {
+    background-color: var(--bg-surface-elevated) !important;
+    color: var(--accent-sky) !important;
+    border-bottom: 2px solid var(--accent-sky) !important;
+}
+
+/* Streamlit Button Styling (Tailwind Architecture) */
+div.stButton > button,
+button[data-testid="baseButton-primary"],
+button[data-testid="baseButton-secondary"] {
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    font-size: 0.88rem !important;
+    padding: 0.45rem 1rem !important;
+    transition: all 0.15s ease-in-out !important;
+}
+
+/* Primary Button (Sky Blue Enterprise) */
+div.stButton > button[kind="primary"],
+div.stButton > button[data-testid="stBaseButton-primary"],
+button[data-testid="baseButton-primary"] {
+    background-color: var(--accent-sky) !important;
+    border: 1px solid var(--accent-sky-dark) !important;
+    color: #ffffff !important;
+}
+
+div.stButton > button[kind="primary"]:hover,
+div.stButton > button[data-testid="stBaseButton-primary"]:hover,
+button[data-testid="baseButton-primary"]:hover {
+    background-color: var(--accent-sky-dark) !important;
+    border-color: var(--accent-sky) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25) !important;
+}
+
+/* Secondary Button */
+div.stButton > button[kind="secondary"],
+div.stButton > button[data-testid="stBaseButton-secondary"],
+button[data-testid="baseButton-secondary"] {
+    background-color: var(--bg-surface-elevated) !important;
+    border: 1px solid var(--border-subtle) !important;
+    color: var(--text-primary) !important;
+}
+
+div.stButton > button[kind="secondary"]:hover,
+div.stButton > button[data-testid="stBaseButton-secondary"]:hover,
+button[data-testid="baseButton-secondary"]:hover {
+    border-color: var(--border-focus) !important;
+    color: var(--accent-sky) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+}
+
+/* ------------------------------------------------------------------------------
+   2. Sub-App Session Selector & Login Hero
+   ------------------------------------------------------------------------------ */
+.login-hero {
+    text-align: center;
+    padding: 1.5rem 1rem 1.8rem 1rem;
+}
+
+.login-badge {
+    display: inline-block;
+    background-color: rgba(2, 132, 199, 0.2);
+    color: var(--accent-sky);
+    border: 1px solid var(--accent-sky-dark);
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    padding: 4px 12px;
+    border-radius: 9999px;
+    margin-bottom: 0.8rem;
+    text-transform: uppercase;
+}
+
+.persona-login-card {
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-subtle);
+    border-radius: 14px;
+    padding: 20px 18px;
+    text-align: left;
+    min-height: 195px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.persona-login-card:hover {
+    border-color: var(--border-focus);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(56, 189, 248, 0.12);
+}
+
+.persona-avatar {
+    font-size: 2.4rem;
+    margin-bottom: 8px;
+}
+
+.persona-login-name {
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.persona-login-role {
+    font-size: 0.82rem;
+    color: var(--accent-sky);
+    font-weight: 600;
+    margin-bottom: 10px;
+}
+
+.persona-login-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    line-height: 1.45;
+    margin-bottom: 14px;
+}
+
+/* ------------------------------------------------------------------------------
+   3. Sidebar Active User Profile
+   ------------------------------------------------------------------------------ */
+.user-profile-card {
+    background-color: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 14px 16px;
+    margin-bottom: 15px;
+    color: var(--text-primary);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.user-profile-name {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--accent-sky);
+}
+
+.user-profile-role {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.user-profile-scenario {
+    font-size: 0.84rem;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+/* ------------------------------------------------------------------------------
+   4. Action Proposal Card
+   ------------------------------------------------------------------------------ */
+.proposal-box {
+    background-color: var(--bg-surface);
+    border: 2px solid var(--accent-sky);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-top: 12px;
+    margin-bottom: 12px;
+    box-shadow: 0 4px 16px rgba(56, 189, 248, 0.12);
+}
+
+.proposal-title {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent-sky);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+
+.proposal-detail {
+    font-size: 0.95rem;
+    color: var(--text-secondary);
+    margin: 4px 0;
+}
+
+.validation-badge {
+    display: inline-block;
+    background-color: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid #059669;
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    margin-top: 8px;
+    margin-right: 6px;
+}
+
+.expiry-tag {
+    display: inline-block;
+    background-color: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid #d97706;
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    margin-top: 8px;
+}
+
+/* ------------------------------------------------------------------------------
+   5. Policy Citation Card
+   ------------------------------------------------------------------------------ */
+.citation-card {
+    background-color: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-left: 4px solid #6366f1;
+    border-radius: 4px 8px 8px 4px;
+    padding: 12px 16px;
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.citation-header {
+    font-weight: 600;
+    color: #a5b4fc;
+    font-size: 0.9rem;
+}
+
+.citation-body {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    line-height: 1.45;
+}
+
+/* ------------------------------------------------------------------------------
+   6. Status Badges
+   ------------------------------------------------------------------------------ */
+.status-badge-pending {
+    background-color: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid #d97706;
+    padding: 4px 12px;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.status-badge-approved {
+    background-color: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid #059669;
+    padding: 4px 12px;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.status-badge-cancelled {
+    background-color: rgba(244, 63, 94, 0.15);
+    color: #fb7185;
+    border: 1px solid #e11d48;
+    padding: 4px 12px;
+    border-radius: 9999px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+/* ------------------------------------------------------------------------------
+   7. Interactive Leave Calendar Grid
+   ------------------------------------------------------------------------------ */
+.calendar-container {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    border-radius: 12px;
+    padding: 18px;
+    margin-top: 10px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.1);
+}
+
+.calendar-header-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
+    text-align: center;
+    font-weight: 700;
+    font-size: 0.85rem;
+}
+
+.calendar-day-name {
+    background-color: var(--bg-surface-elevated);
+    color: var(--text-muted);
+    padding: 8px 4px;
+    border-radius: 6px;
+}
+
+.calendar-day-name.weekend {
+    color: #f87171;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+}
+
+.calendar-cell {
+    min-height: 98px;
+    background-color: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    transition: border-color 0.2s;
+}
+
+.calendar-cell:hover {
+    border-color: var(--border-focus);
+}
+
+.calendar-cell.empty {
+    background-color: rgba(15, 23, 42, 0.25);
+    border: 1px dashed var(--border-subtle);
+    min-height: 98px;
+}
+
+.calendar-cell.today {
+    border: 2px solid var(--border-focus);
+    background-color: rgba(2, 132, 199, 0.15);
+}
+
+.calendar-cell.weekend {
+    background-color: rgba(15, 23, 42, 0.4);
+}
+
+.calendar-cell-date {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.calendar-cell-date.today-badge {
+    color: var(--accent-sky);
+}
+
+.calendar-cell-date.weekend-text {
+    color: #f87171;
+}
+
+.calendar-badge {
+    display: block;
+    padding: 3px 6px;
+    border-radius: 5px;
+    font-size: 0.72rem;
+    line-height: 1.25;
+    margin-bottom: 3px;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: default;
+}
+
+.calendar-badge-annual {
+    background-color: rgba(16, 185, 129, 0.18);
+    color: #6ee7b7;
+    border: 1px solid #10b981;
+}
+
+.calendar-badge-annual.pending {
+    border: 1px dashed #34d399;
+    background-color: rgba(16, 185, 129, 0.10);
+    color: #a7f3d0;
+}
+
+.calendar-badge-sick {
+    background-color: rgba(244, 63, 94, 0.18);
+    color: #fda4af;
+    border: 1px solid #f43f5e;
+}
+
+.calendar-badge-sick.pending {
+    border: 1px dashed #fb7185;
+    background-color: rgba(244, 63, 94, 0.10);
+    color: #fecdd3;
+}
+
+.calendar-badge-parental {
+    background-color: rgba(168, 85, 247, 0.18);
+    color: #d8b4fe;
+    border: 1px solid #a855f7;
+}
+
+.calendar-badge-parental.pending {
+    border: 1px dashed #c084fc;
+    background-color: rgba(168, 85, 247, 0.10);
+    color: #e9d5ff;
+}
+
+.calendar-legend-box {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    background-color: var(--bg-surface-elevated);
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-top: 14px;
+    font-size: 0.8rem;
+    align-items: center;
+}

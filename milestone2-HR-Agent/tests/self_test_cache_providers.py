@@ -215,3 +215,43 @@ def test_openai_provider_batch_embed() -> None:
         model="text-embedding-3-small",
         input=["text1", "text2"],
     )
+
+
+def test_provider_transcribe_deterministic_and_openai() -> None:
+    # 1. DeterministicProvider tests
+    det_provider = DeterministicProvider()
+    with pytest.raises(ValueError, match="audio payload must not be empty"):
+        det_provider.transcribe(b"")
+
+    res_default = det_provider.transcribe(b"RIFF....WAVE")
+    assert res_default == "Berapa sisa saldo cuti tahunan saya?"
+
+    res_prompt = det_provider.transcribe(b"PROMPT:Siapkan cuti besok")
+    assert res_prompt == "Siapkan cuti besok"
+
+    # 2. OpenAIProvider with mock client
+    mock_client = MagicMock()
+    mock_transcription_resp = MagicMock()
+    mock_transcription_resp.text = "Berapa jatah cuti melahirkan?"
+    mock_client.audio.transcriptions.create.return_value = mock_transcription_resp
+
+    openai_provider = OpenAIProvider(
+        model="gpt-4o-mini",
+        embedding_model="text-embedding-3-small",
+        stt_model="whisper-1",
+        client=mock_client,
+    )
+
+    with pytest.raises(ValueError, match="audio payload must not be empty"):
+        openai_provider.transcribe(b"")
+
+    audio_data = b"MOCK_WAV_BYTES_DATA_FOR_TESTING"
+    transcript = openai_provider.transcribe(audio_data, filename="sample.wav", language="id")
+
+    assert transcript == "Berapa jatah cuti melahirkan?"
+    mock_client.audio.transcriptions.create.assert_called_once()
+    call_kwargs = mock_client.audio.transcriptions.create.call_args.kwargs
+    assert call_kwargs["model"] == "whisper-1"
+    assert call_kwargs["language"] == "id"
+    assert call_kwargs["file"].name == "sample.wav"
+    assert call_kwargs["file"].getvalue() == audio_data

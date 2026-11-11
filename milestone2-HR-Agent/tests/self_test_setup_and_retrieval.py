@@ -165,3 +165,74 @@ def test_retrieval_embedding_failure_degrades_to_lexical() -> None:
     # Lexical search still successfully finds the policy chunk
     assert len(results) >= 1
     assert results[0].document_id == "HR-LEAVE-001"
+
+
+# ==============================================================================
+# WBS-22: Hybrid RAG, Keyword Reranking & Degraded Cache Safety
+# ==============================================================================
+
+
+def test_retrieval_does_not_cache_when_embedding_provider_fails() -> None:
+    repo = MemoryRepository()
+    repo.chunks = _make_sample_chunks()
+
+    class BrokenEmbeddingProvider(DeterministicProvider):
+        def embed(self, texts):
+            raise TimeoutError("Embedding provider unreachable")
+
+    mock_cache = MagicMock()
+    mock_cache.get.return_value = None
+
+    service = RetrievalService(repo, BrokenEmbeddingProvider(), mock_cache, 300)
+    results = service.search("cuti tahunan", top_k=2)
+
+    assert len(results) >= 1
+    mock_cache.set.assert_not_called()
+
+
+def test_keyword_reranking_promotes_exact_term_match() -> None:
+    chunk_a = PolicyChunk(
+        chunk_id="P-01:c1",
+        document_id="P-01",
+        title="Kebijakan Umum Operasional",
+        section="Ketentuan Umum",
+        version="1.0",
+        effective_date="2026-01-01",
+        content="Informasi regulasi umum dan operasional kantor harian.",
+    )
+    chunk_b = PolicyChunk(
+        chunk_id="P-02:c1",
+        document_id="P-02",
+        title="Kebijakan Reimbursement",
+        section="Klaim Kacamata",
+        version="1.0",
+        effective_date="2026-01-01",
+        content="Penggantian biaya klaim kacamata untuk pegawai tetap.",
+    )
+    repo = MemoryRepository()
+    repo.chunks = [chunk_a, chunk_b]
+    repo.embeddings = {
+        "P-01:c1": [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        "P-02:c1": [0.8, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    }
+
+    class FixedVectorProvider(DeterministicProvider):
+        def embed(self, texts):
+            return [[1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]]
+
+    service = RetrievalService(repo, FixedVectorProvider(), NullCache(), 300)
+    results = service.search("kebijakan klaim kacamata", top_k=2)
+
+    assert len(results) == 2
+    assert results[0].chunk_id == "P-02:c1"
+    assert results[0].score > results[1].score
+
+
+def test_synonym_map_has_no_hardcoded_numbers() -> None:
+    synonyms = RetrievalService._SYNONYM_MAP
+    assert "12" not in synonyms["jatah"]
+    assert "dua" not in synonyms["surat"]
+    assert "dua" not in synonyms["dokter"]
+    assert synonyms["jatah"] == "hak dan saldo cuti pegawai tetap"
+    assert synonyms["surat"] == "cuti sakit pemberitahuan dokumen pendukung"
+    assert synonyms["dokter"] == "cuti sakit pemberitahuan dokumen pendukung"

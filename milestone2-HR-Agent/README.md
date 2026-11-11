@@ -44,7 +44,7 @@ Lihat [brief.md](brief.md) untuk kontrak endpoint dan kategori kasus, dan [lab.m
 ## 🌐 Akses Aplikasi & Dokumentasi
 
 - **Streamlit Web UI:** [http://localhost:8501](http://localhost:8501)
-  *(Pilih persona di sidebar kiri: Alya Pratama, Bima Satria, atau Citra Dewi).*
+  *(Pilih persona di sidebar kiri: Alya — pegawai, Bima — pegawai, atau Monitoring admin).*
 - **FastAPI Swagger Interactive Docs:** [http://localhost:8000/docs](http://localhost:8000/docs)
 - **FastAPI OpenAPI JSON Specification:** [http://localhost:8000/openapi.json](http://localhost:8000/openapi.json)
 
@@ -92,9 +92,8 @@ Laporan evaluasi tersimpan di `outputs/evaluation_report.json` dengan hasil:
 | Persona | ID Pegawai | Bearer Token | Hak Akses |
 |---|---|---|---|
 | **Alya Pratama** | `EMP-001` | `Bearer token-alya` | Akses kebijakan, saldo cuti pribadi, proposal cuti pribadi. |
-| **Bima Satria** | `EMP-002` | `Bearer token-bima` | Akses kebijakan, saldo cuti pribadi, terisolasi dari Alya. |
-| **Citra Dewi** | `EMP-003` | `Bearer token-citra` | Akses kebijakan, saldo cuti pribadi, terisolasi dari pihak lain. |
-| **HR Admin** | `ADMIN` | `Bearer token-admin` | Mengakses ringkasan monitoring operasional (`/api/v1/monitoring/summary`). |
+| **Bima Santoso** | `EMP-002` | `Bearer token-bima` | Akses kebijakan, saldo cuti pribadi, terisolasi dari Alya. |
+| **Monitoring Admin** | `ADM-001` | `Bearer token-admin` | Mengakses ringkasan monitoring operasional (`/api/v1/monitoring/summary`). |
 
 ---
 

@@ -8,7 +8,7 @@ from typing import Any
 
 from .config import get_settings
 from .providers import DeterministicProvider, OpenAIProvider
-from .security import token_hash
+from .security import hash_password, token_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -90,7 +90,7 @@ def reset_and_seed(reset: bool = False) -> None:
         with connection.cursor() as cursor:
             if reset:
                 cursor.execute(
-                    "DROP TABLE IF EXISTS traces, tickets, leave_requests, action_proposals, "
+                    "DROP TABLE IF EXISTS leave_attachments, approval_audit_logs, traces, tickets, leave_requests, action_proposals, "
                     "policy_chunks, leave_balances, employees CASCADE"
                 )
             dimension = settings.embedding_dimensions
@@ -99,10 +99,21 @@ def reset_and_seed(reset: bool = False) -> None:
                 f"""
                 CREATE TABLE IF NOT EXISTS employees (
                     employee_id TEXT PRIMARY KEY,
+                    username TEXT UNIQUE,
+                    password_hash TEXT,
                     display_name TEXT NOT NULL,
-                    role TEXT NOT NULL CHECK (role IN ('employee', 'monitoring_admin')),
+                    role TEXT NOT NULL CHECK (role IN ('employee', 'manager', 'monitoring_admin')),
+                    department TEXT,
+                    manager_id TEXT,
                     token_hash TEXT NOT NULL UNIQUE
                 );
+                ALTER TABLE employees ADD COLUMN IF NOT EXISTS username TEXT UNIQUE;
+                ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_hash TEXT;
+                ALTER TABLE employees ADD COLUMN IF NOT EXISTS department TEXT;
+                ALTER TABLE employees ADD COLUMN IF NOT EXISTS manager_id TEXT;
+                ALTER TABLE employees DROP CONSTRAINT IF EXISTS employees_role_check;
+                ALTER TABLE employees ADD CONSTRAINT employees_role_check
+                    CHECK (role IN ('employee', 'manager', 'monitoring_admin'));
                 CREATE TABLE IF NOT EXISTS leave_balances (
                     employee_id TEXT NOT NULL REFERENCES employees(employee_id),
                     leave_type TEXT NOT NULL,
@@ -132,8 +143,10 @@ def reset_and_seed(reset: bool = False) -> None:
                     business_days INTEGER NOT NULL CHECK (business_days > 0),
                     reason TEXT,
                     validation_summary TEXT[] NOT NULL,
-                    expires_at TIMESTAMPTZ NOT NULL
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    requires_attachment BOOLEAN DEFAULT FALSE
                 );
+                ALTER TABLE action_proposals ADD COLUMN IF NOT EXISTS requires_attachment BOOLEAN DEFAULT FALSE;
                 CREATE INDEX IF NOT EXISTS action_proposals_employee_idx
                     ON action_proposals (employee_id, expires_at);
                 CREATE TABLE IF NOT EXISTS leave_requests (
@@ -144,10 +157,39 @@ def reset_and_seed(reset: bool = False) -> None:
                     start_date DATE NOT NULL,
                     end_date DATE NOT NULL,
                     business_days INTEGER NOT NULL CHECK (business_days > 0),
-                    status TEXT NOT NULL CHECK (status = 'pending_manager_review'),
+                    status TEXT NOT NULL DEFAULT 'pending_manager_review'
+                        CHECK (status IN ('pending_manager_review', 'approved', 'rejected', 'cancelled')),
                     idempotency_key TEXT NOT NULL,
+                    reviewed_by TEXT REFERENCES employees(employee_id),
+                    review_note TEXT,
+                    reviewed_at TIMESTAMPTZ,
                     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE (employee_id, idempotency_key)
+                );
+                ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS reviewed_by TEXT;
+                ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS review_note TEXT;
+                ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
+                ALTER TABLE leave_requests DROP CONSTRAINT IF EXISTS leave_requests_status_check;
+                ALTER TABLE leave_requests ADD CONSTRAINT leave_requests_status_check
+                    CHECK (status IN ('pending_manager_review', 'approved', 'rejected', 'cancelled'));
+
+                CREATE TABLE IF NOT EXISTS approval_audit_logs (
+                    audit_id TEXT PRIMARY KEY,
+                    request_id TEXT NOT NULL REFERENCES leave_requests(request_id),
+                    reviewer_id TEXT NOT NULL REFERENCES employees(employee_id),
+                    previous_status TEXT NOT NULL,
+                    new_status TEXT NOT NULL CHECK (new_status IN ('approved', 'rejected')),
+                    review_note TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS leave_attachments (
+                    request_id TEXT PRIMARY KEY REFERENCES leave_requests(request_id) ON DELETE CASCADE,
+                    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+                    filename TEXT NOT NULL,
+                    content_type TEXT NOT NULL CHECK (content_type IN ('application/pdf', 'image/png', 'image/jpeg')),
+                    file_size_bytes INTEGER NOT NULL CHECK (file_size_bytes > 0 AND file_size_bytes <= 5242880),
+                    file_bytes BYTEA NOT NULL,
+                    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE INDEX IF NOT EXISTS leave_requests_employee_dates_idx
                     ON leave_requests (employee_id, start_date, end_date);
@@ -169,19 +211,33 @@ def reset_and_seed(reset: bool = False) -> None:
                 """
             )
             for employee in employees:
+                username = employee.get("username") or employee["employee_id"].lower()
+                raw_password = employee.get("password", "Password#123")
+                # Gunakan salt deterministik berbasis employee_id saat seed agar idempotent
+                pwd_salt = hashlib.sha256(f"salt:{employee['employee_id']}".encode()).hexdigest()[:16]
+                pwd_hash = hash_password(raw_password, salt=pwd_salt)
                 cursor.execute(
                     """
-                    INSERT INTO employees (employee_id, display_name, role, token_hash)
-                    VALUES (%s, %s, %s, %s)
+                    INSERT INTO employees
+                        (employee_id, username, password_hash, display_name, role, department, manager_id, token_hash)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (employee_id) DO UPDATE SET
+                        username = EXCLUDED.username,
+                        password_hash = EXCLUDED.password_hash,
                         display_name = EXCLUDED.display_name,
                         role = EXCLUDED.role,
+                        department = EXCLUDED.department,
+                        manager_id = EXCLUDED.manager_id,
                         token_hash = EXCLUDED.token_hash
                     """,
                     (
                         employee["employee_id"],
+                        username,
+                        pwd_hash,
                         employee["display_name"],
                         employee["role"],
+                        employee.get("department"),
+                        employee.get("manager_id"),
                         token_hash(employee["token"]),
                     ),
                 )
@@ -208,9 +264,19 @@ def reset_and_seed(reset: bool = False) -> None:
                 if settings.live_model_ready
                 else DeterministicProvider(dimension)
             )
-            embeddings = provider.embed([chunk["content"] for chunk in policies])
+            embeddings = provider.embed(
+                [f"{chunk['title']} - {chunk['section']}\n{chunk['content']}" for chunk in policies]
+            )
             if any(len(vector) != dimension for vector in embeddings):
                 raise ValueError("embedding dimensions do not match EMBEDDING_DIMENSIONS")
+
+            active_versions = {chunk["document_id"]: chunk["version"] for chunk in policies}
+            for doc_id, ver in active_versions.items():
+                cursor.execute(
+                    "DELETE FROM policy_chunks WHERE document_id = %s AND version <> %s",
+                    (doc_id, ver),
+                )
+
             for chunk, embedding in zip(policies, embeddings):
                 cursor.execute(
                     """
