@@ -7,3 +7,4 @@ outputs/*.json
 !outputs/evaluation_report.json
 outputs/*.md
 .streamlit/secrets.toml
+WBS/
