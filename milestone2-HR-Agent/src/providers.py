@@ -102,24 +102,27 @@ class OpenAIProvider:
         )
 
     def _transcribe_with_gemini(self, audio_bytes: bytes, filename: str = "recording.wav", language: str = "id") -> str:
-        ext = (filename or "").split(".")[-1].lower()
-        mime_type = "audio/wav"
-        if ext == "webm" or audio_bytes.startswith(b"\x1a\x45\xdf\xa3"):
+        # Detect audio container and format from magic bytes or extension
+        if audio_bytes.startswith(b"\x1a\x45\xdf\xa3") or "webm" in (filename or "").lower():
             mime_type = "audio/webm"
-        elif ext == "mp3" or audio_bytes.startswith(b"ID3") or audio_bytes.startswith(b"\xff\xfb"):
-            mime_type = "audio/mp3"
-        elif ext == "ogg" or audio_bytes.startswith(b"OggS"):
+        elif audio_bytes.startswith(b"OggS") or "ogg" in (filename or "").lower():
             mime_type = "audio/ogg"
+        elif audio_bytes.startswith(b"ID3") or audio_bytes.startswith(b"\xff\xfb") or "mp3" in (filename or "").lower():
+            mime_type = "audio/mp3"
+        else:
+            mime_type = "audio/wav"
 
         b64_audio = base64.b64encode(audio_bytes).decode("ascii")
 
-        # Models to try: primary model from env (gemini-3.5-transcribe), then fast multimodal fallback
+        # Models to try: multimodal fast models (gemini-3.5-flash, gemini-3.6-flash)
         models_to_try = []
-        if self.gemini_stt_model:
+        if self.gemini_stt_model and "transcribe" not in self.gemini_stt_model:
             models_to_try.append(self.gemini_stt_model)
-        for candidate in ("gemini-3.5-transcribe", "gemini-3.5-flash", "gemini-3.6-flash"):
+        for candidate in ("gemini-3.5-flash", "gemini-3.6-flash"):
             if candidate not in models_to_try:
                 models_to_try.append(candidate)
+        if self.gemini_stt_model and self.gemini_stt_model not in models_to_try:
+            models_to_try.append(self.gemini_stt_model)
 
         last_error = None
         for m in models_to_try:
@@ -131,8 +134,9 @@ class OpenAIProvider:
                         "parts": [
                             {
                                 "text": (
-                                    f"Transkripsikan rekaman suara Bahasa {language.upper()} berikut ini secara persis kata demi kata. "
-                                    "Hanya berikan teks transkripsi tanpa pengantar, tanpa tanda kutip, dan tanpa penjelasan tambahan."
+                                    f"Transkripsikan rekaman suara Bahasa {language.upper()} berikut ini secara persis kata demi kata ke dalam teks. "
+                                    "Hanya berikan teks transkripsi tanpa pengantar, tanpa tanda kutip, dan tanpa penjelasan tambahan. "
+                                    "Jika rekaman hening, hanya bunyi nada/bip, atau tidak ada ucapan kata manusia yang dapat dimengerti, balas persis: [NO_SPEECH]"
                                 )
                             },
                             {
@@ -151,10 +155,18 @@ class OpenAIProvider:
                     data = resp.json()
                     candidates = data.get("candidates", [])
                     if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        text = "".join(p.get("text", "") for p in parts if "text" in p).strip()
-                        if text:
-                            return text
+                        content = candidates[0].get("content")
+                        if content and isinstance(content, dict):
+                            parts = content.get("parts", [])
+                            text = "".join(p.get("text", "") for p in parts if isinstance(p, dict) and "text" in p).strip()
+                            if text:
+                                clean_text = text.replace("[NO_SPEECH]", "").strip()
+                                if clean_text:
+                                    return clean_text
+                                # Explicitly recognized silence / no speech
+                                return ""
+                    # If candidates is empty or has no text content, try next candidate model
+                    continue
                 else:
                     last_error = f"HTTP {resp.status_code}: {resp.text[:150]}"
             except Exception as err:
@@ -168,19 +180,33 @@ class OpenAIProvider:
         if not audio_bytes:
             raise ValueError("audio payload must not be empty")
 
+        # 1. Attempt Gemini STT if configured
         if self.gemini_api_key:
-            return self._transcribe_with_gemini(audio_bytes, filename=filename, language=language)
+            try:
+                return self._transcribe_with_gemini(audio_bytes, filename=filename, language=language)
+            except Exception:
+                # If Gemini encounters an API/network error, fallback to OpenAI Whisper
+                pass
 
+        # 2. Primary / Fallback to OpenAI Whisper
         buffer = io.BytesIO(audio_bytes)
         buffer.name = filename or "recording.wav"
-        response = self._call(
-            self.client.audio.transcriptions.create,
-            model=self.stt_model,
-            file=buffer,
-            language=language,
-        )
-        text = getattr(response, "text", "") if not isinstance(response, str) else response
-        return str(text).strip()
+        try:
+            response = self._call(
+                self.client.audio.transcriptions.create,
+                model=self.stt_model,
+                file=buffer,
+                language=language,
+            )
+            text = getattr(response, "text", "") if not isinstance(response, str) else response
+            return str(text).strip()
+        except Exception as whisper_err:
+            err_msg = str(whisper_err)
+            if "403" in err_msg or "whisper-1" in err_msg:
+                raise RuntimeError(
+                    "Speech-to-text service is unavailable: OpenAI whisper-1 permission denied and Gemini STT fallback failed."
+                ) from whisper_err
+            raise
 
 
 class DeterministicProvider:

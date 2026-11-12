@@ -251,7 +251,7 @@ def render_tab_calendar(token: str, persona: dict, is_manager: bool, is_admin: b
                 elif is_weekend:
                     d_cls.append("weekend-text")
 
-                today_badge_html = "<span style='font-size:0.65rem; background: var(--accent-sky-dark); color:#ffffff; padding:1px 5px; border-radius:4px; font-weight:700;'>HARI INI</span>" if is_today else ""
+                today_badge_html = "<span style='font-size:0.65rem; background: var(--accent-orange-hover); color:#ffffff; padding:1px 5px; border-radius:4px; font-weight:700;'>HARI INI</span>" if is_today else ""
 
                 d_leaves = leave_map.get(d, [])
                 badges_html = []
@@ -325,7 +325,7 @@ def render_tab_calendar(token: str, persona: dict, is_manager: bool, is_admin: b
     full_cal_html = f"""
     <div class="calendar-container">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-            <div style="font-size: 1.15rem; font-weight: 700; color: var(--accent-sky);">
+            <div style="font-size: 1.15rem; font-weight: 700; color: var(--accent-orange);">
                 {BULAN_INDONESIA[cal_month]} {cal_year}
             </div>
             <div style="font-size: 0.85rem; color: var(--text-muted); font-weight: 500;">
@@ -351,7 +351,7 @@ def render_tab_calendar(token: str, persona: dict, is_manager: bool, is_admin: b
             <span style="color: #d8b4fe; font-weight: 600;">Orang Tua</span>
             <span style="border: 1px solid #10b981; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; color: var(--text-secondary);">Garis Solid: Disetujui</span>
             <span style="border: 1px dashed #fb7185; padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; color: var(--accent-amber);">Garis Putus-putus: Menunggu Review</span>
-            <span style="border: 2px solid var(--accent-sky); background: rgba(2, 132, 199, 0.15); padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; color: var(--accent-sky);">Hari Ini</span>
+            <span style="border: 2px solid var(--accent-orange); background: var(--accent-orange-subtle); padding: 2px 8px; border-radius: 4px; font-size: 0.72rem; color: var(--accent-orange);">Hari Ini</span>
         </div>
     </div>
     """

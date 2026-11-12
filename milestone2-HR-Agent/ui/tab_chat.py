@@ -1,8 +1,9 @@
-"""Interactive AI Chat Tab with policy citations, action proposals, and voice input."""
+"""Interactive AI Chat Tab with Claude styling, floating action chips, slide-over proposal drawer, and policy citations."""
 from __future__ import annotations
 
 import base64
 import hashlib
+import html
 import os
 import time
 import uuid
@@ -11,13 +12,14 @@ import streamlit as st
 
 from ui.api_client import api_request
 from ui.config import MIYO_LOGO
+from ui.icons import svg_icon
 from ui.leave_form import leave_dialog, render_leave_form
 from ui.policy_rag import get_sick_leave_doc_threshold_from_policy, has_leave_intent
 from ui_contract import API_PATHS
 
 
 def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool) -> None:
-    """Render Tab 1: Conversational Chat Interface."""
+    """Render Tab 1: Conversational Chat Interface with Claude Warmth & Linear Precision."""
     # Fallback container for leave form if running on older Streamlit without native modal dialog
     if not hasattr(st, "dialog") and st.session_state.get("show_leave_modal", False):
         with st.container():
@@ -25,11 +27,11 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
             render_leave_form()
             st.markdown("---")
 
-    # Dynamic recommended questions based on user role
+    # Dynamic recommended queries based on role
     quick_queries = [
-        "Berapa jatah cuti tahunan dan syarat pengajuannya?",
         "Berapa sisa saldo cuti saya saat ini?",
-        "Kapan surat dokter diwajibkan untuk cuti sakit?",
+        "Apa syarat cuti sakit lebih dari 2 hari?",
+        "Berapa jatah cuti tahunan dan syarat pengajuannya?",
         "Berapa hari boleh Work From Home (WFH) per minggu?",
     ]
     if is_manager:
@@ -43,45 +45,61 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
             "Bagaimana analitik agregat SDM dan utilisasi cuti?",
         ])
 
-    # Welcome greeting with recommendation questions when chat is empty
-    if not st.session_state["chat_history"]:
-        user_display = persona.get("label", "").split("—")[0].strip() or "Pegawai"
-        st.markdown(
-            f"""
-            <div style="background-color: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 20px 22px; margin-bottom: 18px;">
-                <div style="font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-sky); font-weight: 700; margin-bottom: 4px;">
-                    Asisten Kebijakan HR Digital
+    # Welcome greeting with recommendation cards when chat is empty
+    welcome_placeholder = st.empty()
+    if not st.session_state["chat_history"] and not st.session_state.get("pending_assistant_query"):
+        with welcome_placeholder.container():
+            user_display = persona.get("label", "").split("—")[0].strip() or "Pegawai"
+            st.markdown(
+                f"""
+                <div style="background-color: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 22px 24px; margin-bottom: 20px;">
+                    <div style="display: flex; align-items: center; gap: 8px; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-orange); font-weight: 700; margin-bottom: 6px;">
+                        {svg_icon("sparkles", size=16, color="var(--accent-orange)")}
+                        <span>Asisten Kebijakan HR Digital</span>
+                    </div>
+                    <div style="font-size: 1.35rem; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; letter-spacing: -0.02em;">
+                        Halo, {user_display}
+                    </div>
+                    <div style="font-size: 0.92rem; color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px;">
+                        Saya Miyo, mitra kecerdasan buatan resmi PT Nusantara Digital. Saya siap membantu Anda menelusuri kebijakan perusahaan, memeriksa hak dan saldo cuti, serta memproses pengajuan cuti secara aman dan terverifikasi.
+                    </div>
+                    <div style="font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 10px;">
+                        Rekomendasi Pertanyaan Cepat:
+                    </div>
                 </div>
-                <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-primary); margin-bottom: 6px;">
-                    Halo, {user_display}
-                </div>
-                <div style="font-size: 0.9rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 14px;">
-                    Saya Miyo, mitra kecerdasan buatan resmi PT Nusantara Digital. Saya siap membantu Anda menelusuri kebijakan perusahaan, memeriksa hak & saldo cuti, serta memproses pengajuan cuti bergaransi keamanan.
-                </div>
-                <div style="font-size: 0.82rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent-sky); margin-bottom: 8px;">
-                    Rekomendasi Pertanyaan:
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+                """,
+                unsafe_allow_html=True,
+            )
 
-        cols_q = st.columns(2)
-        for idx_q, q in enumerate(quick_queries):
-            with cols_q[idx_q % 2]:
-                if st.button(q, key=f"btn_chat_quick_card_{idx_q}", use_container_width=True, type="secondary"):
-                    st.session_state["prompt_input"] = q
-                    st.rerun()
+            cols_q = st.columns(2)
+            for idx_q, q in enumerate(quick_queries[:4]):
+                with cols_q[idx_q % 2]:
+                    if st.button(q, key=f"btn_chat_quick_card_{idx_q}", use_container_width=True, type="secondary"):
+                        # Langsung masukkan pertanyaan ke riwayat chat & kosongkan bubble seketika
+                        st.session_state["chat_history"].append({"role": "user", "content": q})
+                        st.session_state["pending_assistant_query"] = q
+                        welcome_placeholder.empty()
+                        st.rerun()
 
-    # Render past conversation history
+    # Render past conversation history (Pesan user rata kanan tanpa avatar)
     assistant_avatar = MIYO_LOGO if os.path.exists(MIYO_LOGO) else None
     for idx, entry in enumerate(st.session_state["chat_history"]):
         role = entry["role"]
-        avatar = None if role == "user" else assistant_avatar
-        with st.chat_message(role, avatar=avatar):
-            st.markdown(entry["content"])
+        if role == "user":
+            user_escaped = html.escape(entry["content"])
+            st.markdown(
+                f"""
+                <div class="user-chat-bubble-container">
+                    <div class="user-chat-bubble">{user_escaped}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            with st.chat_message("assistant", avatar=assistant_avatar):
+                st.markdown(entry["content"])
 
-            # Verified Policy Citations
+            # Verified Policy Citations (Claude styled cards)
             if entry.get("citations"):
                 with st.expander(f"Sumber Kebijakan Terverifikasi ({len(entry['citations'])})", expanded=False):
                     for cite in entry["citations"]:
@@ -89,13 +107,15 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
                             f"""
                             <div class="citation-card">
                                 <div class="citation-header">[{cite['document_id']}] {cite['title']} — {cite['section']}</div>
-                                <div class="citation-body">"{cite['excerpt']}"</div>
+                                <div style="color: var(--text-secondary); margin-top: 4px; line-height: 1.5; font-size: 0.88rem;">
+                                    "{cite['excerpt']}"
+                                </div>
                             </div>
                             """,
                             unsafe_allow_html=True,
                         )
 
-            # Action proposals (supports multiple proposals per turn)
+            # Action proposals presented in Slide-Over Sheet Drawer style
             proposals_list = entry.get("action_proposals") or (
                 [entry.get("action_proposal")] if entry.get("action_proposal") else []
             )
@@ -143,16 +163,34 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
                 if is_confirmed:
                     st.success(f"[TERKONFIRMASI] Permintaan {prop_id} ({proposal['leave_type'].capitalize()}: {proposal['start_date']} s/d {proposal['end_date']}) telah dikonfirmasi dan berstatus pending_manager_review.")
                 else:
+                    # Slide-Over Sheet Drawer style container
                     st.markdown(
                         f"""
-                        <div class="proposal-box">
-                            <div class="proposal-title">Proposal Permohonan Cuti (Menunggu Konfirmasi)</div>
-                            <div class="proposal-detail"><b>Jenis Cuti:</b> {proposal['leave_type'].capitalize()}</div>
-                            <div class="proposal-detail"><b>Rentang Tanggal:</b> {proposal['start_date']} s/d {proposal['end_date']} (<b>{proposal['business_days']} hari kerja</b>)</div>
-                            <div class="proposal-detail"><b>Alasan:</b> {proposal.get('reason') or 'Tidak dicantumkan'}</div>
-                            <div>
-                                {''.join([f'<span class="validation-badge">{v}</span>' for v in proposal.get('validation_summary', [])])}
-                                <span class="expiry-tag">Batas Konfirmasi: {proposal['expires_at'][:19].replace('T', ' ')} UTC</span>
+                        <div class="slide-over-sheet">
+                            <div class="proposal-banner-title">
+                                {svg_icon('sparkles', size=16, color='var(--accent-orange)')}
+                                <span>Proposal Pengajuan Cuti (Menunggu Konfirmasi)</span>
+                            </div>
+                            <div class="proposal-grid-meta">
+                                <div class="proposal-meta-item">
+                                    <div class="proposal-meta-label">Jenis Cuti</div>
+                                    <div class="proposal-meta-val">{proposal['leave_type'].capitalize()}</div>
+                                </div>
+                                <div class="proposal-meta-item">
+                                    <div class="proposal-meta-label">Periode Tanggal</div>
+                                    <div class="proposal-meta-val">{proposal['start_date']} s/d {proposal['end_date']}</div>
+                                </div>
+                                <div class="proposal-meta-item">
+                                    <div class="proposal-meta-label">Durasi Hari Kerja</div>
+                                    <div class="proposal-meta-val" style="color: var(--accent-orange);">{proposal['business_days']} Hari Kerja</div>
+                                </div>
+                                <div class="proposal-meta-item">
+                                    <div class="proposal-meta-label">Alasan</div>
+                                    <div class="proposal-meta-val">{proposal.get('reason') or 'Tidak dicantumkan'}</div>
+                                </div>
+                            </div>
+                            <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 12px; font-family: var(--font-mono);">
+                                ID Proposal: {prop_id} · Batas Konfirmasi: {proposal['expires_at'][:19].replace('T', ' ')} UTC
                             </div>
                         </div>
                         """,
@@ -244,39 +282,9 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
                                 st.session_state["show_leave_modal"] = True
                                 st.rerun()
 
-            # If dialogue expresses intent to request leave and proposal is not yet generated
-            if entry["role"] == "assistant" and not is_admin and not proposals_list:
-                prev_user_msg = (
-                    st.session_state["chat_history"][idx - 1].get("content", "")
-                    if idx > 0 and st.session_state["chat_history"][idx - 1].get("role") == "user"
-                    else ""
-                )
-                if has_leave_intent(prev_user_msg) or has_leave_intent(entry.get("content", "")):
-                    st.markdown(
-                        """
-                        <div style="background-color: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 12px 16px; margin-top: 10px; margin-bottom: 8px;">
-                            <div style="font-weight: 700; color: var(--accent-sky); font-size: 0.95rem; margin-bottom: 2px;">
-                                Formulir Permohonan Cuti
-                            </div>
-                            <div style="font-size: 0.83rem; color: var(--text-secondary);">
-                                Ingin langsung mengajukan cuti? Klik tombol di bawah untuk memilih tanggal via kalender interaktif, atau Anda dapat mengetik permohonan secara manual di kolom chat.
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    col_form_btn, _ = st.columns([1.5, 2.5])
-                    with col_form_btn:
-                        if st.button("Buka Formulir Pengajuan Cuti", key=f"btn_form_chat_{idx}", type="primary"):
-                            if hasattr(st, "dialog"):
-                                leave_dialog()
-                            else:
-                                st.session_state["show_leave_modal"] = True
-                                st.rerun()
-
             # Technical details in collapsed expander
             if entry.get("trace_id"):
-                with st.expander("Trace & Telemetry Audit", expanded=False):
+                with st.expander("Audit Jejak Telemetri", expanded=False):
                     trace_col1, trace_col2 = st.columns(2)
                     with trace_col1:
                         st.caption(f"**Outcome:** `{entry.get('outcome')}`")
@@ -285,69 +293,74 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
                         usage = entry.get("usage", {})
                         st.caption(f"**Latency:** {usage.get('latency_ms', 0)} ms")
                         st.caption(f"**Tokens:** {usage.get('input_tokens', 0)} in / {usage.get('output_tokens', 0)} out")
-                    if entry.get("tool_calls"):
-                        st.write("**Tool Calls:**")
-                        for tc in entry["tool_calls"]:
-                            st.caption(f"- `{tc.get('name')}` · Status: `{tc.get('status')}` ({tc.get('duration_ms', 0)} ms)")
 
-    # Chat Action Toolbar (Voice Input, Recommendation Questions, Clear Chat)
-    col_voice, col_quick_pop, col_clear = st.columns([1.5, 2.5, 1.2])
-    with col_voice:
-        with st.popover("Input Suara (Mikrofon)"):
-            st.caption("Rekam pertanyaan Anda dalam Bahasa Indonesia. Rekaman diproses langsung di memori dan tidak disimpan.")
-            audio_val = st.audio_input("Klik tombol mikrofon untuk mulai/berhenti merekam:", key="voice_chat_input")
-            if audio_val is not None:
-                raw_bytes = audio_val.getvalue()
-                audio_hash = hashlib.sha256(raw_bytes).hexdigest()[:16]
-                if st.session_state.get("last_transcribed_hash") != audio_hash:
-                    with st.spinner("Menerjemahkan suara ke teks..."):
-                        b64_str = base64.b64encode(raw_bytes).decode("ascii")
-                        stt_res = api_request(
-                            "POST",
-                            "/api/v1/audio/transcribe",
-                            token,
-                            json={
-                                "audio_base64": b64_str,
-                                "filename": "voice_query.wav",
-                                "language": "id",
-                            },
-                        )
-                    st.session_state["last_transcribed_hash"] = audio_hash
-                    if stt_res and stt_res.get("text"):
-                        detected_text = stt_res["text"]
-                        st.session_state["prompt_input"] = detected_text
-                        st.success(f"Suara terdeteksi: \"{detected_text}\"")
-                        st.rerun()
-
-    with col_quick_pop:
-        with st.popover("Rekomendasi Pertanyaan"):
-            st.caption("Pilih pertanyaan rekomendasi untuk diajukan:")
-            for idx_q, q in enumerate(quick_queries):
-                if st.button(q, key=f"btn_chat_quick_pop_{idx_q}", use_container_width=True):
-                    st.session_state["prompt_input"] = q
-                    st.rerun()
-
-    with col_clear:
-        if st.session_state["chat_history"]:
-            if st.button("Hapus Chat", key="btn_clear_chat", use_container_width=True):
+    # Tombol Hapus Chat di pojok kanan bawah dekat tombol enter dan mikrofon (hanya muncul saat ada riwayat chat)
+    if st.session_state["chat_history"]:
+        _, col_clear = st.columns([6.6, 1.4])
+        with col_clear:
+            if st.button("Hapus Chat", key="btn_clear_chat", icon=":material/delete_outline:", use_container_width=True, type="secondary"):
                 st.session_state["chat_history"] = []
                 st.session_state["confirmed_proposals"] = set()
                 st.rerun()
 
-    # Chat Input Box
+    # Chat Input Box with native Voice Input (Pinned to the bottom of the viewport)
     default_prompt = st.session_state.pop("prompt_input", "")
-    user_input = st.chat_input("Tanyakan kebijakan, aturan kerja, atau ajukan cuti Anda...")
+    user_input = st.chat_input(
+        "Tanyakan kebijakan, aturan kerja, atau ajukan cuti Anda...",
+        accept_audio=True,
+    )
 
-    # If triggered via quick button or direct chat input
-    prompt_to_send = user_input or (default_prompt if default_prompt else None)
+    prompt_to_send = None
+    if user_input is not None:
+        if getattr(user_input, "audio", None) is not None:
+            raw_bytes = user_input.audio.getvalue()
+            mime_type = getattr(user_input.audio, "type", "audio/wav") or "audio/wav"
+            ext = "webm" if "webm" in str(mime_type).lower() or raw_bytes.startswith(b"\x1a\x45\xdf\xa3") else "wav"
+            filename = f"voice_query.{ext}"
 
-    if prompt_to_send:
-        # 1. Display User Message
+            with st.spinner("Menerjemahkan rekaman suara ke teks..."):
+                b64_str = base64.b64encode(raw_bytes).decode("ascii")
+                stt_res = api_request(
+                    "POST",
+                    "/api/v1/audio/transcribe",
+                    token,
+                    json={
+                        "audio_base64": b64_str,
+                        "filename": filename,
+                        "language": "id",
+                    },
+                )
+            if stt_res and stt_res.get("text"):
+                prompt_to_send = stt_res["text"]
+            else:
+                st.warning("Tidak ada ucapan terdeteksi atau rekaman suara kosong.")
+        elif getattr(user_input, "text", None):
+            prompt_to_send = user_input.text
+        elif isinstance(user_input, str):
+            prompt_to_send = user_input
+
+    # Cek query tertunda dari klik bubble rekomendasi ATAU input baru dari chat bar
+    pending_query = st.session_state.pop("pending_assistant_query", None)
+    query_to_send = None
+
+    if pending_query:
+        query_to_send = pending_query
+    elif prompt_to_send:
         st.session_state["chat_history"].append({"role": "user", "content": prompt_to_send})
-        with st.chat_message("user"):
-            st.markdown(prompt_to_send)
+        welcome_placeholder.empty()
+        user_escaped = html.escape(prompt_to_send)
+        st.markdown(
+            f"""
+            <div class="user-chat-bubble-container">
+                <div class="user-chat-bubble">{user_escaped}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        query_to_send = prompt_to_send
 
-        # 2. Call FastAPI Backend
+    if query_to_send:
+        # Call FastAPI Backend
         assistant_avatar = MIYO_LOGO if os.path.exists(MIYO_LOGO) else None
         with st.chat_message("assistant", avatar=assistant_avatar):
             with st.spinner("Miyo sedang menelusuri kebijakan resmi dan memverifikasi data..."):
@@ -355,7 +368,7 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
                 for h in st.session_state["chat_history"][:-1][-6:]:
                     if h.get("role") in ("user", "assistant") and h.get("content"):
                         recent_history.append({"role": h["role"], "content": h["content"]})
-                payload = {"message": prompt_to_send, "history": recent_history}
+                payload = {"message": query_to_send, "history": recent_history}
                 result = api_request("POST", API_PATHS["chat"], token, json=payload)
 
             if result:

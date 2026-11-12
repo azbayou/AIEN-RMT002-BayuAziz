@@ -1,0 +1,15 @@
+mencari user_id hanya dari session. jangan pernah ambil user_id dari prompt
+
+pisahkan bukti kebijakan dari instruksi sistem
+
+tetapkan tool yang boleh digunakan dalam kode
+
+validasi argumen sebelum menjalankan tool
+
+update sistem prompt untuk tolak prompt yang meminta mengabaikan aturan
+
+di milestone harus ada fitur trace 
+
+tampilkan di slide
+hitung berapa reasoning loop
+tampilkan end to end latency

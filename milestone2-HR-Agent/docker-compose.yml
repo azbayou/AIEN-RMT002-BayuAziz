@@ -31,6 +31,8 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
       POLICY_INDEX_VERSION: ${POLICY_INDEX_VERSION:-policies-2026-01}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_STT_MODEL: ${GEMINI_STT_MODEL:-gemini-3.5-flash}
     ports: ["${API_PORT:-8000}:8000"]
     depends_on:
       postgres: {condition: service_healthy}
