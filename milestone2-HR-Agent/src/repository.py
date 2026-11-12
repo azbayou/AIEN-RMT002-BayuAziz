@@ -198,7 +198,7 @@ class MemoryRepository:
         for balance in self.balances.get(employee_id, []):
             reserved = pending_by_type.get(balance.leave_type, 0)
             effective = max(0, balance.available_days - reserved)
-            result.append(balance.model_copy(update={"available_days": effective}, deep=True))
+            result.append(balance.model_copy(update={"available_days": effective, "as_of_date": date.today()}, deep=True))
         return result
 
     def has_overlap(self, employee_id: str, start: date, end: date) -> bool:
@@ -767,7 +767,7 @@ class PostgresRepository:
                               AND r.status = 'pending_manager_review'
                         ), 0)
                     ) AS available_days,
-                    b.as_of_date
+                    CURRENT_DATE AS as_of_date
                 FROM leave_balances b
                 WHERE b.employee_id = %s
                 ORDER BY b.leave_type

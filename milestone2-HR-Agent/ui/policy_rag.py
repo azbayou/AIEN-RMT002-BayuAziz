@@ -358,9 +358,17 @@ def has_leave_intent(text: str) -> bool:
 
 
 def get_min_start_date(leave_type: str, today: date, token: str = "") -> date:
-    """Calculate the earliest allowable start date based on company policy."""
+    """Calculate the earliest allowable start date based on company policy, ensuring required business days notice."""
     if leave_type != "annual":
         return today
 
     lead_days = get_annual_leave_lead_days_from_policy(token)
-    return today + timedelta(days=lead_days)
+    candidate = today + timedelta(days=1)
+    while True:
+        lead_time_days = sum(
+            (today + timedelta(days=offset)).weekday() < 5
+            for offset in range(1, (candidate - today).days)
+        )
+        if lead_time_days >= lead_days and candidate.weekday() < 5:
+            return candidate
+        candidate += timedelta(days=1)

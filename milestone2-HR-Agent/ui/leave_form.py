@@ -78,11 +78,14 @@ def render_leave_form() -> None:
     if leave_type == "annual":
         lead_days = get_annual_leave_lead_days_from_policy(token)
         entitlement_days = get_annual_leave_entitlement_from_policy(token)
-        actual_lead = (start_date - today).days
+        actual_lead_workdays = sum(
+            (today + timedelta(days=offset)).weekday() < 5
+            for offset in range(1, (start_date - today).days)
+        )
         st.info(
             f"[ANALISIS KEBIJAKAN HR-LEAVE-001]\n"
-            f"- Cuti tahunan wajib diajukan minimal H-{lead_days} ({lead_days} hari) sebelumnya.\n"
-            f"- Jarak tanggal mulai pengajuan yang Anda pilih: {actual_lead} hari ke depan.\n"
+            f"- Cuti tahunan wajib diajukan minimal {lead_days} hari kerja sebelumnya.\n"
+            f"- Jarak hari kerja sebelum tanggal mulai: {actual_lead_workdays} hari kerja.\n"
             f"- Jatah cuti tahunan: {entitlement_days} hari kerja/tahun kalender."
         )
     elif leave_type == "sick":
@@ -155,7 +158,10 @@ def render_leave_form() -> None:
                 reason_clean = reason.strip() if reason else ""
                 reason_param = f" dengan alasan: {reason_clean}" if reason_clean else ""
                 prompt = f"Siapkan {leave_label.lower()} ({leave_type}) dari {start_date.isoformat()} sampai {end_date.isoformat()}{reason_param}"
-                st.session_state["prompt_input"] = prompt
+                st.session_state["nav_active_tab"] = "Asisten Kebijakan"
+                st.session_state["nav_active_tab_radio"] = "Asisten Kebijakan"
+                st.session_state.setdefault("chat_history", []).append({"role": "user", "content": prompt})
+                st.session_state["pending_assistant_query"] = prompt
                 st.session_state["show_leave_modal"] = False
                 st.rerun()
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
 import json
 import re
 import time
@@ -51,11 +52,24 @@ class AgentService:
                 messages.append({"role": h.role, "content": h.content})
         messages.append({"role": "user", "content": request.message})
 
+        today = date.today()
+        month_names = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+        today_str = f"{today.day} {month_names[today.month - 1]} {today.year}"
+        date_context = (
+            f"\n\n[KONTEKS WAKTU SISTEM SAAT INI]\n"
+            f"Hari ini adalah {today_str} ({today.isoformat()}). "
+            f"Gunakan tanggal ini sebagai acuan mutlak untuk menyelesaikan rujukan waktu relatif pengguna: "
+            f"'hari ini' = {today.isoformat()}, 'besok' = {(today + timedelta(days=1)).isoformat()}, "
+            f"'lusa' = {(today + timedelta(days=2)).isoformat()}.\n"
+            f"Saat menyajikan saldo cuti, nyatakan saldo berlaku per hari ini ({today_str})."
+        )
+        active_instructions = SYSTEM_INSTRUCTIONS + date_context
+
         try:
             for _ in range(self.settings.max_agent_turns):
                 turn = self.provider.respond(
                     input_data=messages,
-                    instructions=SYSTEM_INSTRUCTIONS,
+                    instructions=active_instructions,
                     tools=get_tools_for_role(auth.role),
                     safety_identifier=auth.employee_id,
                     max_output_tokens=self.settings.max_output_tokens,

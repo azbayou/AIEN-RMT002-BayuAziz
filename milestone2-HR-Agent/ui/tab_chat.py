@@ -339,11 +339,15 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
         elif isinstance(user_input, str):
             prompt_to_send = user_input
 
-    # Cek query tertunda dari klik bubble rekomendasi ATAU input baru dari chat bar
-    pending_query = st.session_state.pop("pending_assistant_query", None)
+    # Cek query tertunda dari klik bubble rekomendasi, submit form cuti, ATAU input baru dari chat bar
+    pending_query = st.session_state.pop("pending_assistant_query", None) or default_prompt
     query_to_send = None
 
     if pending_query:
+        # Pastikan prompt ada di chat history jika berasal dari prompt_input
+        if not st.session_state["chat_history"] or st.session_state["chat_history"][-1].get("content") != pending_query:
+            st.session_state["chat_history"].append({"role": "user", "content": pending_query})
+        welcome_placeholder.empty()
         query_to_send = pending_query
     elif prompt_to_send:
         st.session_state["chat_history"].append({"role": "user", "content": prompt_to_send})
