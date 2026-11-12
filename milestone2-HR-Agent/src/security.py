@@ -39,8 +39,19 @@ def _build_medical_term_re(terms: tuple[str, ...] | None = None) -> re.Pattern:
     # Sort descending by length so longer patterns like 'covid-19' precede 'covid'
     sorted_terms = sorted(active_terms, key=len, reverse=True)
     pattern_terms = "|".join(re.escape(term) for term in sorted_terms)
+    hr_lookbehinds = (
+        r"(?<!cuti\s)"
+        r"(?<!izin\s)"
+        r"(?<!tipe\s)"
+        r"(?<!saldo\s)"
+        r"(?<!jatah\s)"
+        r"(?<!jenis\s)"
+        r"(?<!hak\s)"
+        r"(?<!kategori\s)"
+    )
+    hr_suffix_lookahead = r"(?!\s*:\s*\d+\s*(?:hari(?:\s*kerja)?))"
     return re.compile(
-        rf"\b(?:{pattern_terms})\b|(?<!cuti\s)\bsakit\b",
+        rf"\b(?:{pattern_terms})\b|{hr_lookbehinds}\bsakit\b{hr_suffix_lookahead}",
         re.IGNORECASE,
     )
 

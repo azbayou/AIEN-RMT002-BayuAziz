@@ -43,6 +43,29 @@ def test_redaction_preserves_leave_policy_term() -> None:
     assert "demam" not in value
 
 
+def test_redaction_preserves_various_hr_sick_leave_formats() -> None:
+    # 1. Cuti Sakit berawalan resmi
+    val1 = redact("• Cuti Sakit: 8 hari kerja")
+    assert "Cuti Sakit: 8 hari kerja" in val1
+    assert "[REDACTED_MEDICAL]" not in val1
+
+    # 2. Format ringkas saldo 'Sakit: X hari kerja'
+    val2 = redact("Per 10 November 2026, saldo cuti Anda:\n• Tahunan: 6 hari kerja\n• Sakit: 8 hari kerja\n• Orang tua: 60 hari kerja")
+    assert "Sakit: 8 hari kerja" in val2
+    assert "[REDACTED_MEDICAL]" not in val2
+
+    # 3. Istilah administratif lain (izin sakit, saldo sakit)
+    val3 = redact("Pengajuan izin sakit dan saldo sakit 5 hari kerja.")
+    assert "izin sakit" in val3
+    assert "saldo sakit" in val3
+    assert "[REDACTED_MEDICAL]" not in val3
+
+    # 4. Tetap meredaksi keluhan gejala/diagnosa medis individual secara presisi
+    val4 = redact("Karyawan tidak masuk karena sakit kepala dan demam tinggi.")
+    assert "[REDACTED_MEDICAL] kepala" in val4
+    assert "[REDACTED_MEDICAL] tinggi" in val4
+
+
 def test_redaction_covers_phone_variants_and_token_prefixes() -> None:
     value = redact("Kontak 0812.3456.7890, sk-abcdefghijkl, api-key-prod_123456.")
     assert "0812.3456.7890" not in value
