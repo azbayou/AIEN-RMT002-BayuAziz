@@ -8,9 +8,10 @@ import streamlit as st
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
-GUNUNGAN_LOGO = str(BASE_DIR / "public" / "img" / "gunungan.png")
-MIYO_LOGO = str(BASE_DIR / "public" / "img" / "miyo.png")
-STYLE_CSS_PATH = BASE_DIR / "public" / "style.css"
+_public_dir = BASE_DIR / "ui" / "public" if (BASE_DIR / "ui" / "public").is_dir() else BASE_DIR / "public"
+GUNUNGAN_LOGO = str(_public_dir / "img" / "gunungan.png")
+MIYO_LOGO = str(_public_dir / "img" / "miyo.png")
+STYLE_CSS_PATH = _public_dir / "style.css"
 
 
 def init_page_and_theme() -> None:

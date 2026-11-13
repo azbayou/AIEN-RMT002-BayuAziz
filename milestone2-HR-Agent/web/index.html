@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Miyo HR Portal — PT Nusantara Digital</title>
+  <link rel="icon" type="image/png" href="/public/img/miyo.png">
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Vue 3 CDN -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <!-- Markdown parser -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              orange: '#da7756',
+              'orange-hover': '#e28a6c',
+              'orange-subtle': 'rgba(218, 119, 86, 0.12)',
+              dark: 'var(--bg-app)',
+              sidebar: 'var(--bg-sidebar)',
+              surface: 'var(--bg-surface)',
+              elevated: 'var(--bg-surface-elevated)',
+              border: 'var(--border-subtle)',
+              'border-subtle': 'var(--border-subtle)',
+              text: 'var(--text-primary)',
+              muted: 'var(--text-muted)',
+            }
+          },
+          fontFamily: {
+            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    :root {
+      --bg-app: #faf9f5;
+      --bg-sidebar: #f4f3ee;
+      --bg-surface: #edebe4;
+      --bg-surface-elevated: #ffffff;
+      --border-subtle: #e5e4de;
+      --text-primary: #191816;
+      --text-secondary: #57564f;
+      --text-muted: #8c8a82;
+    }
+
+    html.dark {
+      --bg-app: #141311;
+      --bg-sidebar: #1c1b18;
+      --bg-surface: #21201d;
+      --bg-surface-elevated: #262522;
+      --border-subtle: #33322c;
+      --text-primary: #f4f3ee;
+      --text-secondary: #9e9c94;
+      --text-muted: #7e7c74;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #33322c; border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #4a4840; }
+
+    /* Markdown styling inside assistant chat */
+    .prose-miyo p { margin-bottom: 0.75rem; line-height: 1.625; }
+    .prose-miyo p:last-child { margin-bottom: 0; }
+    .prose-miyo ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+    .prose-miyo ol { list-style-type: decimal; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+    .prose-miyo li { margin-bottom: 0.35rem; }
+    .prose-miyo code { background-color: rgba(255, 255, 255, 0.08); padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.85em; font-family: monospace; }
+    .prose-miyo strong { color: #f4f3ee; font-weight: 600; }
+    .prose-miyo blockquote { border-left: 3px solid #da7756; padding-left: 0.85rem; color: #b5b3aa; margin: 0.75rem 0; }
+
+    /* Audio wave animation */
+    @keyframes pulse-wave {
+      0%, 100% { transform: scaleY(0.4); }
+      50% { transform: scaleY(1); }
+    }
+    .wave-bar { animation: pulse-wave 1s ease-in-out infinite; transform-origin: bottom; }
+    .wave-bar:nth-child(2) { animation-delay: 0.15s; }
+    .wave-bar:nth-child(3) { animation-delay: 0.3s; }
+    .wave-bar:nth-child(4) { animation-delay: 0.45s; }
+  </style>
+</head>
+
+<body class="bg-brand-dark text-brand-text font-sans antialiased h-screen overflow-hidden select-none">
+  <div id="app" class="flex h-full w-full">
+    <!-- SIDEBAR -->
+    <aside :class="['bg-brand-sidebar border-r border-brand-border flex flex-col transition-all duration-300 z-30', isSidebarCollapsed ? 'w-16' : 'w-72']">
+      <!-- Sidebar Header / Logo -->
+      <div class="h-16 flex items-center justify-between px-4 border-b border-brand-border">
+        <div v-if="!isSidebarCollapsed" class="flex items-center gap-3 overflow-hidden">
+          <img src="/public/img/gunungan.png" alt="Nusantara Digital" class="w-7 h-7 object-contain flex-shrink-0" onerror="this.style.display='none'">
+          <div class="flex flex-col">
+            <span class="font-bold text-sm tracking-tight text-white leading-tight">Nusantara Digital</span>
+            <span class="text-[11px] text-brand-orange font-medium">HR Portal · Miyo AI</span>
+          </div>
+        </div>
+        <button @click="isSidebarCollapsed = !isSidebarCollapsed" class="p-2 rounded-lg text-brand-muted hover:text-white hover:bg-brand-surface transition" :title="isSidebarCollapsed ? 'Buka Sidebar' : 'Tutup Sidebar'">
+          <i :data-lucide="isSidebarCollapsed ? 'chevron-right' : 'chevron-left'" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Persona / User Profile Card -->
+      <div class="p-3 border-b border-brand-border">
+        <div v-if="!isSidebarCollapsed" class="bg-brand-surface border border-brand-border rounded-xl p-3">
+          <div class="flex items-center justify-between mb-2">
+            <div class="flex items-center gap-2 overflow-hidden">
+              <div class="w-8 h-8 rounded-full bg-brand-orange/20 border border-brand-orange/30 flex items-center justify-center font-bold text-brand-orange text-xs flex-shrink-0">
+                {{ userInitials }}
+              </div>
+              <div class="overflow-hidden">
+                <div class="text-xs font-semibold text-white truncate">{{ activePersona.label.split('—')[0] }}</div>
+                <div class="text-[10px] text-brand-muted capitalize truncate">{{ userRoleLabel }}</div>
+              </div>
+            </div>
+            <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider" :class="roleBadgeClass">
+              {{ activePersona.employee_id }}
+            </span>
+          </div>
+
+          <!-- Persona Selector Dropdown -->
+          <div class="mt-2 space-y-1.5">
+            <label class="text-[10px] text-brand-muted uppercase font-bold tracking-wider">Pilih Persona Sesi:</label>
+            <select v-model="selectedPersonaId" @change="switchPersona" class="w-full bg-brand-elevated border border-brand-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-orange transition">
+              <option v-for="p in personasCatalog" :key="p.employee_id" :value="p.employee_id">
+                {{ p.label }}
+              </option>
+            </select>
+          </div>
+        </div>
+        <div v-else class="flex justify-center">
+          <div class="w-9 h-9 rounded-full bg-brand-orange/20 border border-brand-orange/40 flex items-center justify-center text-brand-orange font-bold text-xs" :title="activePersona.label">
+            {{ userInitials }}
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Button: Formulir Pengajuan Cuti (Employee / Manager only) -->
+      <div v-if="!isAdmin" class="p-3">
+        <button @click="openLeaveModal" class="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-brand-orange hover:bg-brand-orange-hover text-white text-xs font-semibold shadow-sm transition active:scale-[0.98]">
+          <i data-lucide="plus-circle" class="w-4 h-4"></i>
+          <span v-if="!isSidebarCollapsed">Formulir Pengajuan Cuti</span>
+        </button>
+      </div>
+
+      <!-- Nav Menu Items -->
+      <nav class="flex-1 px-2 py-2 space-y-1 overflow-y-auto">
+        <button v-for="tab in visibleTabs" :key="tab.id" @click="activeTab = tab.id"
+          :class="['w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition text-left',
+            activeTab === tab.id 
+              ? 'bg-brand-surface text-brand-orange border border-brand-border shadow-sm font-semibold' 
+              : 'text-brand-muted hover:text-white hover:bg-brand-surface/60']"
+          :title="tab.label">
+          <i :data-lucide="tab.icon" class="w-4 h-4 flex-shrink-0" :class="activeTab === tab.id ? 'text-brand-orange' : 'text-brand-muted'"></i>
+          <span v-if="!isSidebarCollapsed" class="truncate">{{ tab.label }}</span>
+          <span v-if="!isSidebarCollapsed && tab.badge" class="ml-auto px-1.5 py-0.5 rounded-full text-[10px] bg-brand-orange text-white font-bold">
+            {{ tab.badge }}
+          </span>
+        </button>
+      </nav>
+
+      <!-- Sidebar Footer: System Status -->
+      <div class="p-3 border-t border-brand-border">
+        <div v-if="!isSidebarCollapsed" class="flex items-center justify-between text-[11px] text-brand-muted">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full" :class="isBackendReady ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'"></span>
+            <span>{{ isBackendReady ? 'Sistem & API Siap' : 'Menghubungkan...' }}</span>
+          </div>
+          <span class="text-[10px] text-brand-muted font-mono">v2.4</span>
+        </div>
+        <div v-else class="flex justify-center">
+          <span class="w-2.5 h-2.5 rounded-full" :class="isBackendReady ? 'bg-emerald-500' : 'bg-rose-500'" :title="isBackendReady ? 'Sistem Siap' : 'Offline'"></span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN VIEW AREA -->
+    <main class="flex-1 flex flex-col h-full overflow-hidden bg-brand-dark relative">
+      <!-- TOP NAVBAR -->
+      <header class="h-16 border-b border-brand-border px-6 flex items-center justify-between bg-brand-sidebar/40 backdrop-blur z-20 flex-shrink-0">
+        <div class="flex items-center gap-3">
+          <img src="/public/img/miyo.png" alt="Miyo" class="w-9 h-9 object-contain rounded-full bg-brand-surface border border-brand-border p-0.5">
+          <div>
+            <h1 class="text-sm font-bold text-white tracking-tight flex items-center gap-2">
+              <span>{{ currentTabTitle }}</span>
+            </h1>
+            <p class="text-[11px] text-brand-muted">PT Nusantara Digital · Layanan Kepegawaian & Kebijakan Cuti</p>
+          </div>
+        </div>
+
+        <!-- Right Header Actions -->
+        <div class="flex items-center gap-2 sm:gap-3">
+          <!-- Live Date Badge -->
+          <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-xs text-brand-muted">
+            <i data-lucide="calendar" class="w-3.5 h-3.5 text-brand-orange"></i>
+            <span>{{ currentDateFormatted }}</span>
+          </div>
+
+          <!-- Quick Leave Balances Badge (Employee only) -->
+          <button v-if="!isAdmin" @click="activeTab = 'chat'; sendQuickPrompt('Berapa sisa saldo cuti saya saat ini?')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-orange-subtle border border-brand-orange/30 text-xs text-brand-orange hover:bg-brand-orange-subtle/80 transition">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+            <span class="font-semibold hidden sm:inline">Cuti Tahunan:</span>
+            <span class="font-bold">{{ annualBalanceDays }} Hari</span>
+          </button>
+
+          <!-- Theme Toggle Button -->
+          <button @click="toggleTheme" class="p-2 rounded-lg bg-brand-surface border border-brand-border text-brand-muted hover:text-white transition" :title="isDarkMode ? 'Beralih ke Mode Terang' : 'Beralih ke Mode Gelap'">
+            <i :data-lucide="isDarkMode ? 'sun' : 'moon'" class="w-4 h-4"></i>
+          </button>
+
+          <!-- Database Password Login Button -->
+          <button @click="isLoginModalOpen = true" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-surface hover:bg-brand-elevated border border-brand-border text-xs text-brand-muted hover:text-white transition">
+            <i data-lucide="key-round" class="w-3.5 h-3.5"></i>
+            <span class="hidden md:inline">Login Password</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- TAB CONTENTS -->
+      <div class="flex-1 overflow-hidden relative">
+
+        <!-- TAB 1: ASISTEN KEBIJAKAN (MIYO CHAT) -->
+        <div v-show="activeTab === 'chat'" class="h-full flex flex-col justify-between max-w-4xl mx-auto w-full px-4 sm:px-6 py-4">
+          <!-- Chat Message Scroll Container -->
+          <div ref="chatContainer" class="flex-1 overflow-y-auto space-y-4 pr-1 mb-3">
+            <!-- Welcome Banner when chat is empty -->
+            <div v-if="chatMessages.length === 0" class="bg-brand-surface border border-brand-border rounded-2xl p-6 my-auto text-center max-w-2xl mx-auto mt-6">
+              <div class="w-16 h-16 rounded-full bg-brand-orange/10 border border-brand-orange/30 mx-auto flex items-center justify-center mb-4">
+                <img src="/public/img/miyo.png" alt="Miyo" class="w-12 h-12 object-contain">
+              </div>
+              <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-orange-subtle border border-brand-orange/30 text-brand-orange text-xs font-bold uppercase tracking-wider mb-2">
+                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                <span>Asisten Kebijakan HR Digital</span>
+              </div>
+              <h2 class="text-xl font-bold text-white mb-2">Halo, {{ activePersona.label.split('—')[0] }}!</h2>
+              <p class="text-xs text-brand-muted leading-relaxed max-w-lg mx-auto mb-6">
+                Saya Miyo, mitra kecerdasan buatan resmi PT Nusantara Digital. Saya siap membantu menelusuri kebijakan HR resmi, memeriksa jatah cuti, dan menyiapkan permohonan pengajuan cuti secara aman dan terverifikasi.
+              </p>
+
+              <!-- Quick Query Cards -->
+              <div class="text-left">
+                <div class="text-[11px] font-bold text-brand-muted uppercase tracking-wider mb-2.5">Rekomendasi Pertanyaan Cepat:</div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <button v-for="(q, idx) in quickQueries" :key="idx" @click="sendQuickPrompt(q)" class="p-3 rounded-xl bg-brand-elevated hover:bg-brand-elevated/80 border border-brand-border text-left text-xs text-brand-text hover:border-brand-orange transition flex items-center justify-between group">
+                    <span class="group-hover:text-white">{{ q }}</span>
+                    <i data-lucide="arrow-up-right" class="w-4 h-4 text-brand-muted group-hover:text-brand-orange flex-shrink-0 ml-2"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Rendered Chat Messages -->
+            <div v-for="(msg, index) in chatMessages" :key="index" class="space-y-3">
+              <!-- USER MESSAGE (Right-Aligned, Terracotta Bubble, No Avatar) -->
+              <div v-if="msg.role === 'user'" class="flex justify-end">
+                <div class="max-w-[85%] sm:max-w-[70%] bg-brand-orange text-white px-4 py-2.5 rounded-2xl rounded-tr-none text-xs leading-relaxed shadow-sm font-medium">
+                  {{ msg.content }}
+                </div>
+              </div>
+
+              <!-- ASSISTANT MESSAGE (Left-Aligned, Detective Cat Avatar, Markdown) -->
+              <div v-else class="flex items-start gap-3">
+                <img src="/public/img/miyo.png" alt="Miyo" class="w-8 h-8 rounded-full bg-brand-surface border border-brand-border p-0.5 flex-shrink-0 mt-0.5">
+                <div class="flex-1 space-y-3 max-w-[90%]">
+                  <!-- Assistant Answer Bubble -->
+                  <div class="bg-brand-surface border border-brand-border rounded-2xl rounded-tl-none p-4 text-xs text-brand-text leading-relaxed shadow-sm">
+                    <div class="prose-miyo" v-html="renderMarkdown(msg.content)"></div>
+                  </div>
+
+                  <!-- Verified Policy Citations Expander (Only in Dev Audit Mode) -->
+                  <div v-if="showDevAudit && msg.citations && msg.citations.length > 0" class="border border-brand-border rounded-xl bg-brand-elevated overflow-hidden text-xs">
+                    <button @click="msg.showCitations = !msg.showCitations" class="w-full px-3.5 py-2 flex items-center justify-between text-brand-muted hover:text-white transition font-medium">
+                      <span class="flex items-center gap-2">
+                        <i data-lucide="file-check" class="w-3.5 h-3.5 text-brand-orange"></i>
+                        <span>Sumber Kebijakan Terverifikasi ({{ msg.citations.length }})</span>
+                      </span>
+                      <i :data-lucide="msg.showCitations ? 'chevron-up' : 'chevron-down'" class="w-4 h-4"></i>
+                    </button>
+                    <div v-show="msg.showCitations" class="p-3 border-t border-brand-border space-y-2">
+                      <div v-for="c in msg.citations" :key="c.document_id" class="p-2.5 rounded-lg bg-brand-surface border border-brand-border">
+                        <div class="font-bold text-brand-orange text-[11px]">[{{ c.document_id }}] {{ c.title }} — {{ c.section }}</div>
+                        <div class="text-[11px] text-brand-muted italic mt-1 leading-relaxed">"{{ c.excerpt }}"</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Telemetry Audit Details (Only in Dev Audit Mode) -->
+                  <div v-if="showDevAudit && msg.trace_id" class="border border-brand-border rounded-xl bg-brand-elevated overflow-hidden text-xs">
+                    <div class="px-3 py-2 flex items-center justify-between text-brand-muted bg-brand-surface border-b border-brand-border font-mono text-[11px]">
+                      <span class="flex items-center gap-1.5 font-bold">
+                        <i data-lucide="activity" class="w-3.5 h-3.5 text-brand-orange"></i>
+                        <span>Audit Jejak Telemetri</span>
+                      </span>
+                      <span class="text-brand-orange">{{ msg.trace_id }}</span>
+                    </div>
+                    <div class="p-3 grid grid-cols-2 gap-2 text-brand-secondary font-mono text-[11px]">
+                      <div>Outcome: <code class="text-brand-orange font-bold">{{ msg.outcome || 'answered' }}</code></div>
+                      <div>Latency: <span class="text-brand-text font-bold">{{ msg.usage ? msg.usage.latency_ms : 0 }} ms</span></div>
+                      <div>Input Tokens: <span class="text-brand-text">{{ msg.usage ? msg.usage.input_tokens : 0 }}</span></div>
+                      <div>Output Tokens: <span class="text-brand-text">{{ msg.usage ? msg.usage.output_tokens : 0 }}</span></div>
+                    </div>
+                  </div>
+
+                  <!-- Interactive Action Proposal Card (Slide-Over Drawer style) -->
+                  <div v-for="p in getProposals(msg)" :key="p.proposal_id" class="border-2 border-brand-orange/40 bg-brand-surface rounded-2xl p-4 shadow-lg text-xs space-y-3">
+                    <div class="flex items-center justify-between border-b border-brand-border pb-2.5">
+                      <div class="flex items-center gap-2 text-brand-orange font-bold text-xs uppercase tracking-wider">
+                        <i data-lucide="sparkles" class="w-4 h-4"></i>
+                        <span>Proposal Pengajuan Cuti (Menunggu Konfirmasi)</span>
+                      </div>
+                      <span class="text-[10px] font-mono text-brand-muted">{{ p.proposal_id }}</span>
+                    </div>
+
+                    <!-- Proposal Metadata Grid -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 py-1">
+                      <div class="p-2 rounded-lg bg-brand-elevated border border-brand-border">
+                        <div class="text-[10px] text-brand-muted">Jenis Cuti</div>
+                        <div class="font-bold text-white capitalize mt-0.5">{{ p.leave_type }}</div>
+                      </div>
+                      <div class="p-2 rounded-lg bg-brand-elevated border border-brand-border">
+                        <div class="text-[10px] text-brand-muted">Periode</div>
+                        <div class="font-semibold text-white mt-0.5 text-[11px]">{{ p.start_date }} s/d {{ p.end_date }}</div>
+                      </div>
+                      <div class="p-2 rounded-lg bg-brand-elevated border border-brand-border">
+                        <div class="text-[10px] text-brand-muted">Hari Kerja</div>
+                        <div class="font-bold text-brand-orange mt-0.5">{{ p.business_days }} Hari Kerja</div>
+                      </div>
+                      <div class="p-2 rounded-lg bg-brand-elevated border border-brand-border">
+                        <div class="text-[10px] text-brand-muted">Alasan</div>
+                        <div class="font-medium text-white truncate mt-0.5">{{ p.reason || 'Tidak dicantumkan' }}</div>
+                      </div>
+                    </div>
+
+                    <!-- Sick Leave Attachment Requirement -->
+                    <div v-if="p.leave_type === 'sick'" class="p-3 rounded-xl bg-brand-elevated border border-brand-border space-y-2">
+                      <div v-if="p.requires_attachment || p.business_days > 2" class="text-amber-400 text-[11px] flex items-center gap-1.5 font-semibold">
+                        <i data-lucide="alert-triangle" class="w-3.5 h-3.5 flex-shrink-0"></i>
+                        <span>Sesuai HR-LEAVE-002, cuti sakit > 2 hari wajib unggah surat dokter:</span>
+                      </div>
+                      <div v-else class="text-emerald-400 text-[11px] flex items-center gap-1.5">
+                        <i data-lucide="check-circle" class="w-3.5 h-3.5 flex-shrink-0"></i>
+                        <span>Cuti sakit &le; 2 hari kerja: surat dokter opsional.</span>
+                      </div>
+                      <input type="file" @change="handleProposalAttachment($event, p.proposal_id)" accept=".pdf,image/png,image/jpeg" class="w-full text-xs text-brand-muted file:mr-3 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[11px] file:font-semibold file:bg-brand-surface file:text-brand-orange hover:file:bg-brand-surface/80 cursor-pointer">
+                      <div v-if="proposalAttachments[p.proposal_id]" class="text-[11px] text-emerald-400 font-medium">
+                        File siap dilampirkan: {{ proposalAttachments[p.proposal_id].filename }}
+                      </div>
+                    </div>
+
+                    <!-- Proposal Actions -->
+                    <div class="flex items-center gap-2 pt-1">
+                      <button v-if="!confirmedProposals.has(p.proposal_id)" @click="confirmProposal(p.proposal_id)" :disabled="isConfirming" class="px-4 py-2 rounded-xl bg-brand-orange hover:bg-brand-orange-hover text-white font-semibold text-xs transition flex items-center gap-2 active:scale-95 disabled:opacity-50">
+                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                        <span>{{ isConfirming ? 'Mengonfirmasi...' : 'Konfirmasi Pengajuan' }}</span>
+                      </button>
+                      <button v-else disabled class="px-4 py-2 rounded-xl bg-emerald-600/30 text-emerald-400 font-semibold text-xs border border-emerald-500/40 flex items-center gap-2">
+                        <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                        <span>Terkonfirmasi</span>
+                      </button>
+                      <button @click="openLeaveModal" class="px-3.5 py-2 rounded-xl bg-brand-elevated hover:bg-brand-elevated/70 border border-brand-border text-brand-muted hover:text-white text-xs transition">
+                        Ubah via Formulir
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Assistant Thinking Spinner -->
+            <div v-if="isGenerating" class="flex items-center gap-3">
+              <img src="/public/img/miyo.png" alt="Miyo" class="w-8 h-8 rounded-full bg-brand-surface border border-brand-border p-0.5 flex-shrink-0 animate-pulse">
+              <div class="bg-brand-surface border border-brand-border rounded-2xl rounded-tl-none p-3.5 text-xs text-brand-muted flex items-center gap-2.5">
+                <i data-lucide="loader-2" class="w-4 h-4 text-brand-orange animate-spin"></i>
+                <span>Miyo sedang menelusuri kebijakan resmi dan memverifikasi data...</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bottom Bar: Clear Chat & Chat Input -->
+          <div class="space-y-2 flex-shrink-0">
+            <!-- Clear Chat Button (Only when chat has history - icon only, small) -->
+            <div v-if="chatMessages.length > 0" class="flex justify-end mb-1">
+              <button @click="clearChat" class="w-8 h-8 rounded-lg flex items-center justify-center text-brand-muted hover:text-rose-400 bg-brand-surface hover:bg-rose-500/10 border border-brand-border hover:border-rose-500/30 transition shadow-sm" title="Hapus riwayat percakapan">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+              </button>
+            </div>
+
+            <!-- Input Box Container -->
+            <div class="bg-brand-surface border border-brand-border rounded-2xl p-2 flex items-center gap-2 focus-within:border-brand-orange transition shadow-md">
+              <!-- Voice Input Button -->
+              <button @click="toggleVoiceRecording" :class="['p-2.5 rounded-xl transition flex items-center justify-center', isRecording ? 'bg-rose-500 text-white animate-pulse' : 'text-brand-muted hover:text-white hover:bg-brand-elevated']" :title="isRecording ? 'Berhenti Merekam' : 'Gunakan Input Suara'">
+                <i :data-lucide="isRecording ? 'mic-off' : 'mic'" class="w-4 h-4"></i>
+              </button>
+
+              <!-- Audio Wave Visualizer during recording -->
+              <div v-if="isRecording" class="flex-1 flex items-center gap-1 px-3 text-xs text-rose-400 font-medium">
+                <span>Merekam suara... Silakan bicara</span>
+                <div class="flex items-end gap-1 h-4 ml-3">
+                  <span class="w-1 bg-rose-500 rounded-full h-4 wave-bar"></span>
+                  <span class="w-1 bg-rose-500 rounded-full h-3 wave-bar"></span>
+                  <span class="w-1 bg-rose-500 rounded-full h-4 wave-bar"></span>
+                  <span class="w-1 bg-rose-500 rounded-full h-2 wave-bar"></span>
+                </div>
+              </div>
+
+              <!-- Text Input -->
+              <input v-else v-model="userInputText" @keydown.enter.prevent="sendChatMessage" placeholder="Tanyakan kebijakan, aturan kerja, atau ajukan cuti Anda..." class="flex-1 bg-transparent text-xs text-white placeholder-brand-muted focus:outline-none px-2 py-1.5">
+
+              <!-- Send Button -->
+              <button @click="sendChatMessage" :disabled="!userInputText.trim() || isGenerating" class="p-2.5 rounded-xl bg-brand-orange hover:bg-brand-orange-hover text-white transition disabled:opacity-30 disabled:pointer-events-none active:scale-95">
+                <i data-lucide="send" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: PERMINTAAN CUTI SAYA -->
+        <div v-show="activeTab === 'my_requests'" class="h-full overflow-y-auto max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-base font-bold text-white">Riwayat Permohonan Cuti</h2>
+              <p class="text-xs text-brand-muted">Status seluruh permohonan cuti Anda yang tercatat di sistem HR.</p>
+            </div>
+            <button @click="fetchMyRequests" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-xs text-brand-muted hover:text-white transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Perbarui Data</span>
+            </button>
+          </div>
+
+          <!-- Requests Table -->
+          <div class="bg-brand-surface border border-brand-border rounded-2xl overflow-hidden shadow-sm">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-brand-elevated border-b border-brand-border text-brand-muted uppercase font-bold text-[10px] tracking-wider">
+                <tr>
+                  <th class="py-3 px-4">ID Permohonan</th>
+                  <th class="py-3 px-4">Jenis Cuti</th>
+                  <th class="py-3 px-4">Periode</th>
+                  <th class="py-3 px-4 text-center">Durasi</th>
+                  <th class="py-3 px-4">Alasan</th>
+                  <th class="py-3 px-4 text-center">Status</th>
+                  <th class="py-3 px-4 text-right">Aksi</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-brand-border">
+                <tr v-for="r in myRequests" :key="r.request_id" class="hover:bg-brand-elevated/40 transition">
+                  <td class="py-3 px-4 font-mono font-bold text-brand-orange">#{{ r.request_id }}</td>
+                  <td class="py-3 px-4 font-semibold text-white capitalize">{{ r.leave_type }}</td>
+                  <td class="py-3 px-4 text-brand-muted">{{ r.start_date }} s/d {{ r.end_date }}</td>
+                  <td class="py-3 px-4 text-center font-bold text-white">{{ r.business_days }} hari kerja</td>
+                  <td class="py-3 px-4 text-brand-muted truncate max-w-[180px]">{{ r.reason || '-' }}</td>
+                  <td class="py-3 px-4 text-center">
+                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider" :class="statusBadgeClass(r.status)">
+                      {{ formatStatus(r.status) }}
+                    </span>
+                  </td>
+                  <td class="py-3 px-4 text-right">
+                    <button v-if="r.status === 'pending_manager_review'" @click="cancelRequest(r.request_id)" class="px-2.5 py-1 rounded-md text-[11px] text-rose-400 hover:bg-rose-500/10 border border-rose-500/30 transition">
+                      Batalkan
+                    </button>
+                    <span v-else class="text-brand-muted text-[11px]">-</span>
+                  </td>
+                </tr>
+                <tr v-if="myRequests.length === 0">
+                  <td colspan="7" class="py-8 text-center text-brand-muted">Belum ada riwayat permohonan cuti.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 3: PERSETUJUAN MANAJER -->
+        <div v-show="activeTab === 'approvals'" class="h-full overflow-y-auto max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-base font-bold text-white">Review & Persetujuan Cuti Tim</h2>
+              <p class="text-xs text-brand-muted">Daftar pengajuan cuti anggota tim yang membutuhkan persetujuan manajer.</p>
+            </div>
+            <button @click="fetchTeamRequests" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-xs text-brand-muted hover:text-white transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Perbarui</span>
+            </button>
+          </div>
+
+          <!-- Pending Approvals Cards -->
+          <div class="grid grid-cols-1 gap-3">
+            <div v-for="tr in teamRequests" :key="tr.request_id" class="p-4 rounded-2xl bg-brand-surface border border-brand-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div class="space-y-1">
+                <div class="flex items-center gap-2">
+                  <span class="font-bold text-white text-sm">{{ tr.employee_id }}</span>
+                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider" :class="statusBadgeClass(tr.status)">
+                    {{ formatStatus(tr.status) }}
+                  </span>
+                  <span class="text-brand-muted text-xs font-mono">#{{ tr.request_id }}</span>
+                </div>
+                <div class="text-xs text-brand-muted">
+                  <span class="font-semibold text-brand-orange capitalize">{{ tr.leave_type }}</span> · {{ tr.start_date }} s/d {{ tr.end_date }} ({{ tr.business_days }} hari kerja)
+                </div>
+                <div class="text-xs text-brand-text italic">"{{ tr.reason || 'Tidak ada keterangan' }}"</div>
+              </div>
+
+              <!-- Action buttons for manager -->
+              <div v-if="tr.status === 'pending_manager_review'" class="flex items-center gap-2 w-full sm:w-auto">
+                <button @click="reviewRequest(tr.request_id, 'approve')" class="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition flex items-center justify-center gap-1.5 active:scale-95">
+                  <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                  <span>Setujui</span>
+                </button>
+                <button @click="openRejectModal(tr.request_id)" class="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs transition flex items-center justify-center gap-1.5 active:scale-95">
+                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                  <span>Tolak</span>
+                </button>
+              </div>
+              <div v-else class="text-xs text-brand-muted font-medium">
+                Sudah diproses
+              </div>
+            </div>
+            <div v-if="teamRequests.length === 0" class="p-8 text-center text-brand-muted bg-brand-surface border border-brand-border rounded-2xl">
+              Tidak ada pengajuan cuti anggota tim yang tertunda.
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 4: KALENDER CUTI TIM -->
+        <div v-show="activeTab === 'calendar'" class="h-full overflow-y-auto max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-base font-bold text-white">Kalender Jadwal Cuti Tim</h2>
+              <p class="text-xs text-brand-muted">Jadwal visual cuti seluruh rekan kerja pada bulan berjalan.</p>
+            </div>
+            <span class="text-xs font-semibold text-brand-orange">November 2026</span>
+          </div>
+
+          <!-- Calendar Grid Placeholder / Interactive Matrix -->
+          <div class="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-sm space-y-3">
+            <div class="grid grid-cols-7 gap-1 text-center font-bold text-[11px] text-brand-muted uppercase tracking-wider pb-2 border-b border-brand-border">
+              <span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span class="text-rose-400">Sab</span><span class="text-rose-400">Min</span>
+            </div>
+            <div class="grid grid-cols-7 gap-1 text-xs">
+              <div v-for="day in calendarDays" :key="day.dateStr" class="min-h-[70px] p-1.5 rounded-lg border border-brand-border/60 bg-brand-elevated/50 flex flex-col justify-between">
+                <span class="text-[10px] font-mono font-bold" :class="day.isToday ? 'text-brand-orange' : day.isWeekend ? 'text-rose-400' : 'text-brand-muted'">
+                  {{ day.dayNum }}
+                </span>
+                <div class="space-y-1">
+                  <div v-for="(ev, eidx) in day.events" :key="eidx" class="px-1.5 py-0.5 rounded text-[9px] font-semibold truncate" :class="ev.class">
+                    {{ ev.text }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 5: MONITORING TELEMETRI (ADMIN) -->
+        <div v-show="activeTab === 'monitoring'" class="h-full overflow-y-auto max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-base font-bold text-white">Audit & Telemetri Platform AI</h2>
+              <p class="text-xs text-brand-muted">Metrik real-time kepatuhan guardrails, latensi, dan eksekusi model Miyo.</p>
+            </div>
+            <button @click="fetchMonitoringData" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-xs text-brand-muted hover:text-white transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Perbarui</span>
+            </button>
+          </div>
+
+          <!-- Top Metrics Cards -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="p-4 rounded-xl bg-brand-surface border border-brand-border">
+              <div class="text-[11px] text-brand-muted font-medium">Total Evaluasi / Runs</div>
+              <div class="text-xl font-bold text-white mt-1">{{ monitoringSummary.run_count || monitoringSummary.total_traces || 0 }}</div>
+            </div>
+            <div class="p-4 rounded-xl bg-brand-surface border border-brand-border">
+              <div class="text-[11px] text-brand-muted font-medium">Latensi p95</div>
+              <div class="text-xl font-bold text-brand-orange mt-1">{{ monitoringSummary.p95_latency_ms || 0 }} ms</div>
+            </div>
+            <div class="p-4 rounded-xl bg-brand-surface border border-brand-border">
+              <div class="text-[11px] text-brand-muted font-medium">Abstain Safety Rate</div>
+              <div class="text-xl font-bold text-emerald-400 mt-1">{{ (monitoringSummary.abstain_rate * 100 || 0).toFixed(1) }}%</div>
+            </div>
+            <div class="p-4 rounded-xl bg-brand-surface border border-brand-border">
+              <div class="text-[11px] text-brand-muted font-medium">Guardrail Alerts</div>
+              <div class="text-xl font-bold text-amber-400 mt-1">{{ monitoringAlerts.length }}</div>
+            </div>
+          </div>
+
+          <!-- Monitoring Alerts Banner -->
+          <div v-if="monitoringAlerts.length > 0" class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+            <div class="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
+              <i data-lucide="alert-octagon" class="w-4 h-4"></i>
+              <span>Peringatan Ambang Batas Operasional</span>
+            </div>
+            <div v-for="al in monitoringAlerts" :key="al.rule_id" class="text-xs text-brand-text flex items-center justify-between border-t border-amber-500/20 pt-2">
+              <span><strong>{{ al.rule_id }}</strong>: {{ al.metric }} ({{ al.current_value }} &gt; {{ al.threshold }})</span>
+              <span class="text-brand-muted font-mono">{{ al.owner }}</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+
+    <!-- MODAL: FORMULIR PENGAJUAN CUTI -->
+    <div v-if="isLeaveModalOpen" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-brand-elevated border border-brand-border-subtle rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+        <div class="flex items-center justify-between border-b border-brand-border pb-3">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg bg-brand-orange-subtle border border-brand-orange/30 flex items-center justify-center text-brand-orange">
+              <i data-lucide="calendar-plus" class="w-4 h-4"></i>
+            </div>
+            <h3 class="font-bold text-sm text-white">Formulir Pengajuan Cuti</h3>
+          </div>
+          <button @click="isLeaveModalOpen = false" class="text-brand-muted hover:text-white p-1 rounded-lg transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <!-- Form Inputs -->
+        <div class="space-y-3.5 text-xs">
+          <!-- Leave Type Select -->
+          <div>
+            <label class="block text-brand-muted font-semibold mb-1">Pilih Jenis Cuti:</label>
+            <select v-model="formLeaveType" @change="onLeaveTypeChange" class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-orange transition">
+              <option value="annual">Cuti Tahunan (Annual Leave)</option>
+              <option value="sick">Cuti Sakit (Sick Leave)</option>
+              <option value="parental">Cuti Orang Tua (Parental Leave)</option>
+            </select>
+          </div>
+
+          <!-- Date Range Pickers -->
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-brand-muted font-semibold mb-1">Tanggal Mulai:</label>
+              <input type="date" v-model="formStartDate" :min="formMinStartDate" @change="recalculateDuration" class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-orange transition">
+            </div>
+            <div>
+              <label class="block text-brand-muted font-semibold mb-1">Tanggal Selesai:</label>
+              <input type="date" v-model="formEndDate" :min="formStartDate" @change="recalculateDuration" class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-orange transition">
+            </div>
+          </div>
+
+          <!-- Working Days Summary Banner -->
+          <div class="p-3 rounded-xl border" :class="formWorkingDays > 0 ? 'bg-brand-surface border-brand-border' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'">
+            <div class="flex items-center justify-between font-semibold">
+              <span>Total Durasi Hari Kerja:</span>
+              <span class="text-brand-orange font-bold text-sm">{{ formWorkingDays }} Hari Kerja</span>
+            </div>
+            <div v-if="formLeaveType === 'annual'" class="text-[11px] text-brand-muted mt-1 leading-relaxed">
+              [HR-LEAVE-001] Cuti tahunan wajib diajukan minimal 3 hari kerja sebelumnya (melewati akhir pekan).
+            </div>
+          </div>
+
+          <!-- Sick Leave Doctor Note Upload -->
+          <div v-if="formLeaveType === 'sick'" class="p-3 rounded-xl bg-brand-surface border border-brand-border space-y-1.5">
+            <div class="flex items-center justify-between font-semibold">
+              <span class="text-brand-muted">Surat Dokter:</span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full" :class="formWorkingDays > 2 ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'">
+                {{ formWorkingDays > 2 ? 'Wajib (> 2 hari kerja)' : 'Opsional (&le; 2 hari kerja)' }}
+              </span>
+            </div>
+            <input type="file" @change="handleFormAttachment" accept=".pdf,image/png,image/jpeg" class="w-full text-xs text-brand-muted file:mr-3 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[11px] file:font-semibold file:bg-brand-elevated file:text-brand-orange hover:file:bg-brand-elevated/80 cursor-pointer">
+            <div v-if="formAttachment" class="text-[11px] text-emerald-400 font-medium">
+              File siap diunggah: {{ formAttachment.filename }}
+            </div>
+          </div>
+
+          <!-- Reason Input -->
+          <div>
+            <label class="block text-brand-muted font-semibold mb-1">Alasan / Keterangan (opsional):</label>
+            <textarea v-model="formReason" rows="2" placeholder="Contoh: Keperluan keluarga mendesak / Pemulihan kesehatan" class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white placeholder-brand-muted focus:outline-none focus:border-brand-orange transition resize-none"></textarea>
+          </div>
+        </div>
+
+        <!-- Modal Footer Actions -->
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-brand-border">
+          <button @click="isLeaveModalOpen = false" class="px-4 py-2 rounded-xl text-xs text-brand-muted hover:text-white transition">
+            Batal
+          </button>
+          <button @click="submitLeaveForm" :disabled="formWorkingDays === 0" class="px-4 py-2 rounded-xl bg-brand-orange hover:bg-brand-orange-hover text-white text-xs font-semibold shadow-sm transition active:scale-95 disabled:opacity-40">
+            Ajukan ke Asisten Miyo
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL: DATABASE PASSWORD LOGIN -->
+    <div v-if="isLoginModalOpen" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-brand-elevated border border-brand-border-subtle rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+        <div class="flex items-center justify-between border-b border-brand-border pb-3">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-lg bg-brand-orange-subtle border border-brand-orange/30 flex items-center justify-center text-brand-orange">
+              <i data-lucide="shield-check" class="w-4 h-4"></i>
+            </div>
+            <h3 class="font-bold text-sm text-white">Login Akun Database</h3>
+          </div>
+          <button @click="isLoginModalOpen = false" class="text-brand-muted hover:text-white p-1 rounded-lg transition">
+            <i data-lucide="x" class="w-5 h-5"></i>
+          </button>
+        </div>
+
+        <form @submit.prevent="submitPasswordLogin" class="space-y-3.5 text-xs">
+          <div>
+            <label class="block text-brand-muted font-semibold mb-1">Username / ID Pegawai:</label>
+            <input type="text" v-model="loginUsername" placeholder="Contoh: alya, raka, admin" required class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white placeholder-brand-muted focus:outline-none focus:border-brand-orange transition">
+          </div>
+          <div>
+            <label class="block text-brand-muted font-semibold mb-1">Password:</label>
+            <input type="password" v-model="loginPassword" placeholder="Password#123" required class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white placeholder-brand-muted focus:outline-none focus:border-brand-orange transition">
+          </div>
+          <div v-if="loginError" class="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-[11px]">
+            {{ loginError }}
+          </div>
+          <div class="pt-2 flex items-center justify-end gap-2 border-t border-brand-border">
+            <button type="button" @click="isLoginModalOpen = false" class="px-3.5 py-1.5 rounded-lg text-xs text-brand-muted hover:text-white transition">Batal</button>
+            <button type="submit" :disabled="isLoggingIn" class="px-4 py-2 rounded-xl bg-brand-orange hover:bg-brand-orange-hover text-white text-xs font-semibold shadow-sm transition active:scale-95 disabled:opacity-50">
+              {{ isLoggingIn ? 'Memverifikasi...' : 'Masuk Sesi' }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL: REJECT REASON -->
+    <div v-if="isRejectModalOpen" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-brand-elevated border border-brand-border rounded-2xl max-w-sm w-full p-5 space-y-3">
+        <h4 class="font-bold text-sm text-white">Alasan Penolakan Cuti</h4>
+        <textarea v-model="rejectReason" rows="3" placeholder="Masukkan alasan penolakan..." class="w-full bg-brand-surface border border-brand-border rounded-xl p-2.5 text-xs text-white placeholder-brand-muted focus:outline-none focus:border-rose-500 transition resize-none"></textarea>
+        <div class="flex items-center justify-end gap-2">
+          <button @click="isRejectModalOpen = false" class="px-3 py-1.5 rounded-lg text-xs text-brand-muted hover:text-white">Batal</button>
+          <button @click="confirmRejectRequest" class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs">Tolak Permohonan</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating Dev Audit Mode Pill (Bottom-Left Corner) -->
+    <div class="fixed bottom-5 z-40 transition-all duration-300 pointer-events-auto" :class="isSidebarCollapsed ? 'left-6' : 'left-[280px]'">
+      <button @click="toggleDevAudit" class="px-3.5 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md bg-brand-surface/90 border border-brand-border hover:border-brand-orange text-brand-text shadow-lg flex items-center gap-2 transition hover:-translate-y-0.5 cursor-pointer" title="Klik untuk menampilkan atau menyembunyikan Sumber Kebijakan & Jejak Audit Telemetri">
+        <span :class="['w-2 h-2 rounded-full', showDevAudit ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-gray-400']"></span>
+        <span>Mode Audit Dev: {{ showDevAudit ? 'Aktif' : 'Nonaktif' }}</span>
+      </button>
+    </div>
+
+  </div>
+
+  <!-- Load Main Application Script -->
+  <script src="/web/app.js"></script>
+</body>
+</html>

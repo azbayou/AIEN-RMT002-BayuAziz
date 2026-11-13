@@ -351,4 +351,16 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
                 })
         return alerts
 
+    from fastapi.staticfiles import StaticFiles
+
+    base_dir = Path(__file__).resolve().parents[1]
+    public_dir = base_dir / "ui" / "public" if (base_dir / "ui" / "public").is_dir() else (base_dir / "public")
+    web_dir = base_dir / "web"
+
+    if public_dir.is_dir():
+        app.mount("/public", StaticFiles(directory=str(public_dir)), name="public")
+    if web_dir.is_dir():
+        app.mount("/web", StaticFiles(directory=str(web_dir)), name="web_assets")
+        app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="portal")
+
     return app

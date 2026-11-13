@@ -99,8 +99,8 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
             with st.chat_message("assistant", avatar=assistant_avatar):
                 st.markdown(entry["content"])
 
-            # Verified Policy Citations (Claude styled cards)
-            if entry.get("citations"):
+            # Verified Policy Citations (Hanya tampil jika Mode Audit Dev aktif)
+            if entry.get("citations") and st.session_state.get("show_dev_audit", False):
                 with st.expander(f"Sumber Kebijakan Terverifikasi ({len(entry['citations'])})", expanded=False):
                     for cite in entry["citations"]:
                         st.markdown(
@@ -282,8 +282,8 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
                                 st.session_state["show_leave_modal"] = True
                                 st.rerun()
 
-            # Technical details in collapsed expander
-            if entry.get("trace_id"):
+            # Technical details in collapsed expander (Hanya tampil jika Mode Audit Dev aktif)
+            if entry.get("trace_id") and st.session_state.get("show_dev_audit", False):
                 with st.expander("Audit Jejak Telemetri", expanded=False):
                     trace_col1, trace_col2 = st.columns(2)
                     with trace_col1:
@@ -294,14 +294,25 @@ def render_tab_chat(token: str, persona: dict, is_manager: bool, is_admin: bool)
                         st.caption(f"**Latency:** {usage.get('latency_ms', 0)} ms")
                         st.caption(f"**Tokens:** {usage.get('input_tokens', 0)} in / {usage.get('output_tokens', 0)} out")
 
-    # Tombol Hapus Chat di pojok kanan bawah dekat tombol enter dan mikrofon (hanya muncul saat ada riwayat chat)
+    # Floating Dev Audit Mode Pill (Pojok Kiri Bawah — default: OFF / disembunyikan untuk user biasa)
+    show_audit = st.session_state.get("show_dev_audit", False)
+    status_icon = "🟢" if show_audit else "⚪"
+    status_text = "Aktif" if show_audit else "Nonaktif"
+    if st.button(
+        f"{status_icon} Mode Audit Dev: {status_text}",
+        key="btn_toggle_dev_audit",
+        type="secondary",
+        help="Klik untuk menampilkan atau menyembunyikan Sumber Kebijakan & Jejak Audit Telemetri.",
+    ):
+        st.session_state["show_dev_audit"] = not show_audit
+        st.rerun()
+
+    # Tombol Hapus Chat kecil di pojok kanan bawah dekat tombol enter dan mikrofon (hanya logo tempat sampah tanpa tulisan)
     if st.session_state["chat_history"]:
-        _, col_clear = st.columns([6.6, 1.4])
-        with col_clear:
-            if st.button("Hapus Chat", key="btn_clear_chat", icon=":material/delete_outline:", use_container_width=True, type="secondary"):
-                st.session_state["chat_history"] = []
-                st.session_state["confirmed_proposals"] = set()
-                st.rerun()
+        if st.button("", key="btn_clear_chat", icon=":material/delete_outline:", help="Hapus seluruh riwayat percakapan", type="secondary"):
+            st.session_state["chat_history"] = []
+            st.session_state["confirmed_proposals"] = set()
+            st.rerun()
 
     # Chat Input Box with native Voice Input (Pinned to the bottom of the viewport)
     default_prompt = st.session_state.pop("prompt_input", "")

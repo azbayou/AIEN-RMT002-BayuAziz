@@ -340,32 +340,52 @@ input, textarea {
    4c. Bottom-Right Clear Chat Button (near Enter & Mic)
    ------------------------------------------------------------------------------ */
 div.st-key-btn_clear_chat {
-    margin-top: 6px !important;
-    margin-bottom: 2px !important;
+    position: fixed !important;
+    bottom: 68px !important;
+    right: 24px !important;
+    z-index: 99999 !important;
+    margin: 0 !important;
     display: flex !important;
-    justify-content: flex-end !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+
+@media (max-width: 900px) {
+    div.st-key-btn_clear_chat {
+        bottom: 124px !important;
+        right: 20px !important;
+    }
 }
 
 div.st-key-btn_clear_chat button {
-    font-size: 0.82rem !important;
-    padding: 0.35rem 0.85rem !important;
+    width: 36px !important;
+    height: 36px !important;
+    min-width: 36px !important;
+    max-width: 36px !important;
+    padding: 0 !important;
     border-radius: 8px !important;
     color: var(--text-muted) !important;
     background-color: var(--bg-surface-elevated) !important;
     border: 1px solid var(--border-subtle) !important;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: all 0.2s ease-in-out !important;
 }
 
 div.st-key-btn_clear_chat button:hover {
     color: #ef4444 !important;
     border-color: #ef4444 !important;
     background-color: rgba(239, 68, 68, 0.12) !important;
-    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.2) !important;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3) !important;
+    transform: translateY(-1px) !important;
 }
 
 div.st-key-btn_clear_chat button span[data-testid="stIconMaterial"] {
     color: inherit !important;
-    font-size: 1.05rem !important;
+    font-size: 1.25rem !important;
+    margin: 0 !important;
 }
 
 /* ------------------------------------------------------------------------------
@@ -839,4 +859,46 @@ div.st-key-btn_clear_chat button span[data-testid="stIconMaterial"] {
     padding-top: 12px;
     border-top: 1px solid var(--border-subtle);
     font-size: 0.76rem;
+}
+
+/* ==============================================================================
+   Floating Dev Audit Mode Pill (Bottom-Left Corner)
+   ============================================================================== */
+div.st-key-btn_toggle_dev_audit {
+    position: fixed !important;
+    bottom: 22px !important;
+    left: 24px !important;
+    z-index: 99999 !important;
+    width: auto !important;
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s ease !important;
+}
+
+/* Adjust position when sidebar is expanded */
+body:has(section[data-testid="stSidebar"][aria-expanded="true"]) div.st-key-btn_toggle_dev_audit {
+    left: 360px !important;
+}
+
+div.st-key-btn_toggle_dev_audit button {
+    border-radius: 9999px !important;
+    padding: 6px 14px !important;
+    font-size: 0.76rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em !important;
+    background-color: var(--bg-surface-elevated) !important;
+    border: 1px solid var(--border-subtle) !important;
+    color: var(--text-secondary) !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+    backdrop-filter: blur(10px) !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 6px !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+}
+
+div.st-key-btn_toggle_dev_audit button:hover {
+    border-color: var(--accent-orange) !important;
+    color: var(--text-primary) !important;
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45) !important;
 }
