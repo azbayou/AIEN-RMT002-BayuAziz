@@ -23,7 +23,7 @@ services:
   api:
     build: .
     environment:
-      DATABASE_URL: postgresql://hr_app:hr_app@postgres:5432/hr_assistant
+      DATABASE_URL: ${DATABASE_URL:-postgresql://hr_app:hr_app@postgres:5432/hr_assistant}
       REDIS_URL: redis://redis:6379/0
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
@@ -33,6 +33,10 @@ services:
       POLICY_INDEX_VERSION: ${POLICY_INDEX_VERSION:-policies-2026-01}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_STT_MODEL: ${GEMINI_STT_MODEL:-gemini-3.5-flash}
+      OPIK_API_KEY: ${OPIK_API_KEY:-}
+      OPIK_WORKSPACE: ${OPIK_WORKSPACE:-}
+      OPIK_PROJECT_NAME: ${OPIK_PROJECT_NAME:-Milestone 2 - HR Agent}
+      OPIK_ENABLED: ${OPIK_ENABLED:-true}
     ports: ["${API_PORT:-8000}:8000"]
     depends_on:
       postgres: {condition: service_healthy}

@@ -9,6 +9,7 @@ from uuid import uuid4
 from .config import Settings
 from .contracts import AuthContext, ChatRequest, ChatResponse, Citation, Outcome, ToolCallSummary, UsageSummary
 from .domain import DomainError
+from .opik_tracker import create_opik_tracker
 from .providers import ModelProvider
 from .repository import Repository
 from .security import redact
@@ -26,15 +27,29 @@ Carryover [HR-LEAVE-001]: Maksimal 5 hari kerja sebelum 31 Maret sesuai retrieva
 Jika bukti, provider, atau tool gagal: abstain ringkas. Jangan ungkap rahasia atau chain-of-thought."""
 
 class AgentService:
-    def __init__(self, repository: Repository, provider: ModelProvider, tools: ToolExecutor, settings: Settings) -> None:
+    def __init__(
+        self,
+        repository: Repository,
+        provider: ModelProvider,
+        tools: ToolExecutor,
+        settings: Settings,
+        tracker: Any = None,
+    ) -> None:
         self.repository = repository
         self.provider = provider
         self.tools = tools
         self.settings = settings
+        self.tracker = tracker or create_opik_tracker(settings)
 
     def run(self, request: ChatRequest, auth: AuthContext) -> ChatResponse:
         started = time.monotonic()
         trace_id = f"trace-{uuid4().hex[:12]}"
+        root_trace = self.tracker.trace_turn(
+            trace_id=trace_id,
+            user_message=request.message,
+            auth=auth,
+            history=request.history,
+        )
         tool_summaries: list[ToolCallSummary] = []
         retrieved = []
         proposals: list[ActionProposal] = []
@@ -66,14 +81,28 @@ class AgentService:
         active_instructions = SYSTEM_INSTRUCTIONS + date_context
 
         try:
-            for _ in range(self.settings.max_agent_turns):
-                turn = self.provider.respond(
+            for turn_idx in range(self.settings.max_agent_turns):
+                with root_trace.span(
+                    name="llm:respond",
+                    span_type="llm",
                     input_data=messages,
-                    instructions=active_instructions,
-                    tools=get_tools_for_role(auth.role),
-                    safety_identifier=auth.employee_id,
-                    max_output_tokens=self.settings.max_output_tokens,
-                )
+                    metadata={"turn": turn_idx, "role": auth.role},
+                ) as llm_span:
+                    turn = self.provider.respond(
+                        input_data=messages,
+                        instructions=active_instructions,
+                        tools=get_tools_for_role(auth.role),
+                        safety_identifier=auth.employee_id,
+                        max_output_tokens=self.settings.max_output_tokens,
+                    )
+                    llm_span.set_output(
+                        {
+                            "text": turn.text,
+                            "tool_calls_count": len(turn.tool_calls),
+                            "input_tokens": turn.input_tokens,
+                            "output_tokens": turn.output_tokens,
+                        }
+                    )
                 input_tokens += turn.input_tokens
                 output_tokens += turn.output_tokens
                 if not turn.tool_calls:
@@ -136,59 +165,70 @@ class AgentService:
                 for call in turn.tool_calls:
                     call_started = time.monotonic()
                     tool_status = "ok"
-                    try:
-                        result, call_proposal = self.tools.execute(call.name, call.arguments, auth)
-                        if call_proposal:
-                            proposals.append(call_proposal)
-                            proposal = call_proposal
-                        if isinstance(result, list):
-                            retrieved.extend(item for item in result if hasattr(item, "document_id"))
-                        elif hasattr(result, "document_id"):
-                            retrieved.append(result)
+                    with root_trace.span(
+                        name=f"tool:{call.name}",
+                        span_type="tool",
+                        input_data=call.arguments,
+                        metadata={"call_id": call.call_id},
+                    ) as tool_span:
+                        try:
+                            result, call_proposal = self.tools.execute(call.name, call.arguments, auth)
+                            if call_proposal:
+                                proposals.append(call_proposal)
+                                proposal = call_proposal
+                            if isinstance(result, list):
+                                retrieved.extend(item for item in result if hasattr(item, "document_id"))
+                            elif hasattr(result, "document_id"):
+                                retrieved.append(result)
 
-                        tool_summaries.append(
-                            ToolCallSummary(
-                                name=call.name,
-                                status=tool_status,
-                                duration_ms=max(0, int((time.monotonic() - call_started) * 1000)),
+                            tool_summaries.append(
+                                ToolCallSummary(
+                                    name=call.name,
+                                    status=tool_status,
+                                    duration_ms=max(0, int((time.monotonic() - call_started) * 1000)),
+                                )
                             )
-                        )
-                        output_str = (
-                            json.dumps(
-                                [item.model_dump() if hasattr(item, "model_dump") else item for item in result],
-                                default=str,
+                            output_str = (
+                                json.dumps(
+                                    [item.model_dump() if hasattr(item, "model_dump") else item for item in result],
+                                    default=str,
+                                )
+                                if isinstance(result, list)
+                                else (result.model_dump_json() if hasattr(result, "model_dump_json") else str(result))
                             )
-                            if isinstance(result, list)
-                            else (result.model_dump_json() if hasattr(result, "model_dump_json") else str(result))
-                        )
-                        messages.append(
-                            {
-                                "type": "function_call_output",
-                                "call_id": call.call_id,
-                                "output": redact(output_str),
-                            }
-                        )
-                    except DomainError as domain_error:
-                        blocked_reason = redact(str(domain_error))
-                        tool_summaries.append(
-                            ToolCallSummary(
-                                name=call.name,
-                                status="blocked",
-                                duration_ms=max(0, int((time.monotonic() - call_started) * 1000)),
+                            messages.append(
+                                {
+                                    "type": "function_call_output",
+                                    "call_id": call.call_id,
+                                    "output": redact(output_str),
+                                }
                             )
-                        )
-                        answer = f"Maaf, permintaan tidak dapat diproses: {blocked_reason}."
-                        outcome = Outcome.abstained
-                        break
-                    except Exception as tool_error:
-                        tool_summaries.append(
-                            ToolCallSummary(
-                                name=call.name,
-                                status="error",
-                                duration_ms=max(0, int((time.monotonic() - call_started) * 1000)),
+                            tool_span.set_output(result, status=tool_status)
+                        except DomainError as domain_error:
+                            blocked_reason = redact(str(domain_error))
+                            tool_status = "blocked"
+                            tool_span.set_output(blocked_reason, status=tool_status)
+                            tool_summaries.append(
+                                ToolCallSummary(
+                                    name=call.name,
+                                    status="blocked",
+                                    duration_ms=max(0, int((time.monotonic() - call_started) * 1000)),
+                                )
                             )
-                        )
-                        raise
+                            answer = f"Maaf, permintaan tidak dapat diproses: {blocked_reason}."
+                            outcome = Outcome.abstained
+                            break
+                        except Exception as tool_error:
+                            tool_status = "error"
+                            tool_span.set_output(str(tool_error), status=tool_status)
+                            tool_summaries.append(
+                                ToolCallSummary(
+                                    name=call.name,
+                                    status="error",
+                                    duration_ms=max(0, int((time.monotonic() - call_started) * 1000)),
+                                )
+                            )
+                            raise
                 if blocked_reason is not None:
                     break
             else:
@@ -224,6 +264,14 @@ class AgentService:
                 "tool_calls": [summary.model_dump() for summary in tool_summaries],
                 "usage": usage.model_dump(),
             }
+        )
+        citation_ids = [c.document_id for c in citations] if outcome == Outcome.answered else []
+        root_trace.end(
+            output_data=answer,
+            outcome=outcome.value,
+            usage=usage.model_dump(),
+            citations=citation_ids,
+            error=error_message,
         )
         return ChatResponse(
             answer=answer,

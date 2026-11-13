@@ -211,6 +211,8 @@ def reset_and_seed(reset: bool = False) -> None:
                 """
             )
             for employee in employees:
+                if employee.get("employee_id") == "MGR-001":
+                    continue
                 username = employee.get("username") or employee["employee_id"].lower()
                 raw_password = employee.get("password", "Password#123")
                 # Gunakan salt deterministik berbasis employee_id saat seed agar idempotent

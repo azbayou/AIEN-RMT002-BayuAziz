@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+from datetime import date
 import json
 from pathlib import Path
 import re
@@ -10,6 +11,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import Settings, get_settings
@@ -23,6 +25,7 @@ from .contracts import (
     ConfirmActionRequest,
     LeaveAttachmentUploadRequest,
     LeaveAttachmentView,
+    LeaveBalance,
     LeaveRequestView,
     LoginRequest,
     LoginResponse,
@@ -30,20 +33,21 @@ from .contracts import (
     ManagerReviewResult,
     ProblemDetail,
 )
+from .domain import get_annual_leave_lead_days, get_sick_leave_doc_threshold
 from .repository import ConflictError, MemoryRepository, Repository
 from .security import redact
 
 
 def build_runtime(settings: Settings):
     from .agent import AgentService
-    from .cache import ResilientCache
+    from .cache import NullCache, ResilientCache
     from .providers import DeterministicProvider, OpenAIProvider
     from .repository import PostgresRepository
     from .retrieval import RetrievalService
     from .tools import ToolExecutor
 
     repository: Repository = PostgresRepository(settings.database_url, settings.embedding_dimensions)
-    cache = ResilientCache(settings.redis_url)
+    cache = ResilientCache(settings.redis_url) if settings.redis_url else NullCache()
     provider = (
         OpenAIProvider(
             api_key=settings.openai_api_key,
@@ -86,6 +90,14 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
     if repository is None or cache is None or agent is None:
         repository, cache, agent = build_runtime(settings)
     app = FastAPI(title=settings.app_name)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):
@@ -167,12 +179,30 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
             },
         }
 
+    @app.get("/api/v1/auth/personas")
+    def list_personas() -> list[dict[str, Any]]:
+        if hasattr(repository, "list_personas"):
+            return repository.list_personas()
+        return []
+
+    @app.get("/api/v1/policies/rules")
+    def policy_rules() -> dict[str, Any]:
+        return {
+            "server_date": date.today().isoformat(),
+            "annual_lead_days": get_annual_leave_lead_days(),
+            "sick_doc_threshold": get_sick_leave_doc_threshold(),
+        }
+
     @app.post("/api/v1/auth/login", response_model=LoginResponse)
     def login(payload: LoginRequest) -> LoginResponse:
         result = repository.authenticate_password(payload.username, payload.password)
         if result is None:
             raise HTTPException(status_code=401, detail="Invalid username or password")
         return result
+
+    @app.get("/api/v1/leave-balances/me", response_model=list[LeaveBalance])
+    def my_leave_balances(auth: AuthContext = Depends(current_auth)) -> list[LeaveBalance]:
+        return repository.get_balances(auth.employee_id)
 
     @app.post("/api/v1/chat", response_model=ChatResponse)
     def chat(payload: ChatRequest, auth: AuthContext = Depends(current_auth)) -> ChatResponse:

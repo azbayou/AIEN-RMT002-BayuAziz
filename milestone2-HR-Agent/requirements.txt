@@ -8,3 +8,5 @@ redis>=5.2,<7
 httpx>=0.28,<1
 streamlit>=1.42,<2
 pytest>=8.3,<9
+opik>=1.0.0
+

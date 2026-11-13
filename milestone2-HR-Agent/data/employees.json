@@ -6,7 +6,7 @@
     "display_name": "Alya Pratama",
     "role": "employee",
     "department": "Engineering",
-    "manager_id": "MGR-001",
+    "manager_id": "ADM-001",
     "token": "token-alya",
     "balances": {"annual": 8, "sick": 10, "parental": 60}
   },
@@ -17,7 +17,7 @@
     "display_name": "Bima Santoso",
     "role": "employee",
     "department": "Engineering",
-    "manager_id": "MGR-001",
+    "manager_id": "ADM-001",
     "token": "token-bima",
     "balances": {"annual": 3, "sick": 10, "parental": 60}
   },

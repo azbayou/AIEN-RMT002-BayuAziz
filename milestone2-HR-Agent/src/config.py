@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "HR Policy and Leave Assistant"
     environment: str = "development"
     database_url: str = "postgresql://hr_app:hr_app@postgres:5432/hr_assistant"
-    redis_url: str = "redis://redis:6379/0"
+    redis_url: str | None = "redis://redis:6379/0"
     openai_api_key: str | None = None
     openai_base_url: str | None = None
     gemini_api_key: str | None = None
@@ -32,13 +32,20 @@ class Settings(BaseSettings):
     retrieval_cache_ttl_seconds: int = Field(default=900, ge=0, le=86400)
     input_cost_per_1m: float | None = Field(default=None, ge=0)
     output_cost_per_1m: float | None = Field(default=None, ge=0)
+    opik_api_key: str | None = None
+    opik_workspace: str | None = None
+    opik_project_name: str = "Milestone 2 - HR Agent"
+    opik_enabled: bool = True
 
     @field_validator(
         "openai_api_key",
         "openai_base_url",
         "gemini_api_key",
+        "opik_api_key",
+        "opik_workspace",
         "input_cost_per_1m",
         "output_cost_per_1m",
+        "redis_url",
         mode="before",
     )
     @classmethod
@@ -52,14 +59,26 @@ class Settings(BaseSettings):
             raise ValueError("configuration value must not be blank")
         return value.strip()
 
-    @field_validator("database_url", "redis_url", mode="before")
+    @field_validator("database_url", mode="before")
     @classmethod
-    def valid_service_url(cls, value):
+    def valid_database_url(cls, value):
         if not isinstance(value, str) or not value.strip():
             raise ValueError("service URL must not be blank")
         if "://" not in value:
             raise ValueError("service URL must include a scheme")
         return value.strip()
+
+    @field_validator("redis_url", mode="before")
+    @classmethod
+    def valid_redis_url(cls, value):
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        if not isinstance(value, str):
+            raise ValueError("redis URL must be a string")
+        clean = value.strip()
+        if "://" not in clean:
+            raise ValueError("service URL must include a scheme")
+        return clean
 
     @property
     def live_model_ready(self) -> bool:
@@ -69,7 +88,7 @@ class Settings(BaseSettings):
 
     @property
     def configuration_ready(self) -> bool:
-        return bool(self.database_url and self.redis_url) and (
+        return bool(self.database_url) and (
             self.model_mode == "fake" or self.live_model_ready
         )
 

@@ -43,6 +43,7 @@ class Repository(Protocol):
     def health(self) -> bool: ...
     def authenticate(self, token: str) -> AuthContext | None: ...
     def authenticate_password(self, username: str, password: str) -> LoginResponse | None: ...
+    def list_personas(self) -> list[dict[str, Any]]: ...
     def lexical_search(self, query: str, limit: int) -> list[PolicyChunk]: ...
     def vector_search(self, embedding: list[float], limit: int) -> list[PolicyChunk]: ...
     def get_balances(self, employee_id: str) -> list[LeaveBalance]: ...
@@ -150,6 +151,25 @@ class MemoryRepository:
                     )
                 return None
         return None
+
+    def list_personas(self) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        for emp_id, rec in self.credentials.items():
+            ctx: AuthContext = rec["context"]
+            is_privileged = ctx.role in ("manager", "monitoring_admin")
+            bals = {b.leave_type: b.available_days for b in self.get_balances(emp_id)}
+            result.append({
+                "employee_id": ctx.employee_id,
+                "username": rec["username"],
+                "display_name": ctx.display_name,
+                "role": ctx.role,
+                "department": ctx.department or "Engineering",
+                "manager_id": ctx.manager_id,
+                "requires_password": is_privileged,
+                "demo_token": None if is_privileged else rec["token"],
+                "balances": bals,
+            })
+        return result
 
     def lexical_search(self, query: str, limit: int) -> list[PolicyChunk]:
         stopwords = {"berapa", "apakah", "bagaimana", "kapan", "siapa", "yang", "dan", "di", "ke", "dari", "untuk", "pada", "saya", "aku", "bisa", "boleh", "per"}
@@ -703,6 +723,57 @@ class PostgresRepository:
         )
         return LoginResponse(access_token=token, profile=profile)
 
+    def list_personas(self) -> list[dict[str, Any]]:
+        token_map = {e["employee_id"]: e["token"] for e in _load_employees()}
+        with self.pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT employee_id, username, display_name, role, department, manager_id
+                FROM employees
+                ORDER BY employee_id
+                """
+            ).fetchall()
+            bal_rows = connection.execute(
+                """
+                SELECT
+                    b.employee_id,
+                    b.leave_type,
+                    GREATEST(
+                        0,
+                        b.available_days - COALESCE((
+                            SELECT SUM(r.business_days)::int
+                            FROM leave_requests r
+                            WHERE r.employee_id = b.employee_id
+                              AND r.leave_type = b.leave_type
+                              AND r.status = 'pending_manager_review'
+                        ), 0)
+                    ) AS available_days
+                FROM leave_balances b
+                """
+            ).fetchall()
+
+        bal_map: dict[str, dict[str, int]] = {}
+        for b in bal_rows:
+            bal_map.setdefault(b["employee_id"], {})[b["leave_type"]] = int(b["available_days"])
+
+        result: list[dict[str, Any]] = []
+        for r in rows:
+            emp_id = r["employee_id"]
+            role = r["role"]
+            is_privileged = role in ("manager", "monitoring_admin")
+            result.append({
+                "employee_id": emp_id,
+                "username": r.get("username") or emp_id.lower(),
+                "display_name": r["display_name"],
+                "role": role,
+                "department": r.get("department") or "Engineering",
+                "manager_id": r.get("manager_id"),
+                "requires_password": is_privileged,
+                "demo_token": None if is_privileged else token_map.get(emp_id),
+                "balances": bal_map.get(emp_id, {}),
+            })
+        return result
+
     @staticmethod
     def _chunk(row: dict[str, Any]) -> PolicyChunk:
         return PolicyChunk(**row)
@@ -966,6 +1037,7 @@ class PostgresRepository:
             rows = connection.execute(
                 """
                 SELECT r.request_id, r.leave_type, r.start_date, r.end_date, r.business_days, r.status, r.created_at,
+                       r.reviewed_by, r.review_note, r.reviewed_at,
                        (a.request_id IS NOT NULL) AS has_attachment,
                        a.filename AS attachment_filename,
                        a.content_type AS attachment_content_type,
@@ -974,7 +1046,7 @@ class PostgresRepository:
                 FROM leave_requests r
                 LEFT JOIN leave_attachments a ON a.request_id = r.request_id
                 WHERE r.employee_id = %s
-                ORDER BY r.created_at, r.request_id
+                ORDER BY r.created_at DESC, r.request_id
                 """,
                 (employee_id,),
             ).fetchall()

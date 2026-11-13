@@ -5,13 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Miyo HR Portal — PT Nusantara Digital</title>
   <link rel="icon" type="image/png" href="/public/img/miyo.png">
+  <!-- Google Fonts: Inter & JetBrains Mono for Claude-like Cleanliness -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- Lucide Icons CDN -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <!-- Vue 3 CDN -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
-  <!-- Markdown parser -->
+  <!-- Marked.js Markdown Parser -->
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
   <script>
@@ -20,23 +24,24 @@
       theme: {
         extend: {
           colors: {
-            brand: {
-              orange: '#da7756',
-              'orange-hover': '#e28a6c',
-              'orange-subtle': 'rgba(218, 119, 86, 0.12)',
-              dark: 'var(--bg-app)',
+            claude: {
+              bg: 'var(--bg-app)',
               sidebar: 'var(--bg-sidebar)',
               surface: 'var(--bg-surface)',
-              elevated: 'var(--bg-surface-elevated)',
+              elevated: 'var(--bg-elevated)',
               border: 'var(--border-subtle)',
-              'border-subtle': 'var(--border-subtle)',
               text: 'var(--text-primary)',
+              secondary: 'var(--text-secondary)',
               muted: 'var(--text-muted)',
+              blue: '#2563eb',
+              'blue-hover': '#1d4ed8',
+              'blue-light': '#3b82f6',
+              'blue-subtle': 'rgba(37, 99, 235, 0.12)'
             }
           },
           fontFamily: {
-            sans: ['-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
-            mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'monospace']
           }
         }
       }
@@ -44,516 +49,767 @@
   </script>
 
   <style>
+    /* Global Proportional Zoom (+30% Larger UI & Typography) */
+    html {
+      overflow: hidden;
+      height: 100%;
+    }
+
+    body {
+      zoom: 1.3;
+      height: calc(100vh / 1.3);
+      width: calc(100vw / 1.3);
+      max-height: calc(100vh / 1.3);
+      overflow: hidden;
+    }
+
+    @media (max-width: 768px) {
+      body {
+        zoom: 1.0;
+        height: 100vh;
+        width: 100vw;
+        max-height: 100vh;
+      }
+    }
+
+    /* Light Mode Tokens (Clean Slate & Crisp White) */
     :root {
-      --bg-app: #faf9f5;
-      --bg-sidebar: #f4f3ee;
-      --bg-surface: #edebe4;
-      --bg-surface-elevated: #ffffff;
-      --border-subtle: #e5e4de;
-      --text-primary: #191816;
-      --text-secondary: #57564f;
-      --text-muted: #8c8a82;
+      --bg-app: #f8fafc;
+      --bg-sidebar: #f1f5f9;
+      --bg-surface: #ffffff;
+      --bg-elevated: #f8fafc;
+      --border-subtle: #e2e8f0;
+      --text-primary: #090d16;
+      --text-secondary: #334155;
+      --text-muted: #64748b;
     }
 
+    /* Dark Mode Tokens (Deep Obsidian Black & Midnight Blue Accent) */
     html.dark {
-      --bg-app: #141311;
-      --bg-sidebar: #1c1b18;
-      --bg-surface: #21201d;
-      --bg-surface-elevated: #262522;
-      --border-subtle: #33322c;
-      --text-primary: #f4f3ee;
-      --text-secondary: #9e9c94;
-      --text-muted: #7e7c74;
+      --bg-app: #090a0f;
+      --bg-sidebar: #0d0f17;
+      --bg-surface: #12151f;
+      --bg-elevated: #181c29;
+      --border-subtle: #1e2436;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
     }
 
-    /* Custom Scrollbars */
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    [v-cloak] { display: none; }
+
+    /* Minimalist Scrollbars */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: #33322c; border-radius: 9999px; }
-    ::-webkit-scrollbar-thumb:hover { background: #4a4840; }
+    ::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
 
-    /* Markdown styling inside assistant chat */
-    .prose-miyo p { margin-bottom: 0.75rem; line-height: 1.625; }
-    .prose-miyo p:last-child { margin-bottom: 0; }
-    .prose-miyo ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.75rem; }
-    .prose-miyo ol { list-style-type: decimal; margin-left: 1.25rem; margin-bottom: 0.75rem; }
-    .prose-miyo li { margin-bottom: 0.35rem; }
-    .prose-miyo code { background-color: rgba(255, 255, 255, 0.08); padding: 0.15rem 0.35rem; border-radius: 4px; font-size: 0.85em; font-family: monospace; }
-    .prose-miyo strong { color: #f4f3ee; font-weight: 600; }
-    .prose-miyo blockquote { border-left: 3px solid #da7756; padding-left: 0.85rem; color: #b5b3aa; margin: 0.75rem 0; }
+    /* Claude-inspired Markdown Prose */
+    .prose-claude p { margin-bottom: 0.75rem; line-height: 1.65; }
+    .prose-claude p:last-child { margin-bottom: 0; }
+    .prose-claude ul { list-style-type: disc; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+    .prose-claude ol { list-style-type: decimal; margin-left: 1.25rem; margin-bottom: 0.75rem; }
+    .prose-claude li { margin-bottom: 0.35rem; line-height: 1.6; }
+    .prose-claude code {
+      background-color: rgba(59, 130, 246, 0.12);
+      color: #60a5fa;
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.375rem;
+      font-size: 0.84em;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    html:not(.dark) .prose-claude code {
+      background-color: rgba(37, 99, 235, 0.08);
+      color: #1d4ed8;
+    }
+    .prose-claude strong { color: var(--text-primary); font-weight: 600; }
+    .prose-claude blockquote {
+      border-left: 3px solid #2563eb;
+      padding-left: 0.85rem;
+      color: var(--text-secondary);
+      margin: 0.75rem 0;
+    }
 
-    /* Audio wave animation */
-    @keyframes pulse-wave {
-      0%, 100% { transform: scaleY(0.4); }
+    @keyframes pulse-bar {
+      0%, 100% { transform: scaleY(0.35); }
       50% { transform: scaleY(1); }
     }
-    .wave-bar { animation: pulse-wave 1s ease-in-out infinite; transform-origin: bottom; }
-    .wave-bar:nth-child(2) { animation-delay: 0.15s; }
-    .wave-bar:nth-child(3) { animation-delay: 0.3s; }
-    .wave-bar:nth-child(4) { animation-delay: 0.45s; }
+    .voice-bar { animation: pulse-bar 0.9s ease-in-out infinite; transform-origin: bottom; }
+    .voice-bar:nth-child(2) { animation-delay: 0.15s; }
+    .voice-bar:nth-child(3) { animation-delay: 0.3s; }
+    .voice-bar:nth-child(4) { animation-delay: 0.45s; }
   </style>
 </head>
 
-<body class="bg-brand-dark text-brand-text font-sans antialiased h-screen overflow-hidden select-none">
-  <div id="app" class="flex h-full w-full">
-    <!-- SIDEBAR -->
-    <aside :class="['bg-brand-sidebar border-r border-brand-border flex flex-col transition-all duration-300 z-30', isSidebarCollapsed ? 'w-16' : 'w-72']">
-      <!-- Sidebar Header / Logo -->
-      <div class="h-16 flex items-center justify-between px-4 border-b border-brand-border">
-        <div v-if="!isSidebarCollapsed" class="flex items-center gap-3 overflow-hidden">
-          <img src="/public/img/gunungan.png" alt="Nusantara Digital" class="w-7 h-7 object-contain flex-shrink-0" onerror="this.style.display='none'">
-          <div class="flex flex-col">
-            <span class="font-bold text-sm tracking-tight text-white leading-tight">Nusantara Digital</span>
-            <span class="text-[11px] text-brand-orange font-medium">HR Portal · Miyo AI</span>
-          </div>
+<body class="bg-claude-bg text-claude-text font-sans antialiased h-screen overflow-hidden select-none">
+  <div id="app" v-cloak class="h-full w-full flex flex-col">
+
+    <!-- GLOBAL TOAST NOTIFICATION -->
+    <div v-if="toast.show" class="fixed top-4 right-4 z-50 flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-xl text-xs font-medium transition-all duration-200"
+      :class="{
+        'bg-claude-surface border-blue-500/40 text-blue-400': toast.type === 'info',
+        'bg-claude-surface border-emerald-500/40 text-emerald-400': toast.type === 'success',
+        'bg-claude-surface border-rose-500/40 text-rose-400': toast.type === 'error'
+      }">
+      <i :data-lucide="toast.type === 'success' ? 'check-circle-2' : toast.type === 'error' ? 'alert-circle' : 'info'" class="w-4 h-4 flex-shrink-0"></i>
+      <span>{{ toast.message }}</span>
+      <button @click="toast.show = false" class="ml-2 text-claude-muted hover:text-claude-text">
+        <i data-lucide="x" class="w-3.5 h-3.5"></i>
+      </button>
+    </div>
+
+    <!-- =====================================================================
+         GATE 1: DYNAMIC DATABASE SSO SESSION SELECTOR (LINEAR / CLAUDE STYLE)
+         ===================================================================== -->
+    <div v-if="!isAuthenticated" class="flex-1 overflow-y-auto flex flex-col justify-between p-6">
+      <!-- Top Bar -->
+      <div class="max-w-3xl w-full mx-auto flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <img src="/public/img/gunungan.png" alt="Nusantara Digital" class="w-7 h-7 object-contain" onerror="this.style.display='none'">
+          <span class="text-xs font-semibold tracking-tight text-claude-secondary">PT Nusantara Digital</span>
         </div>
-        <button @click="isSidebarCollapsed = !isSidebarCollapsed" class="p-2 rounded-lg text-brand-muted hover:text-white hover:bg-brand-surface transition" :title="isSidebarCollapsed ? 'Buka Sidebar' : 'Tutup Sidebar'">
-          <i :data-lucide="isSidebarCollapsed ? 'chevron-right' : 'chevron-left'" class="w-5 h-5"></i>
-        </button>
-      </div>
-
-      <!-- Persona / User Profile Card -->
-      <div class="p-3 border-b border-brand-border">
-        <div v-if="!isSidebarCollapsed" class="bg-brand-surface border border-brand-border rounded-xl p-3">
-          <div class="flex items-center justify-between mb-2">
-            <div class="flex items-center gap-2 overflow-hidden">
-              <div class="w-8 h-8 rounded-full bg-brand-orange/20 border border-brand-orange/30 flex items-center justify-center font-bold text-brand-orange text-xs flex-shrink-0">
-                {{ userInitials }}
-              </div>
-              <div class="overflow-hidden">
-                <div class="text-xs font-semibold text-white truncate">{{ activePersona.label.split('—')[0] }}</div>
-                <div class="text-[10px] text-brand-muted capitalize truncate">{{ userRoleLabel }}</div>
-              </div>
-            </div>
-            <span class="text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider" :class="roleBadgeClass">
-              {{ activePersona.employee_id }}
-            </span>
-          </div>
-
-          <!-- Persona Selector Dropdown -->
-          <div class="mt-2 space-y-1.5">
-            <label class="text-[10px] text-brand-muted uppercase font-bold tracking-wider">Pilih Persona Sesi:</label>
-            <select v-model="selectedPersonaId" @change="switchPersona" class="w-full bg-brand-elevated border border-brand-border rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-brand-orange transition">
-              <option v-for="p in personasCatalog" :key="p.employee_id" :value="p.employee_id">
-                {{ p.label }}
-              </option>
-            </select>
-          </div>
-        </div>
-        <div v-else class="flex justify-center">
-          <div class="w-9 h-9 rounded-full bg-brand-orange/20 border border-brand-orange/40 flex items-center justify-center text-brand-orange font-bold text-xs" :title="activePersona.label">
-            {{ userInitials }}
-          </div>
-        </div>
-      </div>
-
-      <!-- Action Button: Formulir Pengajuan Cuti (Employee / Manager only) -->
-      <div v-if="!isAdmin" class="p-3">
-        <button @click="openLeaveModal" class="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-brand-orange hover:bg-brand-orange-hover text-white text-xs font-semibold shadow-sm transition active:scale-[0.98]">
-          <i data-lucide="plus-circle" class="w-4 h-4"></i>
-          <span v-if="!isSidebarCollapsed">Formulir Pengajuan Cuti</span>
-        </button>
-      </div>
-
-      <!-- Nav Menu Items -->
-      <nav class="flex-1 px-2 py-2 space-y-1 overflow-y-auto">
-        <button v-for="tab in visibleTabs" :key="tab.id" @click="activeTab = tab.id"
-          :class="['w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition text-left',
-            activeTab === tab.id 
-              ? 'bg-brand-surface text-brand-orange border border-brand-border shadow-sm font-semibold' 
-              : 'text-brand-muted hover:text-white hover:bg-brand-surface/60']"
-          :title="tab.label">
-          <i :data-lucide="tab.icon" class="w-4 h-4 flex-shrink-0" :class="activeTab === tab.id ? 'text-brand-orange' : 'text-brand-muted'"></i>
-          <span v-if="!isSidebarCollapsed" class="truncate">{{ tab.label }}</span>
-          <span v-if="!isSidebarCollapsed && tab.badge" class="ml-auto px-1.5 py-0.5 rounded-full text-[10px] bg-brand-orange text-white font-bold">
-            {{ tab.badge }}
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-claude-surface border border-claude-border text-claude-secondary">
+            <span class="w-1.5 h-1.5 rounded-full" :class="isBackendReady ? 'bg-emerald-500' : 'bg-amber-500'"></span>
+            <span>{{ isBackendReady ? 'Database Terhubung' : 'Memeriksa Koneksi' }}</span>
           </span>
-        </button>
-      </nav>
-
-      <!-- Sidebar Footer: System Status -->
-      <div class="p-3 border-t border-brand-border">
-        <div v-if="!isSidebarCollapsed" class="flex items-center justify-between text-[11px] text-brand-muted">
-          <div class="flex items-center gap-2">
-            <span class="w-2 h-2 rounded-full" :class="isBackendReady ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'"></span>
-            <span>{{ isBackendReady ? 'Sistem & API Siap' : 'Menghubungkan...' }}</span>
-          </div>
-          <span class="text-[10px] text-brand-muted font-mono">v2.4</span>
-        </div>
-        <div v-else class="flex justify-center">
-          <span class="w-2.5 h-2.5 rounded-full" :class="isBackendReady ? 'bg-emerald-500' : 'bg-rose-500'" :title="isBackendReady ? 'Sistem Siap' : 'Offline'"></span>
-        </div>
-      </div>
-    </aside>
-
-    <!-- MAIN VIEW AREA -->
-    <main class="flex-1 flex flex-col h-full overflow-hidden bg-brand-dark relative">
-      <!-- TOP NAVBAR -->
-      <header class="h-16 border-b border-brand-border px-6 flex items-center justify-between bg-brand-sidebar/40 backdrop-blur z-20 flex-shrink-0">
-        <div class="flex items-center gap-3">
-          <img src="/public/img/miyo.png" alt="Miyo" class="w-9 h-9 object-contain rounded-full bg-brand-surface border border-brand-border p-0.5">
-          <div>
-            <h1 class="text-sm font-bold text-white tracking-tight flex items-center gap-2">
-              <span>{{ currentTabTitle }}</span>
-            </h1>
-            <p class="text-[11px] text-brand-muted">PT Nusantara Digital · Layanan Kepegawaian & Kebijakan Cuti</p>
-          </div>
-        </div>
-
-        <!-- Right Header Actions -->
-        <div class="flex items-center gap-2 sm:gap-3">
-          <!-- Live Date Badge -->
-          <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-xs text-brand-muted">
-            <i data-lucide="calendar" class="w-3.5 h-3.5 text-brand-orange"></i>
-            <span>{{ currentDateFormatted }}</span>
-          </div>
-
-          <!-- Quick Leave Balances Badge (Employee only) -->
-          <button v-if="!isAdmin" @click="activeTab = 'chat'; sendQuickPrompt('Berapa sisa saldo cuti saya saat ini?')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-orange-subtle border border-brand-orange/30 text-xs text-brand-orange hover:bg-brand-orange-subtle/80 transition">
-            <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-            <span class="font-semibold hidden sm:inline">Cuti Tahunan:</span>
-            <span class="font-bold">{{ annualBalanceDays }} Hari</span>
-          </button>
-
-          <!-- Theme Toggle Button -->
-          <button @click="toggleTheme" class="p-2 rounded-lg bg-brand-surface border border-brand-border text-brand-muted hover:text-white transition" :title="isDarkMode ? 'Beralih ke Mode Terang' : 'Beralih ke Mode Gelap'">
+          <button @click="toggleTheme" class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" :title="isDarkMode ? 'Mode Terang' : 'Mode Gelap'">
             <i :data-lucide="isDarkMode ? 'sun' : 'moon'" class="w-4 h-4"></i>
           </button>
-
-          <!-- Database Password Login Button -->
-          <button @click="isLoginModalOpen = true" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-surface hover:bg-brand-elevated border border-brand-border text-xs text-brand-muted hover:text-white transition">
-            <i data-lucide="key-round" class="w-3.5 h-3.5"></i>
-            <span class="hidden md:inline">Login Password</span>
-          </button>
         </div>
-      </header>
+      </div>
 
-      <!-- TAB CONTENTS -->
-      <div class="flex-1 overflow-hidden relative">
+      <!-- Center SSO Directory -->
+      <div class="max-w-2xl w-full mx-auto my-auto py-8">
+        <div class="text-center mb-8">
+          <div class="w-16 h-16 rounded-2xl bg-claude-surface border border-claude-border mx-auto flex items-center justify-center mb-4 shadow-sm">
+            <img src="/public/img/miyo.png" alt="Miyo" class="w-11 h-11 object-contain" onerror="this.style.display='none'">
+          </div>
+          <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-claude-blue-subtle border border-blue-500/25 text-blue-400 text-[11px] font-semibold uppercase tracking-wider mb-3">
+            <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+            <span>Portal Layanan Mandiri HR</span>
+          </div>
+          <h1 class="text-2xl font-bold tracking-tight text-claude-text mb-1.5">Asisten Kebijakan & Cuti (Miyo)</h1>
+          <p class="text-xs text-claude-secondary max-w-md mx-auto leading-relaxed">
+            Pilih identitas akun dari direktori database untuk memulai sesi layanan mandiri atau gunakan kredensial password.
+          </p>
+        </div>
 
-        <!-- TAB 1: ASISTEN KEBIJAKAN (MIYO CHAT) -->
-        <div v-show="activeTab === 'chat'" class="h-full flex flex-col justify-between max-w-4xl mx-auto w-full px-4 sm:px-6 py-4">
-          <!-- Chat Message Scroll Container -->
-          <div ref="chatContainer" class="flex-1 overflow-y-auto space-y-4 pr-1 mb-3">
-            <!-- Welcome Banner when chat is empty -->
-            <div v-if="chatMessages.length === 0" class="bg-brand-surface border border-brand-border rounded-2xl p-6 my-auto text-center max-w-2xl mx-auto mt-6">
-              <div class="w-16 h-16 rounded-full bg-brand-orange/10 border border-brand-orange/30 mx-auto flex items-center justify-center mb-4">
-                <img src="/public/img/miyo.png" alt="Miyo" class="w-12 h-12 object-contain">
+        <!-- Loading Skeleton -->
+        <div v-if="isLoadingPersonas" class="space-y-2.5">
+          <div v-for="n in 4" :key="n" class="h-16 rounded-xl bg-claude-surface border border-claude-border animate-pulse"></div>
+        </div>
+
+        <!-- Dynamic Employee List from PostgreSQL -->
+        <div v-else class="space-y-2.5">
+          <div v-for="emp in personasCatalog" :key="emp.employee_id"
+            class="group bg-claude-surface hover:bg-claude-elevated border border-claude-border hover:border-blue-500/40 rounded-xl p-4 flex items-center justify-between gap-4 transition-all duration-150 shadow-sm">
+            <div class="flex items-center gap-3.5 min-w-0">
+              <div class="w-10 h-10 rounded-xl bg-claude-blue-subtle border border-blue-500/25 text-blue-400 flex items-center justify-center font-mono font-semibold text-xs flex-shrink-0">
+                {{ getInitials(emp.display_name) }}
               </div>
-              <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-brand-orange-subtle border border-brand-orange/30 text-brand-orange text-xs font-bold uppercase tracking-wider mb-2">
-                <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                <span>Asisten Kebijakan HR Digital</span>
-              </div>
-              <h2 class="text-xl font-bold text-white mb-2">Halo, {{ activePersona.label.split('—')[0] }}!</h2>
-              <p class="text-xs text-brand-muted leading-relaxed max-w-lg mx-auto mb-6">
-                Saya Miyo, mitra kecerdasan buatan resmi PT Nusantara Digital. Saya siap membantu menelusuri kebijakan HR resmi, memeriksa jatah cuti, dan menyiapkan permohonan pengajuan cuti secara aman dan terverifikasi.
-              </p>
-
-              <!-- Quick Query Cards -->
-              <div class="text-left">
-                <div class="text-[11px] font-bold text-brand-muted uppercase tracking-wider mb-2.5">Rekomendasi Pertanyaan Cepat:</div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <button v-for="(q, idx) in quickQueries" :key="idx" @click="sendQuickPrompt(q)" class="p-3 rounded-xl bg-brand-elevated hover:bg-brand-elevated/80 border border-brand-border text-left text-xs text-brand-text hover:border-brand-orange transition flex items-center justify-between group">
-                    <span class="group-hover:text-white">{{ q }}</span>
-                    <i data-lucide="arrow-up-right" class="w-4 h-4 text-brand-muted group-hover:text-brand-orange flex-shrink-0 ml-2"></i>
-                  </button>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-semibold text-sm text-claude-text truncate">{{ emp.display_name }}</span>
+                  <span class="px-2 py-0.5 rounded text-[10px] font-mono font-semibold uppercase"
+                    :class="emp.role === 'monitoring_admin' ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30' : emp.role === 'manager' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' : 'bg-zinc-500/15 text-zinc-400 border border-zinc-500/30'">
+                    {{ emp.role === 'monitoring_admin' ? 'Admin' : emp.role === 'manager' ? 'Manager' : 'Pegawai' }}
+                  </span>
+                  <span class="font-mono text-[11px] text-claude-muted px-1.5 py-0.5 rounded bg-claude-elevated border border-claude-border">
+                    {{ emp.employee_id }}
+                  </span>
+                </div>
+                <div class="flex items-center gap-2.5 text-xs text-claude-secondary mt-1">
+                  <span>{{ emp.department }}</span>
+                  <span class="text-claude-muted">&middot;</span>
+                  <span v-if="emp.role !== 'monitoring_admin'" class="text-blue-400 font-medium">
+                    Saldo Tahunan: {{ emp.balances?.annual ?? 0 }} Hari
+                  </span>
+                  <span v-else class="text-sky-400 font-medium">Akses Telemetri Penuh</span>
+                  <span class="text-claude-muted">&middot;</span>
+                  <span class="text-[11px] text-claude-muted flex items-center gap-1">
+                    <i :data-lucide="emp.requires_password ? 'lock' : 'check-circle-2'" class="w-3 h-3"></i>
+                    <span>{{ emp.requires_password ? 'Verifikasi Sandi' : 'Akses SSO' }}</span>
+                  </span>
                 </div>
               </div>
             </div>
 
-            <!-- Rendered Chat Messages -->
+            <button @click="selectSsoPersona(emp)"
+              :class="[
+                'px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition flex-shrink-0',
+                emp.requires_password
+                  ? 'bg-claude-elevated hover:bg-blue-600 hover:text-white text-claude-text border border-claude-border'
+                  : 'bg-claude-blue hover:bg-claude-blue-hover text-white shadow-sm'
+              ]">
+              <i :data-lucide="emp.requires_password ? 'key-round' : 'log-in'" class="w-3.5 h-3.5"></i>
+              <span>{{ emp.requires_password ? 'Verifikasi' : 'Masuk SSO' }}</span>
+            </button>
+          </div>
+
+          <div class="pt-4 flex items-center justify-between text-xs text-claude-muted">
+            <span>Mengambil {{ personasCatalog.length }} profil aktif dari database</span>
+            <button @click="openManualLoginModal" class="text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1">
+              <i data-lucide="terminal" class="w-3.5 h-3.5"></i>
+              <span>Login Manual via Username</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="max-w-3xl w-full mx-auto text-center text-[11px] text-claude-muted">
+        PT Nusantara Digital &middot; Sistem Terintegrasi Kebijakan HR & Pengajuan Cuti
+      </div>
+    </div>
+
+    <!-- =====================================================================
+         GATE 2: AUTHENTICATED MAIN WORKSPACE (SIDEBAR + MAIN VIEWPORT)
+         ===================================================================== -->
+    <div v-else class="flex-1 flex h-full w-full overflow-hidden">
+
+      <!-- LEFT SIDEBAR (CLAUDE MINIMALIST BLACK-BLUE) -->
+      <aside :class="['bg-claude-sidebar border-r border-claude-border flex flex-col justify-between transition-all duration-200 z-30 flex-shrink-0', isSidebarCollapsed ? 'w-16' : 'w-64']">
+        <div>
+          <!-- Brand Header -->
+          <div class="h-14 flex items-center justify-between px-3.5 border-b border-claude-border">
+            <div v-if="!isSidebarCollapsed" class="flex items-center gap-2.5 overflow-hidden">
+              <img src="/public/img/gunungan.png" alt="Logo" class="w-6 h-6 object-contain flex-shrink-0" onerror="this.style.display='none'">
+              <div class="truncate">
+                <div class="font-semibold text-xs text-claude-text tracking-tight truncate">Nusantara Digital</div>
+                <div class="text-[10px] text-blue-400 font-medium">Miyo AI Workspace</div>
+              </div>
+            </div>
+            <button @click="isSidebarCollapsed = !isSidebarCollapsed; refreshIcons()" class="p-1.5 rounded-lg text-claude-muted hover:text-claude-text hover:bg-claude-surface transition" :title="isSidebarCollapsed ? 'Buka Sidebar' : 'Tutup Sidebar'">
+              <i :data-lucide="isSidebarCollapsed ? 'panel-left-open' : 'panel-left-close'" class="w-4 h-4"></i>
+            </button>
+          </div>
+
+          <!-- Active Identity Card & Quick Switcher -->
+          <div class="p-2.5 border-b border-claude-border">
+            <div v-if="!isSidebarCollapsed" class="bg-claude-surface border border-claude-border rounded-xl p-2.5 space-y-2">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-claude-blue-subtle border border-blue-500/30 flex items-center justify-center font-mono font-bold text-blue-400 text-xs flex-shrink-0">
+                  {{ userInitials }}
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="text-xs font-semibold text-claude-text truncate">{{ userDisplayName }}</div>
+                  <div class="flex items-center gap-1.5 mt-0.5">
+                    <span class="font-mono text-[10px] text-blue-400">{{ activePersona.employee_id }}</span>
+                    <span class="text-claude-muted text-[10px]">&middot;</span>
+                    <span class="text-[10px] text-claude-secondary truncate">{{ userRoleLabel }}</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Dynamic DB Persona Switcher -->
+              <div class="pt-1 border-t border-claude-border">
+                <label class="block text-[10px] font-medium text-claude-muted mb-1">Beralih Akun Sesi:</label>
+                <select v-model="selectedPersonaId" @change="onSidebarPersonaSwitch" class="w-full bg-claude-elevated border border-claude-border rounded-lg px-2 py-1 text-[11px] text-claude-text focus:outline-none focus:border-blue-500 transition">
+                  <option v-for="p in personasCatalog" :key="p.employee_id" :value="p.employee_id">
+                    {{ p.display_name }} ({{ p.role === 'monitoring_admin' ? 'Admin' : p.role === 'manager' ? 'Manager' : 'Pegawai' }})
+                  </option>
+                </select>
+              </div>
+            </div>
+            <div v-else class="flex justify-center py-1">
+              <div class="w-8 h-8 rounded-lg bg-claude-blue-subtle border border-blue-500/30 flex items-center justify-center font-mono font-bold text-blue-400 text-xs" :title="userDisplayName">
+                {{ userInitials }}
+              </div>
+            </div>
+          </div>
+
+          <!-- Primary CTA: Formulir Pengajuan Cuti -->
+          <div v-if="!isAdmin" class="px-2.5 pt-2.5">
+            <button @click="openLeaveModal" class="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white text-xs font-semibold shadow-sm transition active:scale-[0.99]" title="Formulir Pengajuan Cuti">
+              <i data-lucide="calendar-plus" class="w-4 h-4 flex-shrink-0"></i>
+              <span v-if="!isSidebarCollapsed">Ajukan Cuti Baru</span>
+            </button>
+          </div>
+
+          <!-- Navigation Tabs -->
+          <nav class="p-2.5 space-y-1">
+            <button v-for="tab in visibleTabs" :key="tab.id" @click="activeTab = tab.id; refreshIcons()"
+              :class="[
+                'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition text-left',
+                activeTab === tab.id
+                  ? 'bg-claude-blue-subtle text-blue-400 border border-blue-500/30 font-semibold'
+                  : 'text-claude-secondary hover:text-claude-text hover:bg-claude-surface'
+              ]"
+              :title="tab.label">
+              <i :data-lucide="tab.icon" class="w-4 h-4 flex-shrink-0" :class="activeTab === tab.id ? 'text-blue-400' : 'text-claude-muted'"></i>
+              <span v-if="!isSidebarCollapsed" class="truncate flex-1">{{ tab.label }}</span>
+              <span v-if="!isSidebarCollapsed && tab.badge" class="px-1.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-blue-600 text-white">
+                {{ tab.badge }}
+              </span>
+            </button>
+          </nav>
+        </div>
+
+        <!-- Sidebar Bottom: Audit Toggle, Logout & Health -->
+        <div class="p-2.5 border-t border-claude-border space-y-2">
+          <!-- Dev Audit Mode Toggle -->
+          <button @click="toggleDevAudit"
+            :class="[
+              'w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] font-medium border transition',
+              showDevAudit
+                ? 'bg-claude-blue-subtle border-blue-500/30 text-blue-400'
+                : 'bg-claude-surface border-claude-border text-claude-muted hover:text-claude-text'
+            ]"
+            title="Mode Audit Developer (Sitasi & Jejak Telemetri)">
+            <div class="flex items-center gap-2 truncate">
+              <i data-lucide="terminal" class="w-3.5 h-3.5 flex-shrink-0"></i>
+              <span v-if="!isSidebarCollapsed" class="truncate">Mode Audit Dev</span>
+            </div>
+            <span v-if="!isSidebarCollapsed" class="w-2 h-2 rounded-full" :class="showDevAudit ? 'bg-blue-400' : 'bg-zinc-600'"></span>
+          </button>
+
+          <!-- Logout / Switch Session -->
+          <button @click="logoutSession" class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] font-medium text-claude-secondary hover:text-rose-400 hover:bg-rose-500/10 transition" title="Keluar Sesi">
+            <i data-lucide="log-out" class="w-3.5 h-3.5 flex-shrink-0"></i>
+            <span v-if="!isSidebarCollapsed">Ganti Sesi Pengguna</span>
+          </button>
+
+          <!-- Health Status Pill -->
+          <div v-if="!isSidebarCollapsed" class="pt-1 flex items-center justify-between text-[10px] text-claude-muted px-1">
+            <span class="flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full" :class="isBackendReady ? 'bg-emerald-500' : 'bg-rose-500'"></span>
+              <span>{{ isBackendReady ? 'Sistem & DB Siap' : 'Degraded' }}</span>
+            </span>
+            <span class="font-mono">{{ policyRules.server_date }}</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- MAIN WORKSPACE AREA -->
+      <main class="flex-1 flex flex-col h-full overflow-hidden bg-claude-bg">
+        <!-- Minimalist Top Header -->
+        <header class="h-14 border-b border-claude-border px-6 flex items-center justify-between bg-claude-sidebar/50 backdrop-blur-md flex-shrink-0">
+          <div class="flex items-center gap-3">
+            <img src="/public/img/miyo.png" alt="Miyo" class="w-7 h-7 rounded-lg bg-claude-surface border border-claude-border p-0.5 object-contain" onerror="this.style.display='none'">
+            <div>
+              <h1 class="text-xs font-semibold text-claude-text tracking-tight">{{ currentTabTitle }}</h1>
+              <p class="text-[10px] text-claude-muted hidden sm:block">PT Nusantara Digital &middot; Portal SDM Terverifikasi</p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2.5">
+            <!-- Dynamic Balances Pill (Employee & Manager) -->
+            <div v-if="!isAdmin" class="hidden md:flex items-center gap-2 px-3 py-1 rounded-lg bg-claude-surface border border-claude-border text-[11px]">
+              <span class="text-claude-muted">Saldo Cuti:</span>
+              <span class="font-mono font-semibold text-blue-400" title="Cuti Tahunan">Tahunan {{ annualBalanceDays }}h</span>
+              <span class="text-claude-border">|</span>
+              <span class="font-mono text-claude-secondary" title="Cuti Sakit">Sakit {{ sickBalanceDays }}h</span>
+              <span class="text-claude-border">|</span>
+              <span class="font-mono text-claude-secondary" title="Cuti Orang Tua">Parental {{ parentalBalanceDays }}h</span>
+            </div>
+
+            <!-- Date Display -->
+            <div class="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-claude-surface border border-claude-border text-[11px] text-claude-secondary">
+              <i data-lucide="calendar" class="w-3.5 h-3.5 text-blue-400"></i>
+              <span>{{ currentDateFormatted }}</span>
+            </div>
+
+            <!-- Theme Toggle -->
+            <button @click="toggleTheme" class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" :title="isDarkMode ? 'Beralih ke Mode Terang' : 'Beralih ke Mode Gelap'">
+              <i :data-lucide="isDarkMode ? 'sun' : 'moon'" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </header>
+
+        <!-- =================================================================
+             TAB 1: ASISTEN KEBIJAKAN (CLAUDE CLEAN CHAT INTERFACE)
+             ================================================================= -->
+        <div v-show="activeTab === 'chat'" class="flex-1 flex flex-col justify-between max-w-3xl w-full mx-auto px-4 sm:px-6 py-4 overflow-hidden">
+          <!-- Messages Stream -->
+          <div ref="chatContainer" class="flex-1 overflow-y-auto space-y-5 pr-1">
+
+            <!-- Empty State Greeting (Claude Minimalist Center) -->
+            <div v-if="chatMessages.length === 0" class="my-auto py-10">
+              <div class="text-center mb-8">
+                <div class="w-14 h-14 rounded-2xl bg-claude-surface border border-claude-border mx-auto flex items-center justify-center mb-4 shadow-sm">
+                  <img src="/public/img/miyo.png" alt="Miyo" class="w-10 h-10 object-contain" onerror="this.style.display='none'">
+                </div>
+                <h2 class="text-xl font-semibold text-claude-text tracking-tight mb-1.5">
+                  Halo, {{ userDisplayName }}
+                </h2>
+                <p class="text-xs text-claude-secondary max-w-md mx-auto leading-relaxed">
+                  Saya Miyo, asisten AI kebijakan HR PT Nusantara Digital. Tanyakan aturan perusahaan, periksa hak cuti Anda, atau siapkan permohonan cuti.
+                </p>
+              </div>
+
+              <!-- Recommended Prompt Grid -->
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-w-2xl mx-auto">
+                <button v-for="(q, idx) in quickQueries" :key="idx" @click="sendQuickPrompt(q)"
+                  class="p-3.5 rounded-xl bg-claude-surface hover:bg-claude-elevated border border-claude-border hover:border-blue-500/40 text-left text-xs text-claude-secondary hover:text-claude-text transition flex items-start justify-between gap-3 group">
+                  <span class="leading-relaxed">{{ q }}</span>
+                  <i data-lucide="arrow-up-right" class="w-4 h-4 text-claude-muted group-hover:text-blue-400 flex-shrink-0 mt-0.5 transition"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Conversation Items -->
             <div v-for="(msg, index) in chatMessages" :key="index" class="space-y-3">
-              <!-- USER MESSAGE (Right-Aligned, Terracotta Bubble, No Avatar) -->
+              <!-- User Prompt Bubble -->
               <div v-if="msg.role === 'user'" class="flex justify-end">
-                <div class="max-w-[85%] sm:max-w-[70%] bg-brand-orange text-white px-4 py-2.5 rounded-2xl rounded-tr-none text-xs leading-relaxed shadow-sm font-medium">
+                <div class="max-w-[82%] bg-claude-blue text-white px-4 py-2.5 rounded-2xl rounded-br-sm text-xs leading-relaxed font-medium shadow-sm">
                   {{ msg.content }}
                 </div>
               </div>
 
-              <!-- ASSISTANT MESSAGE (Left-Aligned, Detective Cat Avatar, Markdown) -->
-              <div v-else class="flex items-start gap-3">
-                <img src="/public/img/miyo.png" alt="Miyo" class="w-8 h-8 rounded-full bg-brand-surface border border-brand-border p-0.5 flex-shrink-0 mt-0.5">
-                <div class="flex-1 space-y-3 max-w-[90%]">
-                  <!-- Assistant Answer Bubble -->
-                  <div class="bg-brand-surface border border-brand-border rounded-2xl rounded-tl-none p-4 text-xs text-brand-text leading-relaxed shadow-sm">
-                    <div class="prose-miyo" v-html="renderMarkdown(msg.content)"></div>
+              <!-- Assistant Response -->
+              <div v-else class="flex items-start gap-3.5">
+                <div class="w-7 h-7 rounded-lg bg-claude-surface border border-claude-border flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <img src="/public/img/miyo.png" alt="Miyo" class="w-5 h-5 object-contain" onerror="this.style.display='none'">
+                </div>
+
+                <div class="flex-1 min-w-0 space-y-3">
+                  <div class="bg-claude-surface border border-claude-border rounded-2xl rounded-tl-sm p-4 text-xs text-claude-text leading-relaxed shadow-sm">
+                    <div class="prose-claude" v-html="renderMarkdown(msg.content)"></div>
                   </div>
 
-                  <!-- Verified Policy Citations Expander (Only in Dev Audit Mode) -->
-                  <div v-if="showDevAudit && msg.citations && msg.citations.length > 0" class="border border-brand-border rounded-xl bg-brand-elevated overflow-hidden text-xs">
-                    <button @click="msg.showCitations = !msg.showCitations" class="w-full px-3.5 py-2 flex items-center justify-between text-brand-muted hover:text-white transition font-medium">
+                  <!-- Verified Policy Citations (Dev Audit Mode) -->
+                  <div v-if="showDevAudit && msg.citations && msg.citations.length > 0" class="border border-claude-border rounded-xl bg-claude-surface overflow-hidden text-xs">
+                    <button @click="msg.showCitations = !msg.showCitations; refreshIcons()" class="w-full px-3.5 py-2 flex items-center justify-between text-claude-secondary hover:text-claude-text transition font-medium">
                       <span class="flex items-center gap-2">
-                        <i data-lucide="file-check" class="w-3.5 h-3.5 text-brand-orange"></i>
-                        <span>Sumber Kebijakan Terverifikasi ({{ msg.citations.length }})</span>
+                        <i data-lucide="book-open-check" class="w-3.5 h-3.5 text-blue-400"></i>
+                        <span>Sitasi Dokumen Kebijakan ({{ msg.citations.length }})</span>
                       </span>
                       <i :data-lucide="msg.showCitations ? 'chevron-up' : 'chevron-down'" class="w-4 h-4"></i>
                     </button>
-                    <div v-show="msg.showCitations" class="p-3 border-t border-brand-border space-y-2">
-                      <div v-for="c in msg.citations" :key="c.document_id" class="p-2.5 rounded-lg bg-brand-surface border border-brand-border">
-                        <div class="font-bold text-brand-orange text-[11px]">[{{ c.document_id }}] {{ c.title }} — {{ c.section }}</div>
-                        <div class="text-[11px] text-brand-muted italic mt-1 leading-relaxed">"{{ c.excerpt }}"</div>
+                    <div v-show="msg.showCitations" class="p-3 border-t border-claude-border space-y-2 bg-claude-elevated/50">
+                      <div v-for="c in msg.citations" :key="c.document_id" class="p-2.5 rounded-lg bg-claude-surface border border-claude-border">
+                        <div class="font-mono font-semibold text-blue-400 text-[11px]">[{{ c.document_id }}] {{ c.title }} &mdash; {{ c.section }}</div>
+                        <div class="text-[11px] text-claude-secondary mt-1 leading-relaxed">"{{ c.excerpt }}"</div>
                       </div>
                     </div>
                   </div>
 
-                  <!-- Telemetry Audit Details (Only in Dev Audit Mode) -->
-                  <div v-if="showDevAudit && msg.trace_id" class="border border-brand-border rounded-xl bg-brand-elevated overflow-hidden text-xs">
-                    <div class="px-3 py-2 flex items-center justify-between text-brand-muted bg-brand-surface border-b border-brand-border font-mono text-[11px]">
-                      <span class="flex items-center gap-1.5 font-bold">
-                        <i data-lucide="activity" class="w-3.5 h-3.5 text-brand-orange"></i>
-                        <span>Audit Jejak Telemetri</span>
+                  <!-- Telemetry Trace Box (Dev Audit Mode) -->
+                  <div v-if="showDevAudit && msg.trace_id" class="border border-claude-border rounded-xl bg-claude-surface p-3 text-[11px] font-mono space-y-1.5">
+                    <div class="flex items-center justify-between text-claude-secondary border-b border-claude-border pb-1.5">
+                      <span class="flex items-center gap-1.5 font-sans font-semibold text-blue-400">
+                        <i data-lucide="cpu" class="w-3.5 h-3.5"></i>
+                        <span>Jejak Telemetri Eksekusi</span>
                       </span>
-                      <span class="text-brand-orange">{{ msg.trace_id }}</span>
+                      <span class="text-claude-muted">{{ msg.trace_id }}</span>
                     </div>
-                    <div class="p-3 grid grid-cols-2 gap-2 text-brand-secondary font-mono text-[11px]">
-                      <div>Outcome: <code class="text-brand-orange font-bold">{{ msg.outcome || 'answered' }}</code></div>
-                      <div>Latency: <span class="text-brand-text font-bold">{{ msg.usage ? msg.usage.latency_ms : 0 }} ms</span></div>
-                      <div>Input Tokens: <span class="text-brand-text">{{ msg.usage ? msg.usage.input_tokens : 0 }}</span></div>
-                      <div>Output Tokens: <span class="text-brand-text">{{ msg.usage ? msg.usage.output_tokens : 0 }}</span></div>
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-claude-secondary">
+                      <div>Outcome: <span class="text-blue-400 font-semibold">{{ msg.outcome || 'answered' }}</span></div>
+                      <div>Latency: <span class="text-claude-text">{{ msg.usage?.latency_ms ?? 0 }} ms</span></div>
+                      <div>Tokens In: <span class="text-claude-text">{{ msg.usage?.input_tokens ?? 0 }}</span></div>
+                      <div>Tokens Out: <span class="text-claude-text">{{ msg.usage?.output_tokens ?? 0 }}</span></div>
+                    </div>
+                  </div>
+
+                  <!-- Batch Confirm Banner if multiple proposals -->
+                  <div v-if="getUnconfirmedProposals(msg).length > 1" class="p-3 rounded-xl bg-claude-blue-subtle border border-blue-500/30 flex items-center justify-between gap-3 text-xs">
+                    <span class="text-blue-300 font-medium">Terdapat {{ getUnconfirmedProposals(msg).length }} proposal pengajuan cuti siap dikonfirmasi.</span>
+                    <button @click="confirmAllProposals(msg)" :disabled="isConfirming" class="px-3 py-1.5 rounded-lg bg-claude-blue hover:bg-claude-blue-hover text-white font-semibold transition flex items-center gap-1.5 flex-shrink-0">
+                      <i data-lucide="check-check" class="w-3.5 h-3.5"></i>
+                      <span>Konfirmasi Semua</span>
+                    </button>
+                  </div>
+
+                  <!-- Action Proposal Cards -->
+                  <div v-for="p in getProposals(msg)" :key="p.proposal_id" class="border border-blue-500/35 bg-claude-surface rounded-2xl p-4 shadow-md text-xs space-y-3">
+                    <div class="flex items-center justify-between border-b border-claude-border pb-2.5">
+                      <div class="flex items-center gap-2 text-blue-400 font-semibold">
+                        <i data-lucide="file-check-2" class="w-4 h-4"></i>
+                        <span>Proposal Pengajuan Cuti</span>
+                      </div>
+                      <span class="text-[10px] font-mono text-claude-muted">{{ p.proposal_id }}</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div class="p-2.5 rounded-xl bg-claude-elevated border border-claude-border">
+                        <div class="text-[10px] text-claude-muted">Jenis Cuti</div>
+                        <div class="font-semibold text-claude-text mt-0.5">{{ formatLeaveType(p.leave_type) }}</div>
+                      </div>
+                      <div class="p-2.5 rounded-xl bg-claude-elevated border border-claude-border">
+                        <div class="text-[10px] text-claude-muted">Rentang Tanggal</div>
+                        <div class="font-mono font-medium text-claude-text mt-0.5 text-[11px]">{{ p.start_date }} &rarr; {{ p.end_date }}</div>
+                      </div>
+                      <div class="p-2.5 rounded-xl bg-claude-elevated border border-claude-border">
+                        <div class="text-[10px] text-claude-muted">Durasi Kerja</div>
+                        <div class="font-semibold text-blue-400 mt-0.5">{{ p.business_days }} Hari Kerja</div>
+                      </div>
+                      <div class="p-2.5 rounded-xl bg-claude-elevated border border-claude-border">
+                        <div class="text-[10px] text-claude-muted">Keterangan</div>
+                        <div class="font-medium text-claude-text truncate mt-0.5">{{ p.reason || '-' }}</div>
+                      </div>
+                    </div>
+
+                    <!-- Validation Summary List -->
+                    <div v-if="p.validation_summary && p.validation_summary.length" class="space-y-1 text-[11px] text-claude-secondary">
+                      <div v-for="(v, vidx) in p.validation_summary" :key="vidx" class="flex items-center gap-1.5">
+                        <i data-lucide="shield-check" class="w-3.5 h-3.5 text-blue-400 flex-shrink-0"></i>
+                        <span>{{ v }}</span>
+                      </div>
+                    </div>
+
+                    <!-- Sick Leave Doctor Note Uploader -->
+                    <div v-if="p.leave_type === 'sick' && !confirmedProposals.has(p.proposal_id)" class="p-3 rounded-xl bg-claude-elevated border border-claude-border space-y-2">
+                      <div class="flex items-center justify-between text-[11px]">
+                        <span class="font-medium text-claude-secondary">Lampiran Surat Dokter (PDF/PNG/JPG, Maks 5MB):</span>
+                        <span class="font-mono text-[10px] px-2 py-0.5 rounded"
+                          :class="(p.requires_attachment || p.business_days > policyRules.sick_doc_threshold) ? 'bg-amber-500/15 text-amber-400' : 'bg-emerald-500/15 text-emerald-400'">
+                          {{ (p.requires_attachment || p.business_days > policyRules.sick_doc_threshold) ? 'Wajib' : 'Opsional' }}
+                        </span>
+                      </div>
+                      <input type="file" @change="handleProposalAttachment($event, p.proposal_id)" accept=".pdf,image/png,image/jpeg"
+                        class="w-full text-xs text-claude-secondary file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[11px] file:font-semibold file:bg-claude-blue-subtle file:text-blue-400 cursor-pointer">
+                      <div v-if="proposalAttachments[p.proposal_id]" class="text-[11px] text-emerald-400 flex items-center gap-1">
+                        <i data-lucide="check" class="w-3 h-3"></i>
+                        <span>Siap diunggah: {{ proposalAttachments[p.proposal_id].filename }}</span>
+                      </div>
+                    </div>
+
+                    <!-- Proposal Footer Buttons -->
+                    <div class="flex items-center justify-between pt-1">
+                      <div class="flex items-center gap-2">
+                        <button v-if="!confirmedProposals.has(p.proposal_id)" @click="confirmProposal(p)" :disabled="isConfirming"
+                          class="px-4 py-2 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white font-semibold text-xs transition flex items-center gap-1.5 disabled:opacity-50">
+                          <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                          <span>{{ isConfirming ? 'Memproses...' : 'Konfirmasi Pengajuan' }}</span>
+                        </button>
+                        <div v-else class="px-3.5 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-semibold text-xs flex items-center gap-1.5">
+                          <i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i>
+                          <span>Terkonfirmasi</span>
+                        </div>
+                        <button v-if="!confirmedProposals.has(p.proposal_id)" @click="openLeaveModal"
+                          class="px-3 py-2 rounded-xl bg-claude-elevated hover:bg-claude-border text-claude-secondary hover:text-claude-text text-xs font-medium transition">
+                          Ubah via Formulir
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  <!-- Interactive Action Proposal Card (Slide-Over Drawer style) -->
-                  <div v-for="p in getProposals(msg)" :key="p.proposal_id" class="border-2 border-brand-orange/40 bg-brand-surface rounded-2xl p-4 shadow-lg text-xs space-y-3">
-                    <div class="flex items-center justify-between border-b border-brand-border pb-2.5">
-                      <div class="flex items-center gap-2 text-brand-orange font-bold text-xs uppercase tracking-wider">
-                        <i data-lucide="sparkles" class="w-4 h-4"></i>
-                        <span>Proposal Pengajuan Cuti (Menunggu Konfirmasi)</span>
-                      </div>
-                      <span class="text-[10px] font-mono text-brand-muted">{{ p.proposal_id }}</span>
-                    </div>
-
-                    <!-- Proposal Metadata Grid -->
-                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 py-1">
-                      <div class="p-2 rounded-lg bg-brand-elevated border border-brand-border">
-                        <div class="text-[10px] text-brand-muted">Jenis Cuti</div>
-                        <div class="font-bold text-white capitalize mt-0.5">{{ p.leave_type }}</div>
-                      </div>
-                      <div class="p-2 rounded-lg bg-brand-elevated border border-brand-border">
-                        <div class="text-[10px] text-brand-muted">Periode</div>
-                        <div class="font-semibold text-white mt-0.5 text-[11px]">{{ p.start_date }} s/d {{ p.end_date }}</div>
-                      </div>
-                      <div class="p-2 rounded-lg bg-brand-elevated border border-brand-border">
-                        <div class="text-[10px] text-brand-muted">Hari Kerja</div>
-                        <div class="font-bold text-brand-orange mt-0.5">{{ p.business_days }} Hari Kerja</div>
-                      </div>
-                      <div class="p-2 rounded-lg bg-brand-elevated border border-brand-border">
-                        <div class="text-[10px] text-brand-muted">Alasan</div>
-                        <div class="font-medium text-white truncate mt-0.5">{{ p.reason || 'Tidak dicantumkan' }}</div>
-                      </div>
-                    </div>
-
-                    <!-- Sick Leave Attachment Requirement -->
-                    <div v-if="p.leave_type === 'sick'" class="p-3 rounded-xl bg-brand-elevated border border-brand-border space-y-2">
-                      <div v-if="p.requires_attachment || p.business_days > 2" class="text-amber-400 text-[11px] flex items-center gap-1.5 font-semibold">
-                        <i data-lucide="alert-triangle" class="w-3.5 h-3.5 flex-shrink-0"></i>
-                        <span>Sesuai HR-LEAVE-002, cuti sakit > 2 hari wajib unggah surat dokter:</span>
-                      </div>
-                      <div v-else class="text-emerald-400 text-[11px] flex items-center gap-1.5">
-                        <i data-lucide="check-circle" class="w-3.5 h-3.5 flex-shrink-0"></i>
-                        <span>Cuti sakit &le; 2 hari kerja: surat dokter opsional.</span>
-                      </div>
-                      <input type="file" @change="handleProposalAttachment($event, p.proposal_id)" accept=".pdf,image/png,image/jpeg" class="w-full text-xs text-brand-muted file:mr-3 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[11px] file:font-semibold file:bg-brand-surface file:text-brand-orange hover:file:bg-brand-surface/80 cursor-pointer">
-                      <div v-if="proposalAttachments[p.proposal_id]" class="text-[11px] text-emerald-400 font-medium">
-                        File siap dilampirkan: {{ proposalAttachments[p.proposal_id].filename }}
-                      </div>
-                    </div>
-
-                    <!-- Proposal Actions -->
-                    <div class="flex items-center gap-2 pt-1">
-                      <button v-if="!confirmedProposals.has(p.proposal_id)" @click="confirmProposal(p.proposal_id)" :disabled="isConfirming" class="px-4 py-2 rounded-xl bg-brand-orange hover:bg-brand-orange-hover text-white font-semibold text-xs transition flex items-center gap-2 active:scale-95 disabled:opacity-50">
-                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
-                        <span>{{ isConfirming ? 'Mengonfirmasi...' : 'Konfirmasi Pengajuan' }}</span>
-                      </button>
-                      <button v-else disabled class="px-4 py-2 rounded-xl bg-emerald-600/30 text-emerald-400 font-semibold text-xs border border-emerald-500/40 flex items-center gap-2">
-                        <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
-                        <span>Terkonfirmasi</span>
-                      </button>
-                      <button @click="openLeaveModal" class="px-3.5 py-2 rounded-xl bg-brand-elevated hover:bg-brand-elevated/70 border border-brand-border text-brand-muted hover:text-white text-xs transition">
-                        Ubah via Formulir
-                      </button>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
 
-            <!-- Assistant Thinking Spinner -->
-            <div v-if="isGenerating" class="flex items-center gap-3">
-              <img src="/public/img/miyo.png" alt="Miyo" class="w-8 h-8 rounded-full bg-brand-surface border border-brand-border p-0.5 flex-shrink-0 animate-pulse">
-              <div class="bg-brand-surface border border-brand-border rounded-2xl rounded-tl-none p-3.5 text-xs text-brand-muted flex items-center gap-2.5">
-                <i data-lucide="loader-2" class="w-4 h-4 text-brand-orange animate-spin"></i>
-                <span>Miyo sedang menelusuri kebijakan resmi dan memverifikasi data...</span>
+            <!-- Thinking Indicator -->
+            <div v-if="isGenerating" class="flex items-center gap-3.5">
+              <div class="w-7 h-7 rounded-lg bg-claude-surface border border-claude-border flex items-center justify-center flex-shrink-0">
+                <img src="/public/img/miyo.png" alt="Miyo" class="w-5 h-5 object-contain animate-pulse" onerror="this.style.display='none'">
+              </div>
+              <div class="bg-claude-surface border border-claude-border rounded-2xl rounded-tl-sm px-4 py-3 text-xs text-claude-secondary flex items-center gap-2.5">
+                <i data-lucide="loader-2" class="w-4 h-4 text-blue-400 animate-spin"></i>
+                <span>Menelusuri bukti kebijakan & memverifikasi data...</span>
               </div>
             </div>
           </div>
 
-          <!-- Bottom Bar: Clear Chat & Chat Input -->
-          <div class="space-y-2 flex-shrink-0">
-            <!-- Clear Chat Button (Only when chat has history - icon only, small) -->
-            <div v-if="chatMessages.length > 0" class="flex justify-end mb-1">
-              <button @click="clearChat" class="w-8 h-8 rounded-lg flex items-center justify-center text-brand-muted hover:text-rose-400 bg-brand-surface hover:bg-rose-500/10 border border-brand-border hover:border-rose-500/30 transition shadow-sm" title="Hapus riwayat percakapan">
+          <!-- Bottom Chat Input Dock (Claude Style) -->
+          <div class="pt-3 flex-shrink-0">
+            <div class="bg-claude-surface border border-claude-border focus-within:border-blue-500/60 rounded-2xl p-2 flex items-center gap-2 shadow-lg transition">
+              <!-- Voice STT Button -->
+              <button @click="toggleVoiceRecording"
+                :class="[
+                  'p-2.5 rounded-xl transition flex items-center justify-center flex-shrink-0',
+                  isRecording ? 'bg-rose-600 text-white animate-pulse' : 'text-claude-muted hover:text-claude-text hover:bg-claude-elevated'
+                ]"
+                :title="isRecording ? 'Hentikan Rekaman' : 'Input Suara'">
+                <i :data-lucide="isRecording ? 'square' : 'mic'" class="w-4 h-4"></i>
+              </button>
+
+              <!-- Recording Visualizer -->
+              <div v-if="isRecording" class="flex-1 flex items-center gap-2 px-2 text-xs text-rose-400 font-medium">
+                <span>Mendengarkan... Klik tombol merah untuk selesai</span>
+                <div class="flex items-end gap-1 h-4 ml-2">
+                  <span class="w-1 bg-rose-500 rounded-full h-4 voice-bar"></span>
+                  <span class="w-1 bg-rose-500 rounded-full h-3 voice-bar"></span>
+                  <span class="w-1 bg-rose-500 rounded-full h-4 voice-bar"></span>
+                  <span class="w-1 bg-rose-500 rounded-full h-2 voice-bar"></span>
+                </div>
+              </div>
+
+              <!-- Prompt Input -->
+              <input v-else v-model="userInputText" @keydown.enter.prevent="sendChatMessage"
+                placeholder="Tanyakan kebijakan HR, sisa saldo, atau ajukan cuti..."
+                class="flex-1 bg-transparent text-xs text-claude-text placeholder-claude-muted focus:outline-none px-2 py-1.5">
+
+              <!-- Clear Chat Icon Button -->
+              <button v-if="chatMessages.length > 0 && !isRecording" @click="clearChat"
+                class="p-2 rounded-xl text-claude-muted hover:text-rose-400 hover:bg-rose-500/10 transition flex-shrink-0"
+                title="Bersihkan Percakapan">
                 <i data-lucide="trash-2" class="w-4 h-4"></i>
               </button>
-            </div>
-
-            <!-- Input Box Container -->
-            <div class="bg-brand-surface border border-brand-border rounded-2xl p-2 flex items-center gap-2 focus-within:border-brand-orange transition shadow-md">
-              <!-- Voice Input Button -->
-              <button @click="toggleVoiceRecording" :class="['p-2.5 rounded-xl transition flex items-center justify-center', isRecording ? 'bg-rose-500 text-white animate-pulse' : 'text-brand-muted hover:text-white hover:bg-brand-elevated']" :title="isRecording ? 'Berhenti Merekam' : 'Gunakan Input Suara'">
-                <i :data-lucide="isRecording ? 'mic-off' : 'mic'" class="w-4 h-4"></i>
-              </button>
-
-              <!-- Audio Wave Visualizer during recording -->
-              <div v-if="isRecording" class="flex-1 flex items-center gap-1 px-3 text-xs text-rose-400 font-medium">
-                <span>Merekam suara... Silakan bicara</span>
-                <div class="flex items-end gap-1 h-4 ml-3">
-                  <span class="w-1 bg-rose-500 rounded-full h-4 wave-bar"></span>
-                  <span class="w-1 bg-rose-500 rounded-full h-3 wave-bar"></span>
-                  <span class="w-1 bg-rose-500 rounded-full h-4 wave-bar"></span>
-                  <span class="w-1 bg-rose-500 rounded-full h-2 wave-bar"></span>
-                </div>
-              </div>
-
-              <!-- Text Input -->
-              <input v-else v-model="userInputText" @keydown.enter.prevent="sendChatMessage" placeholder="Tanyakan kebijakan, aturan kerja, atau ajukan cuti Anda..." class="flex-1 bg-transparent text-xs text-white placeholder-brand-muted focus:outline-none px-2 py-1.5">
 
               <!-- Send Button -->
-              <button @click="sendChatMessage" :disabled="!userInputText.trim() || isGenerating" class="p-2.5 rounded-xl bg-brand-orange hover:bg-brand-orange-hover text-white transition disabled:opacity-30 disabled:pointer-events-none active:scale-95">
-                <i data-lucide="send" class="w-4 h-4"></i>
+              <button @click="sendChatMessage" :disabled="!userInputText.trim() || isGenerating"
+                class="p-2.5 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white transition disabled:opacity-30 disabled:pointer-events-none flex-shrink-0">
+                <i data-lucide="arrow-up" class="w-4 h-4"></i>
               </button>
             </div>
           </div>
         </div>
 
-        <!-- TAB 2: PERMINTAAN CUTI SAYA -->
-        <div v-show="activeTab === 'my_requests'" class="h-full overflow-y-auto max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 space-y-4">
-          <div class="flex items-center justify-between">
+        <!-- =================================================================
+             TAB 2: PERMOHONAN CUTI SAYA (PERSONAL REQUESTS & ATTACHMENTS)
+             ================================================================= -->
+        <div v-show="activeTab === 'my_requests'" class="flex-1 overflow-y-auto max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 space-y-5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 class="text-base font-bold text-white">Riwayat Permohonan Cuti</h2>
-              <p class="text-xs text-brand-muted">Status seluruh permohonan cuti Anda yang tercatat di sistem HR.</p>
+              <h2 class="text-base font-semibold text-claude-text">Daftar Permohonan Cuti Saya</h2>
+              <p class="text-xs text-claude-secondary">Riwayat pengajuan cuti aktif dan historis beserta dokumen pendukung.</p>
             </div>
-            <button @click="fetchMyRequests" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-xs text-brand-muted hover:text-white transition">
-              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-              <span>Perbarui Data</span>
-            </button>
-          </div>
-
-          <!-- Requests Table -->
-          <div class="bg-brand-surface border border-brand-border rounded-2xl overflow-hidden shadow-sm">
-            <table class="w-full text-left text-xs">
-              <thead class="bg-brand-elevated border-b border-brand-border text-brand-muted uppercase font-bold text-[10px] tracking-wider">
-                <tr>
-                  <th class="py-3 px-4">ID Permohonan</th>
-                  <th class="py-3 px-4">Jenis Cuti</th>
-                  <th class="py-3 px-4">Periode</th>
-                  <th class="py-3 px-4 text-center">Durasi</th>
-                  <th class="py-3 px-4">Alasan</th>
-                  <th class="py-3 px-4 text-center">Status</th>
-                  <th class="py-3 px-4 text-right">Aksi</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-brand-border">
-                <tr v-for="r in myRequests" :key="r.request_id" class="hover:bg-brand-elevated/40 transition">
-                  <td class="py-3 px-4 font-mono font-bold text-brand-orange">#{{ r.request_id }}</td>
-                  <td class="py-3 px-4 font-semibold text-white capitalize">{{ r.leave_type }}</td>
-                  <td class="py-3 px-4 text-brand-muted">{{ r.start_date }} s/d {{ r.end_date }}</td>
-                  <td class="py-3 px-4 text-center font-bold text-white">{{ r.business_days }} hari kerja</td>
-                  <td class="py-3 px-4 text-brand-muted truncate max-w-[180px]">{{ r.reason || '-' }}</td>
-                  <td class="py-3 px-4 text-center">
-                    <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider" :class="statusBadgeClass(r.status)">
-                      {{ formatStatus(r.status) }}
-                    </span>
-                  </td>
-                  <td class="py-3 px-4 text-right">
-                    <button v-if="r.status === 'pending_manager_review'" @click="cancelRequest(r.request_id)" class="px-2.5 py-1 rounded-md text-[11px] text-rose-400 hover:bg-rose-500/10 border border-rose-500/30 transition">
-                      Batalkan
-                    </button>
-                    <span v-else class="text-brand-muted text-[11px]">-</span>
-                  </td>
-                </tr>
-                <tr v-if="myRequests.length === 0">
-                  <td colspan="7" class="py-8 text-center text-brand-muted">Belum ada riwayat permohonan cuti.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- TAB 3: PERSETUJUAN MANAJER -->
-        <div v-show="activeTab === 'approvals'" class="h-full overflow-y-auto max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 space-y-4">
-          <div class="flex items-center justify-between">
-            <div>
-              <h2 class="text-base font-bold text-white">Review & Persetujuan Cuti Tim</h2>
-              <p class="text-xs text-brand-muted">Daftar pengajuan cuti anggota tim yang membutuhkan persetujuan manajer.</p>
+            <div class="flex items-center gap-2">
+              <button @click="fetchMyRequests(); fetchMyBalances()" class="px-3 py-2 rounded-xl bg-claude-surface border border-claude-border text-xs text-claude-secondary hover:text-claude-text flex items-center gap-1.5 transition">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                <span>Segarkan</span>
+              </button>
+              <button v-if="!isAdmin" @click="openLeaveModal" class="px-3.5 py-2 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white text-xs font-semibold flex items-center gap-1.5 transition">
+                <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                <span>Buat Pengajuan</span>
+              </button>
             </div>
-            <button @click="fetchTeamRequests" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-xs text-brand-muted hover:text-white transition">
-              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-              <span>Perbarui</span>
-            </button>
           </div>
 
-          <!-- Pending Approvals Cards -->
-          <div class="grid grid-cols-1 gap-3">
-            <div v-for="tr in teamRequests" :key="tr.request_id" class="p-4 rounded-2xl bg-brand-surface border border-brand-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-              <div class="space-y-1">
+          <!-- Summary Metrics -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+              <div class="text-[11px] text-claude-muted">Total Permohonan</div>
+              <div class="text-xl font-bold text-claude-text mt-1">{{ myRequests.length }}</div>
+            </div>
+            <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+              <div class="text-[11px] text-claude-muted">Menunggu Review Manajer</div>
+              <div class="text-xl font-bold text-amber-400 mt-1">{{ myRequests.filter(r => r.status === 'pending_manager_review').length }}</div>
+            </div>
+            <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+              <div class="text-[11px] text-claude-muted">Sisa Cuti Tahunan Efektif</div>
+              <div class="text-xl font-bold text-blue-400 mt-1">{{ annualBalanceDays }} Hari</div>
+            </div>
+          </div>
+
+          <!-- Requests List -->
+          <div v-if="myRequests.length === 0" class="p-10 rounded-2xl bg-claude-surface border border-claude-border text-center text-xs text-claude-muted">
+            Belum ada permohonan cuti yang tercatat untuk akun Anda.
+          </div>
+
+          <div v-else class="space-y-3">
+            <div v-for="req in myRequests" :key="req.request_id" class="p-4 rounded-2xl bg-claude-surface border border-claude-border space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2.5">
+                  <span class="font-mono text-xs font-semibold text-blue-400">#{{ req.request_id }}</span>
+                  <span class="text-xs font-semibold text-claude-text">{{ formatLeaveType(req.leave_type) }}</span>
+                </div>
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase" :class="statusBadgeClass(req.status)">
+                  {{ formatStatus(req.status) }}
+                </span>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-claude-secondary">
+                <div><span class="text-claude-muted">Periode:</span> <span class="font-mono text-claude-text">{{ req.start_date }} s/d {{ req.end_date }}</span></div>
+                <div><span class="text-claude-muted">Durasi:</span> <span class="font-semibold text-claude-text">{{ req.business_days }} Hari Kerja</span></div>
+                <div v-if="req.review_note"><span class="text-claude-muted">Catatan Review:</span> <span class="italic text-claude-text">"{{ req.review_note }}"</span></div>
+              </div>
+
+              <!-- Sick Leave Attachment Section -->
+              <div v-if="req.leave_type === 'sick'" class="pt-2 border-t border-claude-border flex flex-wrap items-center justify-between gap-3 text-xs">
                 <div class="flex items-center gap-2">
-                  <span class="font-bold text-white text-sm">{{ tr.employee_id }}</span>
-                  <span class="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider" :class="statusBadgeClass(tr.status)">
-                    {{ formatStatus(tr.status) }}
+                  <i data-lucide="paperclip" class="w-3.5 h-3.5 text-blue-400"></i>
+                  <span v-if="req.has_attachment" class="text-claude-text">
+                    Lampiran: <code class="font-mono text-blue-400">{{ req.attachment_filename }}</code>
                   </span>
-                  <span class="text-brand-muted text-xs font-mono">#{{ tr.request_id }}</span>
+                  <span v-else class="text-amber-400">Belum ada surat dokter terlampir</span>
                 </div>
-                <div class="text-xs text-brand-muted">
-                  <span class="font-semibold text-brand-orange capitalize">{{ tr.leave_type }}</span> · {{ tr.start_date }} s/d {{ tr.end_date }} ({{ tr.business_days }} hari kerja)
-                </div>
-                <div class="text-xs text-brand-text italic">"{{ tr.reason || 'Tidak ada keterangan' }}"</div>
-              </div>
 
-              <!-- Action buttons for manager -->
-              <div v-if="tr.status === 'pending_manager_review'" class="flex items-center gap-2 w-full sm:w-auto">
-                <button @click="reviewRequest(tr.request_id, 'approve')" class="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition flex items-center justify-center gap-1.5 active:scale-95">
-                  <i data-lucide="check" class="w-3.5 h-3.5"></i>
-                  <span>Setujui</span>
-                </button>
-                <button @click="openRejectModal(tr.request_id)" class="flex-1 sm:flex-initial px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs transition flex items-center justify-center gap-1.5 active:scale-95">
-                  <i data-lucide="x" class="w-3.5 h-3.5"></i>
-                  <span>Tolak</span>
-                </button>
+                <div class="flex items-center gap-2">
+                  <button v-if="req.has_attachment" @click="viewAttachment(req.request_id)"
+                    class="px-3 py-1.5 rounded-lg bg-claude-elevated hover:bg-blue-600/20 border border-claude-border text-blue-400 text-[11px] font-medium flex items-center gap-1.5 transition">
+                    <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                    <span>Lihat Dokumen</span>
+                  </button>
+                  <label v-if="req.status === 'pending_manager_review'" class="px-3 py-1.5 rounded-lg bg-claude-blue hover:bg-claude-blue-hover text-white text-[11px] font-medium flex items-center gap-1.5 cursor-pointer transition">
+                    <i data-lucide="upload" class="w-3.5 h-3.5"></i>
+                    <span>{{ req.has_attachment ? 'Perbarui Surat Dokter' : 'Unggah Surat Dokter' }}</span>
+                    <input type="file" @change="uploadExistingRequestAttachment($event, req.request_id)" accept=".pdf,image/png,image/jpeg" class="hidden">
+                  </label>
+                </div>
               </div>
-              <div v-else class="text-xs text-brand-muted font-medium">
-                Sudah diproses
-              </div>
-            </div>
-            <div v-if="teamRequests.length === 0" class="p-8 text-center text-brand-muted bg-brand-surface border border-brand-border rounded-2xl">
-              Tidak ada pengajuan cuti anggota tim yang tertunda.
             </div>
           </div>
         </div>
 
-        <!-- TAB 4: KALENDER CUTI TIM -->
-        <div v-show="activeTab === 'calendar'" class="h-full overflow-y-auto max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 space-y-4">
-          <div class="flex items-center justify-between">
+        <!-- =================================================================
+             TAB 3: KALENDER CUTI (DYNAMIC TEAM & PERSONAL SCHEDULE)
+             ================================================================= -->
+        <div v-show="activeTab === 'calendar'" class="flex-1 overflow-y-auto max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 space-y-5">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <h2 class="text-base font-bold text-white">Kalender Jadwal Cuti Tim</h2>
-              <p class="text-xs text-brand-muted">Jadwal visual cuti seluruh rekan kerja pada bulan berjalan.</p>
+              <h2 class="text-base font-semibold text-claude-text">Kalender Jadwal Cuti</h2>
+              <p class="text-xs text-claude-secondary">Visualisasi distribusi cuti aktif dan permohonan yang menunggu persetujuan.</p>
             </div>
-            <span class="text-xs font-semibold text-brand-orange">November 2026</span>
+
+            <!-- Scope Selector for Manager/Admin -->
+            <div v-if="isManager" class="flex items-center bg-claude-surface border border-claude-border rounded-xl p-1 text-xs">
+              <button @click="calScope = 'team'" :class="['px-3 py-1.5 rounded-lg font-medium transition', calScope === 'team' ? 'bg-claude-blue text-white' : 'text-claude-secondary hover:text-claude-text']">
+                Kalender Tim
+              </button>
+              <button @click="calScope = 'personal'" :class="['px-3 py-1.5 rounded-lg font-medium transition', calScope === 'personal' ? 'bg-claude-blue text-white' : 'text-claude-secondary hover:text-claude-text']">
+                Cuti Saya
+              </button>
+            </div>
           </div>
 
-          <!-- Calendar Grid Placeholder / Interactive Matrix -->
-          <div class="bg-brand-surface border border-brand-border rounded-2xl p-4 shadow-sm space-y-3">
-            <div class="grid grid-cols-7 gap-1 text-center font-bold text-[11px] text-brand-muted uppercase tracking-wider pb-2 border-b border-brand-border">
+          <!-- Calendar Controls & Filters -->
+          <div class="bg-claude-surface border border-claude-border rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <button @click="prevCalMonth" class="p-2 rounded-lg bg-claude-elevated border border-claude-border text-claude-secondary hover:text-claude-text">
+                <i data-lucide="chevron-left" class="w-4 h-4"></i>
+              </button>
+              <div class="px-3 font-semibold text-sm text-claude-text min-w-[140px] text-center">
+                {{ monthNamesId[calMonth] }} {{ calYear }}
+              </div>
+              <button @click="nextCalMonth" class="p-2 rounded-lg bg-claude-elevated border border-claude-border text-claude-secondary hover:text-claude-text">
+                <i data-lucide="chevron-right" class="w-4 h-4"></i>
+              </button>
+              <button @click="resetCalToday" class="px-3 py-1.5 rounded-lg bg-claude-elevated border border-claude-border text-xs text-claude-secondary hover:text-claude-text ml-1">
+                Bulan Ini
+              </button>
+            </div>
+
+            <div class="flex items-center gap-2 text-xs">
+              <select v-model="calFilterType" class="bg-claude-elevated border border-claude-border rounded-lg px-2.5 py-1.5 text-claude-text focus:outline-none focus:border-blue-500">
+                <option value="all">Semua Jenis Cuti</option>
+                <option value="annual">Cuti Tahunan</option>
+                <option value="sick">Cuti Sakit</option>
+                <option value="parental">Cuti Orang Tua</option>
+              </select>
+              <select v-model="calFilterStatus" class="bg-claude-elevated border border-claude-border rounded-lg px-2.5 py-1.5 text-claude-text focus:outline-none focus:border-blue-500">
+                <option value="all">Semua Status Aktif</option>
+                <option value="approved">Disetujui</option>
+                <option value="pending_manager_review">Menunggu Review</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Calendar Matrix -->
+          <div class="bg-claude-surface border border-claude-border rounded-2xl p-4 shadow-sm">
+            <div class="grid grid-cols-7 gap-1.5 text-center font-semibold text-[11px] text-claude-muted uppercase tracking-wider pb-2.5 border-b border-claude-border">
               <span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span class="text-rose-400">Sab</span><span class="text-rose-400">Min</span>
             </div>
-            <div class="grid grid-cols-7 gap-1 text-xs">
-              <div v-for="day in calendarDays" :key="day.dateStr" class="min-h-[70px] p-1.5 rounded-lg border border-brand-border/60 bg-brand-elevated/50 flex flex-col justify-between">
-                <span class="text-[10px] font-mono font-bold" :class="day.isToday ? 'text-brand-orange' : day.isWeekend ? 'text-rose-400' : 'text-brand-muted'">
-                  {{ day.dayNum }}
-                </span>
-                <div class="space-y-1">
-                  <div v-for="(ev, eidx) in day.events" :key="eidx" class="px-1.5 py-0.5 rounded text-[9px] font-semibold truncate" :class="ev.class">
+            <div class="grid grid-cols-7 gap-1.5 pt-2">
+              <div v-for="day in calendarDays" :key="day.dateStr"
+                :class="[
+                  'min-h-[84px] p-2 rounded-xl border flex flex-col justify-between transition',
+                  !day.dayNum ? 'border-transparent bg-transparent' : day.isToday ? 'border-blue-500 bg-claude-blue-subtle/30' : 'border-claude-border bg-claude-elevated/40'
+                ]">
+                <div v-if="day.dayNum" class="flex items-center justify-between">
+                  <span class="text-[11px] font-mono font-semibold" :class="day.isToday ? 'text-blue-400' : day.isWeekend ? 'text-rose-400' : 'text-claude-secondary'">
+                    {{ day.dayNum }}
+                  </span>
+                  <span v-if="day.isToday" class="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-blue-600 text-white font-semibold">Hari Ini</span>
+                </div>
+                <div v-if="day.dayNum" class="space-y-1 mt-1">
+                  <div v-for="(ev, eidx) in day.events.slice(0, 3)" :key="eidx" :title="ev.tooltip"
+                    class="px-1.5 py-0.5 rounded text-[10px] font-medium truncate" :class="ev.class">
                     {{ ev.text }}
+                  </div>
+                  <div v-if="day.events.length > 3" class="text-[10px] text-claude-muted pl-1">
+                    +{{ day.events.length - 3 }} lainnya
                   </div>
                 </div>
               </div>
@@ -561,198 +817,358 @@
           </div>
         </div>
 
-        <!-- TAB 5: MONITORING TELEMETRI (ADMIN) -->
-        <div v-show="activeTab === 'monitoring'" class="h-full overflow-y-auto max-w-5xl mx-auto w-full px-4 sm:px-6 py-6 space-y-4">
+        <!-- =================================================================
+             TAB 4: PERSETUJUAN TIM & ANALITIK SDM (MANAGER / ADMIN)
+             ================================================================= -->
+        <div v-show="activeTab === 'approvals'" class="flex-1 overflow-y-auto max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
           <div class="flex items-center justify-between">
             <div>
-              <h2 class="text-base font-bold text-white">Audit & Telemetri Platform AI</h2>
-              <p class="text-xs text-brand-muted">Metrik real-time kepatuhan guardrails, latensi, dan eksekusi model Miyo.</p>
+              <h2 class="text-base font-semibold text-claude-text">Persetujuan Cuti Tim & Analitik SDM</h2>
+              <p class="text-xs text-claude-secondary">Tinjau pengajuan cuti anggota tim, periksa dokumen medis, dan pantau risiko saldo.</p>
             </div>
-            <button @click="fetchMonitoringData" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand-surface border border-brand-border text-xs text-brand-muted hover:text-white transition">
+            <button @click="fetchTeamRequests(); fetchAnalyticsOverview()" class="px-3 py-2 rounded-xl bg-claude-surface border border-claude-border text-xs text-claude-secondary hover:text-claude-text flex items-center gap-1.5 transition">
               <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-              <span>Perbarui</span>
+              <span>Segarkan Data</span>
             </button>
           </div>
 
-          <!-- Top Metrics Cards -->
+          <!-- Team HR Analytics Overview -->
+          <div v-if="teamAnalytics" class="space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+                <div class="text-[11px] text-claude-muted">Cakupan Anggota Tim</div>
+                <div class="text-xl font-bold text-claude-text mt-1">{{ teamAnalytics.team_size }} Pegawai</div>
+              </div>
+              <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+                <div class="text-[11px] text-claude-muted">Total Hari Cuti Aktif</div>
+                <div class="text-xl font-bold text-blue-400 mt-1">
+                  {{ Object.values(teamAnalytics.days_by_leave_type || {}).reduce((a, b) => a + b, 0) }} Hari Kerja
+                </div>
+              </div>
+              <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+                <div class="text-[11px] text-claude-muted">Risiko Saldo Rendah (&le; {{ teamAnalytics.low_balance_threshold }} Hari)</div>
+                <div class="text-xl font-bold text-amber-400 mt-1">{{ (teamAnalytics.low_balance_employees || []).length }} Pegawai</div>
+              </div>
+            </div>
+
+            <!-- Low Balance Warning Card -->
+            <div v-if="teamAnalytics.low_balance_employees && teamAnalytics.low_balance_employees.length > 0"
+              class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs space-y-1.5">
+              <div class="font-semibold text-amber-400 flex items-center gap-1.5">
+                <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+                <span>Pegawai dengan Sisa Cuti Tahunan Rendah:</span>
+              </div>
+              <div class="flex flex-wrap gap-2 pt-1">
+                <span v-for="lb in teamAnalytics.low_balance_employees" :key="lb.employee_id"
+                  class="px-2.5 py-1 rounded-lg bg-claude-surface border border-claude-border text-claude-text font-mono text-[11px]">
+                  {{ lb.display_name }} ({{ lb.employee_id }}): <strong class="text-amber-400">{{ lb.annual_remaining }} hari</strong>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Team Requests List -->
+          <div class="space-y-3">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-claude-muted">Daftar Permohonan Anggota Tim ({{ teamRequests.length }})</h3>
+
+            <div v-if="teamRequests.length === 0" class="p-8 rounded-2xl bg-claude-surface border border-claude-border text-center text-xs text-claude-muted">
+              Tidak ada permohonan cuti anggota tim.
+            </div>
+
+            <div v-for="tr in teamRequests" :key="tr.request_id" class="p-4 rounded-2xl bg-claude-surface border border-claude-border space-y-3">
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="font-semibold text-sm text-claude-text">{{ tr.employee_name || tr.employee_id }}</span>
+                  <span class="font-mono text-xs text-claude-muted">({{ tr.employee_id }})</span>
+                  <span class="font-mono text-xs text-blue-400">#{{ tr.request_id }}</span>
+                </div>
+                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase" :class="statusBadgeClass(tr.status)">
+                  {{ formatStatus(tr.status) }}
+                </span>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-claude-secondary">
+                <div><span class="text-claude-muted">Jenis:</span> <span class="font-semibold text-claude-text">{{ formatLeaveType(tr.leave_type) }}</span></div>
+                <div><span class="text-claude-muted">Periode:</span> <span class="font-mono text-claude-text">{{ tr.start_date }} s/d {{ tr.end_date }}</span></div>
+                <div><span class="text-claude-muted">Durasi:</span> <span class="font-semibold text-blue-400">{{ tr.business_days }} Hari Kerja</span></div>
+              </div>
+
+              <!-- Sick Leave Attachment Preview for Manager -->
+              <div v-if="tr.leave_type === 'sick'" class="flex items-center justify-between p-2.5 rounded-xl bg-claude-elevated border border-claude-border text-xs">
+                <div class="flex items-center gap-2">
+                  <i data-lucide="file-text" class="w-4 h-4 text-blue-400"></i>
+                  <span v-if="tr.has_attachment" class="text-claude-text">Surat Dokter: <code class="font-mono text-blue-400">{{ tr.attachment_filename }}</code></span>
+                  <span v-else class="text-amber-400">Pegawai belum melampirkan surat dokter</span>
+                </div>
+                <button v-if="tr.has_attachment" @click="viewAttachment(tr.request_id)"
+                  class="px-3 py-1 rounded-lg bg-claude-blue-subtle border border-blue-500/30 text-blue-400 font-medium text-[11px] flex items-center gap-1.5 hover:bg-blue-600 hover:text-white transition">
+                  <i data-lucide="eye" class="w-3.5 h-3.5"></i>
+                  <span>Tinjau Dokumen</span>
+                </button>
+              </div>
+
+              <!-- Manager Review Decision Controls -->
+              <div v-if="tr.status === 'pending_manager_review'" class="pt-2 border-t border-claude-border flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                <input v-model="reviewNotes[tr.request_id]" type="text" placeholder="Catatan review manajer..."
+                  class="flex-1 bg-claude-elevated border border-claude-border rounded-xl px-3 py-2 text-xs text-claude-text focus:outline-none focus:border-blue-500">
+                <div class="flex items-center gap-2">
+                  <button @click="reviewRequest(tr.request_id, 'approved')"
+                    class="px-4 py-2 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white font-semibold text-xs flex items-center gap-1.5 transition">
+                    <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                    <span>Setujui</span>
+                  </button>
+                  <button @click="reviewRequest(tr.request_id, 'rejected')"
+                    class="px-4 py-2 rounded-xl bg-rose-600/20 hover:bg-rose-600 border border-rose-500/30 text-rose-400 hover:text-white font-semibold text-xs flex items-center gap-1.5 transition">
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
+                    <span>Tolak</span>
+                  </button>
+                </div>
+              </div>
+              <div v-else-if="tr.reviewed_by" class="text-[11px] text-claude-muted pt-1">
+                Diproses oleh <code class="font-mono text-claude-secondary">{{ tr.reviewed_by }}</code>: "{{ tr.review_note }}"
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- =================================================================
+             TAB 5: MONITORING OPERASIONAL (ADMIN TELEMETRY & SLI/SLA)
+             ================================================================= -->
+        <div v-show="activeTab === 'monitoring'" class="flex-1 overflow-y-auto max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-base font-semibold text-claude-text">Monitoring Telemetri & Audit Operasional AI</h2>
+              <p class="text-xs text-claude-secondary">Metrik agregat SLI/SLA, tingkat error, latensi p95, dan status aturan alert.</p>
+            </div>
+            <button @click="fetchMonitoringData(); fetchAnalyticsOverview()" class="px-3 py-2 rounded-xl bg-claude-surface border border-claude-border text-xs text-claude-secondary hover:text-claude-text flex items-center gap-1.5 transition">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Segarkan Metrik</span>
+            </button>
+          </div>
+
+          <!-- Telemetry Metrics Grid -->
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div class="p-4 rounded-xl bg-brand-surface border border-brand-border">
-              <div class="text-[11px] text-brand-muted font-medium">Total Evaluasi / Runs</div>
-              <div class="text-xl font-bold text-white mt-1">{{ monitoringSummary.run_count || monitoringSummary.total_traces || 0 }}</div>
+            <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+              <div class="text-[11px] text-claude-muted">Total Eksekusi Trace</div>
+              <div class="text-xl font-bold font-mono text-claude-text mt-1">{{ monitoringSummary.run_count || 0 }}</div>
             </div>
-            <div class="p-4 rounded-xl bg-brand-surface border border-brand-border">
-              <div class="text-[11px] text-brand-muted font-medium">Latensi p95</div>
-              <div class="text-xl font-bold text-brand-orange mt-1">{{ monitoringSummary.p95_latency_ms || 0 }} ms</div>
+            <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+              <div class="text-[11px] text-claude-muted">p95 Latency</div>
+              <div class="text-xl font-bold font-mono text-blue-400 mt-1">{{ Math.round(monitoringSummary.p95_latency_ms || 0) }} ms</div>
             </div>
-            <div class="p-4 rounded-xl bg-brand-surface border border-brand-border">
-              <div class="text-[11px] text-brand-muted font-medium">Abstain Safety Rate</div>
-              <div class="text-xl font-bold text-emerald-400 mt-1">{{ (monitoringSummary.abstain_rate * 100 || 0).toFixed(1) }}%</div>
+            <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+              <div class="text-[11px] text-claude-muted">Tingkat Error</div>
+              <div class="text-xl font-bold font-mono text-rose-400 mt-1">{{ ((monitoringSummary.error_rate || 0) * 100).toFixed(1) }}%</div>
             </div>
-            <div class="p-4 rounded-xl bg-brand-surface border border-brand-border">
-              <div class="text-[11px] text-brand-muted font-medium">Guardrail Alerts</div>
-              <div class="text-xl font-bold text-amber-400 mt-1">{{ monitoringAlerts.length }}</div>
-            </div>
-          </div>
-
-          <!-- Monitoring Alerts Banner -->
-          <div v-if="monitoringAlerts.length > 0" class="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
-            <div class="flex items-center gap-2 text-amber-400 font-bold text-xs uppercase tracking-wider">
-              <i data-lucide="alert-octagon" class="w-4 h-4"></i>
-              <span>Peringatan Ambang Batas Operasional</span>
-            </div>
-            <div v-for="al in monitoringAlerts" :key="al.rule_id" class="text-xs text-brand-text flex items-center justify-between border-t border-amber-500/20 pt-2">
-              <span><strong>{{ al.rule_id }}</strong>: {{ al.metric }} ({{ al.current_value }} &gt; {{ al.threshold }})</span>
-              <span class="text-brand-muted font-mono">{{ al.owner }}</span>
-            </div>
-          </div>
-        </div>
-
-      </div>
-    </main>
-
-    <!-- MODAL: FORMULIR PENGAJUAN CUTI -->
-    <div v-if="isLeaveModalOpen" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div class="bg-brand-elevated border border-brand-border-subtle rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-        <div class="flex items-center justify-between border-b border-brand-border pb-3">
-          <div class="flex items-center gap-2">
-            <div class="w-8 h-8 rounded-lg bg-brand-orange-subtle border border-brand-orange/30 flex items-center justify-center text-brand-orange">
-              <i data-lucide="calendar-plus" class="w-4 h-4"></i>
-            </div>
-            <h3 class="font-bold text-sm text-white">Formulir Pengajuan Cuti</h3>
-          </div>
-          <button @click="isLeaveModalOpen = false" class="text-brand-muted hover:text-white p-1 rounded-lg transition">
-            <i data-lucide="x" class="w-5 h-5"></i>
-          </button>
-        </div>
-
-        <!-- Form Inputs -->
-        <div class="space-y-3.5 text-xs">
-          <!-- Leave Type Select -->
-          <div>
-            <label class="block text-brand-muted font-semibold mb-1">Pilih Jenis Cuti:</label>
-            <select v-model="formLeaveType" @change="onLeaveTypeChange" class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-orange transition">
-              <option value="annual">Cuti Tahunan (Annual Leave)</option>
-              <option value="sick">Cuti Sakit (Sick Leave)</option>
-              <option value="parental">Cuti Orang Tua (Parental Leave)</option>
-            </select>
-          </div>
-
-          <!-- Date Range Pickers -->
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label class="block text-brand-muted font-semibold mb-1">Tanggal Mulai:</label>
-              <input type="date" v-model="formStartDate" :min="formMinStartDate" @change="recalculateDuration" class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-orange transition">
-            </div>
-            <div>
-              <label class="block text-brand-muted font-semibold mb-1">Tanggal Selesai:</label>
-              <input type="date" v-model="formEndDate" :min="formStartDate" @change="recalculateDuration" class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white focus:outline-none focus:border-brand-orange transition">
+            <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+              <div class="text-[11px] text-claude-muted">Total Panggilan Tool</div>
+              <div class="text-xl font-bold font-mono text-emerald-400 mt-1">{{ monitoringSummary.tool_calls || 0 }}</div>
             </div>
           </div>
 
-          <!-- Working Days Summary Banner -->
-          <div class="p-3 rounded-xl border" :class="formWorkingDays > 0 ? 'bg-brand-surface border-brand-border' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'">
-            <div class="flex items-center justify-between font-semibold">
-              <span>Total Durasi Hari Kerja:</span>
-              <span class="text-brand-orange font-bold text-sm">{{ formWorkingDays }} Hari Kerja</span>
+          <!-- Active Alerts Section -->
+          <div class="space-y-3">
+            <h3 class="text-xs font-semibold uppercase tracking-wider text-claude-muted">Status Aturan Alert Operasional</h3>
+            <div v-if="monitoringAlerts.length === 0" class="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-400 text-xs flex items-center gap-2">
+              <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+              <span>Seluruh metrik operasional berada di bawah ambang batas normal. Tidak ada alert aktif.</span>
             </div>
-            <div v-if="formLeaveType === 'annual'" class="text-[11px] text-brand-muted mt-1 leading-relaxed">
-              [HR-LEAVE-001] Cuti tahunan wajib diajukan minimal 3 hari kerja sebelumnya (melewati akhir pekan).
+            <div v-else class="space-y-2.5">
+              <div v-for="al in monitoringAlerts" :key="al.rule_id" class="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs space-y-1">
+                <div class="flex items-center justify-between font-semibold text-rose-400">
+                  <span>[ALERT] {{ al.rule_id }} &mdash; {{ al.metric }}</span>
+                  <span class="font-mono">Owner: {{ al.owner }}</span>
+                </div>
+                <div class="text-claude-text">Nilai saat ini: <code class="font-mono">{{ al.current_value }}</code> (Ambang batas: <code class="font-mono">{{ al.threshold }}</code>)</div>
+                <div class="text-claude-secondary">{{ al.response }}</div>
+              </div>
             </div>
-          </div>
-
-          <!-- Sick Leave Doctor Note Upload -->
-          <div v-if="formLeaveType === 'sick'" class="p-3 rounded-xl bg-brand-surface border border-brand-border space-y-1.5">
-            <div class="flex items-center justify-between font-semibold">
-              <span class="text-brand-muted">Surat Dokter:</span>
-              <span class="text-[10px] px-2 py-0.5 rounded-full" :class="formWorkingDays > 2 ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'">
-                {{ formWorkingDays > 2 ? 'Wajib (> 2 hari kerja)' : 'Opsional (&le; 2 hari kerja)' }}
-              </span>
-            </div>
-            <input type="file" @change="handleFormAttachment" accept=".pdf,image/png,image/jpeg" class="w-full text-xs text-brand-muted file:mr-3 file:py-1 file:px-2.5 file:rounded-md file:border-0 file:text-[11px] file:font-semibold file:bg-brand-elevated file:text-brand-orange hover:file:bg-brand-elevated/80 cursor-pointer">
-            <div v-if="formAttachment" class="text-[11px] text-emerald-400 font-medium">
-              File siap diunggah: {{ formAttachment.filename }}
-            </div>
-          </div>
-
-          <!-- Reason Input -->
-          <div>
-            <label class="block text-brand-muted font-semibold mb-1">Alasan / Keterangan (opsional):</label>
-            <textarea v-model="formReason" rows="2" placeholder="Contoh: Keperluan keluarga mendesak / Pemulihan kesehatan" class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white placeholder-brand-muted focus:outline-none focus:border-brand-orange transition resize-none"></textarea>
           </div>
         </div>
 
-        <!-- Modal Footer Actions -->
-        <div class="flex items-center justify-end gap-2 pt-2 border-t border-brand-border">
-          <button @click="isLeaveModalOpen = false" class="px-4 py-2 rounded-xl text-xs text-brand-muted hover:text-white transition">
-            Batal
-          </button>
-          <button @click="submitLeaveForm" :disabled="formWorkingDays === 0" class="px-4 py-2 rounded-xl bg-brand-orange hover:bg-brand-orange-hover text-white text-xs font-semibold shadow-sm transition active:scale-95 disabled:opacity-40">
-            Ajukan ke Asisten Miyo
-          </button>
-        </div>
-      </div>
+      </main>
     </div>
 
-    <!-- MODAL: DATABASE PASSWORD LOGIN -->
-    <div v-if="isLoginModalOpen" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div class="bg-brand-elevated border border-brand-border-subtle rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
-        <div class="flex items-center justify-between border-b border-brand-border pb-3">
+    <!-- =====================================================================
+         MODAL 1: STEP-UP / PASSWORD AUTHENTICATION
+         ===================================================================== -->
+    <div v-if="isLoginModalOpen" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-claude-surface border border-claude-border rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-4">
+        <div class="flex items-center justify-between border-b border-claude-border pb-3">
           <div class="flex items-center gap-2">
-            <div class="w-8 h-8 rounded-lg bg-brand-orange-subtle border border-brand-orange/30 flex items-center justify-center text-brand-orange">
-              <i data-lucide="shield-check" class="w-4 h-4"></i>
+            <div class="w-8 h-8 rounded-lg bg-claude-blue-subtle border border-blue-500/30 flex items-center justify-center text-blue-400">
+              <i data-lucide="lock" class="w-4 h-4"></i>
             </div>
-            <h3 class="font-bold text-sm text-white">Login Akun Database</h3>
+            <div>
+              <h3 class="font-semibold text-sm text-claude-text">Verifikasi Keamanan Akses</h3>
+              <p class="text-[10px] text-claude-muted">Step-Up Authentication Database</p>
+            </div>
           </div>
-          <button @click="isLoginModalOpen = false" class="text-brand-muted hover:text-white p-1 rounded-lg transition">
-            <i data-lucide="x" class="w-5 h-5"></i>
+          <button @click="isLoginModalOpen = false" class="text-claude-muted hover:text-claude-text p-1">
+            <i data-lucide="x" class="w-4 h-4"></i>
           </button>
+        </div>
+
+        <div v-if="pendingStepUpPersona" class="p-3 rounded-xl bg-claude-elevated border border-claude-border text-xs space-y-1">
+          <div class="font-semibold text-claude-text">{{ pendingStepUpPersona.display_name }}</div>
+          <div class="text-claude-secondary font-mono text-[11px]">{{ pendingStepUpPersona.employee_id }} &middot; {{ pendingStepUpPersona.role.toUpperCase() }}</div>
         </div>
 
         <form @submit.prevent="submitPasswordLogin" class="space-y-3.5 text-xs">
-          <div>
-            <label class="block text-brand-muted font-semibold mb-1">Username / ID Pegawai:</label>
-            <input type="text" v-model="loginUsername" placeholder="Contoh: alya, raka, admin" required class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white placeholder-brand-muted focus:outline-none focus:border-brand-orange transition">
+          <div v-if="!pendingStepUpPersona">
+            <label class="block text-claude-secondary font-medium mb-1">Username / ID Pegawai:</label>
+            <input type="text" v-model="loginUsername" required placeholder="Contoh: raka, admin, MGR-001"
+              class="w-full bg-claude-elevated border border-claude-border rounded-xl px-3 py-2 text-claude-text focus:outline-none focus:border-blue-500">
           </div>
           <div>
-            <label class="block text-brand-muted font-semibold mb-1">Password:</label>
-            <input type="password" v-model="loginPassword" placeholder="Password#123" required class="w-full bg-brand-surface border border-brand-border rounded-xl px-3 py-2 text-white placeholder-brand-muted focus:outline-none focus:border-brand-orange transition">
+            <label class="block text-claude-secondary font-medium mb-1">Password Akun:</label>
+            <input type="password" v-model="loginPassword" required placeholder="Masukkan password akun" autofocus
+              class="w-full bg-claude-elevated border border-claude-border rounded-xl px-3 py-2 text-claude-text focus:outline-none focus:border-blue-500">
           </div>
+
           <div v-if="loginError" class="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-[11px]">
             {{ loginError }}
           </div>
-          <div class="pt-2 flex items-center justify-end gap-2 border-t border-brand-border">
-            <button type="button" @click="isLoginModalOpen = false" class="px-3.5 py-1.5 rounded-lg text-xs text-brand-muted hover:text-white transition">Batal</button>
-            <button type="submit" :disabled="isLoggingIn" class="px-4 py-2 rounded-xl bg-brand-orange hover:bg-brand-orange-hover text-white text-xs font-semibold shadow-sm transition active:scale-95 disabled:opacity-50">
-              {{ isLoggingIn ? 'Memverifikasi...' : 'Masuk Sesi' }}
+
+          <div class="pt-2 flex items-center justify-end gap-2 border-t border-claude-border">
+            <button type="button" @click="isLoginModalOpen = false" class="px-3.5 py-2 rounded-xl text-claude-secondary hover:text-claude-text">
+              Batal
+            </button>
+            <button type="submit" :disabled="isLoggingIn" class="px-4 py-2 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white font-semibold transition disabled:opacity-50">
+              {{ isLoggingIn ? 'Memverifikasi...' : 'Konfirmasi & Masuk' }}
             </button>
           </div>
         </form>
       </div>
     </div>
 
-    <!-- MODAL: REJECT REASON -->
-    <div v-if="isRejectModalOpen" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div class="bg-brand-elevated border border-brand-border rounded-2xl max-w-sm w-full p-5 space-y-3">
-        <h4 class="font-bold text-sm text-white">Alasan Penolakan Cuti</h4>
-        <textarea v-model="rejectReason" rows="3" placeholder="Masukkan alasan penolakan..." class="w-full bg-brand-surface border border-brand-border rounded-xl p-2.5 text-xs text-white placeholder-brand-muted focus:outline-none focus:border-rose-500 transition resize-none"></textarea>
-        <div class="flex items-center justify-end gap-2">
-          <button @click="isRejectModalOpen = false" class="px-3 py-1.5 rounded-lg text-xs text-brand-muted hover:text-white">Batal</button>
-          <button @click="confirmRejectRequest" class="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs">Tolak Permohonan</button>
+    <!-- =====================================================================
+         MODAL 2: FORMULIR PENGAJUAN CUTI (DYNAMIC POLICY GUARDRAILS)
+         ===================================================================== -->
+    <div v-if="isLeaveModalOpen" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-claude-surface border border-claude-border rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+        <div class="flex items-center justify-between border-b border-claude-border pb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-lg bg-claude-blue-subtle border border-blue-500/30 flex items-center justify-center text-blue-400">
+              <i data-lucide="calendar-plus" class="w-4 h-4"></i>
+            </div>
+            <div>
+              <h3 class="font-semibold text-sm text-claude-text">Formulir Pengajuan Cuti</h3>
+              <p class="text-[10px] text-claude-muted">Terintegrasi Guardrail Kebijakan HR</p>
+            </div>
+          </div>
+          <button @click="isLeaveModalOpen = false" class="text-claude-muted hover:text-claude-text p-1">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <div class="space-y-3.5 text-xs">
+          <div>
+            <label class="block text-claude-secondary font-medium mb-1">Pilih Jenis Cuti:</label>
+            <select v-model="formLeaveType" @change="onLeaveTypeChange" class="w-full bg-claude-elevated border border-claude-border rounded-xl px-3 py-2 text-claude-text focus:outline-none focus:border-blue-500">
+              <option value="annual">Cuti Tahunan (Sisa: {{ annualBalanceDays }} Hari)</option>
+              <option value="sick">Cuti Sakit (Sisa: {{ sickBalanceDays }} Hari)</option>
+              <option value="parental">Cuti Orang Tua (Sisa: {{ parentalBalanceDays }} Hari)</option>
+            </select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-claude-secondary font-medium mb-1">Tanggal Mulai:</label>
+              <input type="date" v-model="formStartDate" :min="formMinStartDate" @change="recalculateDuration"
+                class="w-full bg-claude-elevated border border-claude-border rounded-xl px-3 py-2 text-claude-text focus:outline-none focus:border-blue-500">
+            </div>
+            <div>
+              <label class="block text-claude-secondary font-medium mb-1">Tanggal Selesai:</label>
+              <input type="date" v-model="formEndDate" :min="formStartDate" @change="recalculateDuration"
+                class="w-full bg-claude-elevated border border-claude-border rounded-xl px-3 py-2 text-claude-text focus:outline-none focus:border-blue-500">
+            </div>
+          </div>
+
+          <!-- Dynamic Policy Notice -->
+          <div class="p-3 rounded-xl border" :class="formWorkingDays > 0 ? 'bg-claude-elevated border-claude-border' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'">
+            <div class="flex items-center justify-between font-semibold">
+              <span>Total Durasi Hari Kerja (Senin&ndash;Jumat):</span>
+              <span class="text-blue-400 font-mono text-sm">{{ formWorkingDays }} Hari Kerja</span>
+            </div>
+            <div v-if="formLeaveType === 'annual'" class="text-[11px] text-claude-secondary mt-1">
+              [HR-LEAVE-001] Cuti tahunan wajib diajukan minimal {{ policyRules.annual_lead_days }} hari kerja sebelumnya.
+            </div>
+            <div v-else-if="formLeaveType === 'sick'" class="text-[11px] text-claude-secondary mt-1">
+              [HR-LEAVE-002] Cuti sakit &gt; {{ policyRules.sick_doc_threshold }} hari kerja berturut-turut wajib melampirkan surat keterangan dokter.
+            </div>
+          </div>
+
+          <!-- Sick Leave Attachment Input -->
+          <div v-if="formLeaveType === 'sick'" class="p-3 rounded-xl bg-claude-elevated border border-claude-border space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-claude-secondary font-medium">Surat Keterangan Dokter:</span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded" :class="formWorkingDays > policyRules.sick_doc_threshold ? 'bg-amber-500/15 text-amber-400' : 'bg-emerald-500/15 text-emerald-400'">
+                {{ formWorkingDays > policyRules.sick_doc_threshold ? `Wajib (> ${policyRules.sick_doc_threshold} hari)` : 'Opsional' }}
+              </span>
+            </div>
+            <input type="file" @change="handleFormAttachment" accept=".pdf,image/png,image/jpeg"
+              class="w-full text-xs text-claude-secondary file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:text-[11px] file:font-semibold file:bg-claude-blue-subtle file:text-blue-400 cursor-pointer">
+            <div v-if="formAttachment" class="text-[11px] text-emerald-400">
+              Dokumen terpilih: {{ formAttachment.filename }}
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-claude-secondary font-medium mb-1">Alasan / Keterangan (Opsional):</label>
+            <textarea v-model="formReason" rows="2" placeholder="Contoh: Keperluan keluarga / Istirahat medis"
+              class="w-full bg-claude-elevated border border-claude-border rounded-xl px-3 py-2 text-claude-text focus:outline-none focus:border-blue-500 resize-none"></textarea>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-claude-border">
+          <button @click="isLeaveModalOpen = false" class="px-4 py-2 rounded-xl text-xs text-claude-secondary hover:text-claude-text">
+            Batal
+          </button>
+          <button @click="submitLeaveForm" :disabled="formWorkingDays === 0"
+            class="px-4 py-2 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white text-xs font-semibold transition disabled:opacity-40">
+            Siapkan Proposal via Miyo
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- Floating Dev Audit Mode Pill (Bottom-Left Corner) -->
-    <div class="fixed bottom-5 z-40 transition-all duration-300 pointer-events-auto" :class="isSidebarCollapsed ? 'left-6' : 'left-[280px]'">
-      <button @click="toggleDevAudit" class="px-3.5 py-1.5 rounded-full text-xs font-semibold backdrop-blur-md bg-brand-surface/90 border border-brand-border hover:border-brand-orange text-brand-text shadow-lg flex items-center gap-2 transition hover:-translate-y-0.5 cursor-pointer" title="Klik untuk menampilkan atau menyembunyikan Sumber Kebijakan & Jejak Audit Telemetri">
-        <span :class="['w-2 h-2 rounded-full', showDevAudit ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]' : 'bg-gray-400']"></span>
-        <span>Mode Audit Dev: {{ showDevAudit ? 'Aktif' : 'Nonaktif' }}</span>
-      </button>
+    <!-- =====================================================================
+         MODAL 3: ATTACHMENT DOCUMENT VIEWER (PDF / IMAGE)
+         ===================================================================== -->
+    <div v-if="attachmentViewerModal.open" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-claude-surface border border-claude-border rounded-2xl max-w-3xl w-full p-5 shadow-2xl space-y-3">
+        <div class="flex items-center justify-between border-b border-claude-border pb-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="file-check" class="w-4 h-4 text-blue-400"></i>
+            <span class="font-semibold text-xs text-claude-text">
+              Lampiran Dokumen #{{ attachmentViewerModal.requestId }} &mdash; {{ attachmentViewerModal.filename }}
+            </span>
+          </div>
+          <div class="flex items-center gap-2">
+            <a v-if="!attachmentViewerModal.loading && attachmentViewerModal.dataUrl" :href="attachmentViewerModal.dataUrl" :download="attachmentViewerModal.filename"
+              class="px-2.5 py-1 rounded-lg bg-claude-blue text-white text-[11px] font-medium flex items-center gap-1">
+              <i data-lucide="download" class="w-3 h-3"></i>
+              <span>Unduh</span>
+            </a>
+            <button @click="attachmentViewerModal.open = false" class="text-claude-muted hover:text-claude-text p-1">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="attachmentViewerModal.loading" class="py-16 text-center text-xs text-claude-secondary">
+          Memuat dokumen lampiran...
+        </div>
+        <div v-else class="max-h-[70vh] overflow-auto rounded-xl border border-claude-border bg-claude-elevated flex items-center justify-center p-2">
+          <iframe v-if="attachmentViewerModal.contentType === 'application/pdf'" :src="attachmentViewerModal.dataUrl" class="w-full h-[60vh] rounded-lg"></iframe>
+          <img v-else :src="attachmentViewerModal.dataUrl" :alt="attachmentViewerModal.filename" class="max-h-[62vh] object-contain rounded-lg">
+        </div>
+      </div>
     </div>
 
   </div>
 
-  <!-- Load Main Application Script -->
-  <script src="/web/app.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>
