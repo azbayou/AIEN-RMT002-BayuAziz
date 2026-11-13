@@ -1,5 +1,7 @@
 .env*
+!.env.example
 .venv/
+venv/
 .git/
 __pycache__/
 *.py[cod]
@@ -11,3 +13,5 @@ outputs/
 *.sqlite*
 .streamlit/secrets.toml
 WBS/
+docs/
+scripts/benchmark_results.json

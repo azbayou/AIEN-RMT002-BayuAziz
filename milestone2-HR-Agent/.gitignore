@@ -1,10 +1,29 @@
+# Environment & Secrets
 .env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Virtualenv & Python cache
 .venv/
+venv/
 __pycache__/
-.pytest_cache/
 *.py[cod]
+*$py.class
+*.so
+
+# Testing & Coverage
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Outputs & Temporary Data
 outputs/*.json
 !outputs/evaluation_report.json
 outputs/*.md
-.streamlit/secrets.toml
+scripts/benchmark_results.json
+
+# Internal Work Breakdown & Private Docs
 WBS/
+docs/

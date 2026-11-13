@@ -10,7 +10,7 @@ import urllib.parse
 
 import opik
 
-DEFAULT_OPIK_API_KEY = "8cBiKdJSLxbIknOM4S1Zg5HR2"
+DEFAULT_OPIK_API_KEY = os.getenv("OPIK_API_KEY", "")
 DEFAULT_OPIK_WORKSPACE = "azbayou"
 DEFAULT_OPIK_PROJECT = "Milestone 2 - HR Agent"
 DEFAULT_DATASET_NAME = "db-benchmark-suite"

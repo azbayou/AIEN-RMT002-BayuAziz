@@ -1,13 +1,90 @@
 // Miyo HR Portal — Industrial-Grade Reactive SPA (Vue 3 + Tailwind CSS + Lucide Icons)
 const { createApp, ref, computed, onMounted, nextTick } = Vue;
 
-// Dynamic API Base: relative when served via FastAPI (port 8000), or http://localhost:8000 when served via standalone dev server or file protocol
-const API_BASE = (window.location.protocol === 'file:' || (window.location.port && window.location.port !== '8000'))
-  ? 'http://localhost:8000'
-  : '';
+// Dynamic API Base with localStorage persistence and Smart Fallback for GitHub Pages & Localhost
+function computeDefaultApiBase() {
+  const saved = localStorage.getItem('miyo_api_base');
+  if (saved && saved.trim()) return saved.trim().replace(/\/+$/, '');
+  if (window.location.hostname.endsWith('github.io')) {
+    return 'https://hr-agent-assistant.vercel.app';
+  }
+  if (window.location.protocol === 'file:' || (window.location.port && window.location.port !== '8000')) {
+    return 'http://localhost:8000';
+  }
+  return '';
+}
 
 createApp({
   setup() {
+    // --- BACKEND API CONFIGURATION STATE ---
+    const apiBaseUrl = ref(computeDefaultApiBase());
+    const showApiSettingsModal = ref(false);
+    const tempApiUrl = ref(apiBaseUrl.value);
+    const isTestingConnection = ref(false);
+    const connectionTestResult = ref(null);
+
+    function getApiBase() {
+      return (apiBaseUrl.value || '').trim().replace(/\/+$/, '');
+    }
+
+    function openApiSettingsModal() {
+      tempApiUrl.value = apiBaseUrl.value;
+      connectionTestResult.value = null;
+      showApiSettingsModal.value = true;
+      refreshIcons();
+    }
+
+    async function testBackendConnection() {
+      isTestingConnection.value = true;
+      connectionTestResult.value = null;
+      const targetUrl = (tempApiUrl.value || '').trim().replace(/\/+$/, '');
+      try {
+        const resp = await fetch(`${targetUrl}/readyz`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+        if (resp.ok) {
+          const data = await resp.json();
+          connectionTestResult.value = {
+            success: true,
+            message: `Koneksi Berhasil! Status: ${data.status || 'ready'} (Database: ${data.dependencies?.database ? 'Online' : 'Degraded'})`
+          };
+        } else {
+          connectionTestResult.value = {
+            success: false,
+            message: `Server merespon HTTP ${resp.status} ${resp.statusText}`
+          };
+        }
+      } catch (err) {
+        connectionTestResult.value = {
+          success: false,
+          message: `Gagal terhubung: ${err.message || 'Network / CORS Error'}`
+        };
+      } finally {
+        isTestingConnection.value = false;
+        refreshIcons();
+      }
+    }
+
+    function saveApiSettings() {
+      const cleanUrl = (tempApiUrl.value || '').trim().replace(/\/+$/, '');
+      apiBaseUrl.value = cleanUrl;
+      localStorage.setItem('miyo_api_base', cleanUrl);
+      showApiSettingsModal.value = false;
+      notify('Alamat URL Backend berhasil disimpan!', 'success');
+      checkHealth();
+      fetchSystemInit();
+      refreshIcons();
+    }
+
+    function resetApiSettings() {
+      localStorage.removeItem('miyo_api_base');
+      apiBaseUrl.value = computeDefaultApiBase();
+      tempApiUrl.value = apiBaseUrl.value;
+      connectionTestResult.value = null;
+      notify('URL Backend di-reset ke nilai bawaan.', 'info');
+      checkHealth();
+      fetchSystemInit();
+      refreshIcons();
+    }
+
     // --- APP & NAVIGATION STATE ---
     const isAuthenticated = ref(false);
     const isSidebarCollapsed = ref(false);
@@ -80,8 +157,8 @@ createApp({
       isLoadingPersonas.value = true;
       try {
         const [personasRes, rulesRes] = await Promise.all([
-          fetch(`${API_BASE}/api/v1/auth/personas`).then(r => (r.ok ? r.json() : [])),
-          fetch(`${API_BASE}/api/v1/policies/rules`).then(r => (r.ok ? r.json() : null))
+          fetch(`${getApiBase()}/api/v1/auth/personas`).then(r => (r.ok ? r.json() : [])),
+          fetch(`${getApiBase()}/api/v1/policies/rules`).then(r => (r.ok ? r.json() : null))
         ]);
 
         if (rulesRes) {
@@ -183,7 +260,7 @@ createApp({
       isLoggingIn.value = true;
       loginError.value = '';
       try {
-        const res = await fetch(`${API_BASE}/api/v1/auth/login`, {
+        const res = await fetch(`${getApiBase()}/api/v1/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -337,7 +414,7 @@ createApp({
         'Authorization': `Bearer ${token}`,
         ...(options.headers || {})
       };
-      const url = endpoint.startsWith('http') ? endpoint : `${API_BASE}${endpoint}`;
+      const url = endpoint.startsWith('http') ? endpoint : `${getApiBase()}${endpoint}`;
       const resp = await fetch(url, { ...options, headers });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: resp.statusText }));
@@ -348,7 +425,7 @@ createApp({
 
     async function checkHealth() {
       try {
-        const res = await fetch(`${API_BASE}/readyz`);
+        const res = await fetch(`${getApiBase()}/readyz`);
         if (res.ok) {
           const data = await res.json();
           isBackendReady.value = Boolean(data.ready);
@@ -1118,7 +1195,16 @@ createApp({
       formatStatus,
       formatLeaveType,
       statusBadgeClass,
-      refreshIcons
+      refreshIcons,
+      apiBaseUrl,
+      showApiSettingsModal,
+      tempApiUrl,
+      isTestingConnection,
+      connectionTestResult,
+      openApiSettingsModal,
+      testBackendConnection,
+      saveApiSettings,
+      resetApiSettings
     };
   }
 }).mount('#app');

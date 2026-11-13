@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Miyo HR Portal — PT Nusantara Digital</title>
-  <link rel="icon" type="image/png" href="/public/img/miyo.png">
+  <link rel="icon" type="image/png" href="./public/img/miyo.png">
   <!-- Google Fonts: Inter & JetBrains Mono for Claude-like Cleanliness -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -165,7 +165,7 @@
       <!-- Top Bar -->
       <div class="max-w-3xl w-full mx-auto flex items-center justify-between">
         <div class="flex items-center gap-2.5">
-          <img src="/public/img/gunungan.png" alt="Nusantara Digital" class="w-7 h-7 object-contain" onerror="this.style.display='none'">
+          <img src="./public/img/gunungan.png" alt="Nusantara Digital" class="w-7 h-7 object-contain" onerror="this.style.display='none'">
           <span class="text-xs font-semibold tracking-tight text-claude-secondary">PT Nusantara Digital</span>
         </div>
         <div class="flex items-center gap-2">
@@ -176,6 +176,9 @@
           <button @click="toggleTheme" class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" :title="isDarkMode ? 'Mode Terang' : 'Mode Gelap'">
             <i :data-lucide="isDarkMode ? 'sun' : 'moon'" class="w-4 h-4"></i>
           </button>
+          <button @click="openApiSettingsModal" class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" title="Konfigurasi URL Backend API">
+            <i data-lucide="settings" class="w-4 h-4"></i>
+          </button>
         </div>
       </div>
 
@@ -183,7 +186,7 @@
       <div class="max-w-2xl w-full mx-auto my-auto py-8">
         <div class="text-center mb-8">
           <div class="w-16 h-16 rounded-2xl bg-claude-surface border border-claude-border mx-auto flex items-center justify-center mb-4 shadow-sm">
-            <img src="/public/img/miyo.png" alt="Miyo" class="w-11 h-11 object-contain" onerror="this.style.display='none'">
+            <img src="./public/img/miyo.png" alt="Miyo" class="w-11 h-11 object-contain" onerror="this.style.display='none'">
           </div>
           <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-claude-blue-subtle border border-blue-500/25 text-blue-400 text-[11px] font-semibold uppercase tracking-wider mb-3">
             <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
@@ -274,7 +277,7 @@
           <!-- Brand Header -->
           <div class="h-14 flex items-center justify-between px-3.5 border-b border-claude-border">
             <div v-if="!isSidebarCollapsed" class="flex items-center gap-2.5 overflow-hidden">
-              <img src="/public/img/gunungan.png" alt="Logo" class="w-6 h-6 object-contain flex-shrink-0" onerror="this.style.display='none'">
+              <img src="./public/img/gunungan.png" alt="Logo" class="w-6 h-6 object-contain flex-shrink-0" onerror="this.style.display='none'">
               <div class="truncate">
                 <div class="font-semibold text-xs text-claude-text tracking-tight truncate">Nusantara Digital</div>
                 <div class="text-[10px] text-blue-400 font-medium">Miyo AI Workspace</div>
@@ -386,7 +389,7 @@
         <!-- Minimalist Top Header -->
         <header class="h-14 border-b border-claude-border px-6 flex items-center justify-between bg-claude-sidebar/50 backdrop-blur-md flex-shrink-0">
           <div class="flex items-center gap-3">
-            <img src="/public/img/miyo.png" alt="Miyo" class="w-7 h-7 rounded-lg bg-claude-surface border border-claude-border p-0.5 object-contain" onerror="this.style.display='none'">
+            <img src="./public/img/miyo.png" alt="Miyo" class="w-7 h-7 rounded-lg bg-claude-surface border border-claude-border p-0.5 object-contain" onerror="this.style.display='none'">
             <div>
               <h1 class="text-xs font-semibold text-claude-text tracking-tight">{{ currentTabTitle }}</h1>
               <p class="text-[10px] text-claude-muted hidden sm:block">PT Nusantara Digital &middot; Portal SDM Terverifikasi</p>
@@ -414,6 +417,11 @@
             <button @click="toggleTheme" class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" :title="isDarkMode ? 'Beralih ke Mode Terang' : 'Beralih ke Mode Gelap'">
               <i :data-lucide="isDarkMode ? 'sun' : 'moon'" class="w-4 h-4"></i>
             </button>
+
+            <!-- API Backend Settings -->
+            <button @click="openApiSettingsModal" class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" title="Konfigurasi URL Backend API">
+              <i data-lucide="settings" class="w-4 h-4"></i>
+            </button>
           </div>
         </header>
 
@@ -428,7 +436,7 @@
             <div v-if="chatMessages.length === 0" class="my-auto py-10">
               <div class="text-center mb-8">
                 <div class="w-14 h-14 rounded-2xl bg-claude-surface border border-claude-border mx-auto flex items-center justify-center mb-4 shadow-sm">
-                  <img src="/public/img/miyo.png" alt="Miyo" class="w-10 h-10 object-contain" onerror="this.style.display='none'">
+                  <img src="./public/img/miyo.png" alt="Miyo" class="w-10 h-10 object-contain" onerror="this.style.display='none'">
                 </div>
                 <h2 class="text-xl font-semibold text-claude-text tracking-tight mb-1.5">
                   Halo, {{ userDisplayName }}
@@ -460,7 +468,7 @@
               <!-- Assistant Response -->
               <div v-else class="flex items-start gap-3.5">
                 <div class="w-7 h-7 rounded-lg bg-claude-surface border border-claude-border flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <img src="/public/img/miyo.png" alt="Miyo" class="w-5 h-5 object-contain" onerror="this.style.display='none'">
+                  <img src="./public/img/miyo.png" alt="Miyo" class="w-5 h-5 object-contain" onerror="this.style.display='none'">
                 </div>
 
                 <div class="flex-1 min-w-0 space-y-3">
@@ -592,7 +600,7 @@
             <!-- Thinking Indicator -->
             <div v-if="isGenerating" class="flex items-center gap-3.5">
               <div class="w-7 h-7 rounded-lg bg-claude-surface border border-claude-border flex items-center justify-center flex-shrink-0">
-                <img src="/public/img/miyo.png" alt="Miyo" class="w-5 h-5 object-contain animate-pulse" onerror="this.style.display='none'">
+                <img src="./public/img/miyo.png" alt="Miyo" class="w-5 h-5 object-contain animate-pulse" onerror="this.style.display='none'">
               </div>
               <div class="bg-claude-surface border border-claude-border rounded-2xl rounded-tl-sm px-4 py-3 text-xs text-claude-secondary flex items-center gap-2.5">
                 <i data-lucide="loader-2" class="w-4 h-4 text-blue-400 animate-spin"></i>
@@ -1163,6 +1171,76 @@
         <div v-else class="max-h-[70vh] overflow-auto rounded-xl border border-claude-border bg-claude-elevated flex items-center justify-center p-2">
           <iframe v-if="attachmentViewerModal.contentType === 'application/pdf'" :src="attachmentViewerModal.dataUrl" class="w-full h-[60vh] rounded-lg"></iframe>
           <img v-else :src="attachmentViewerModal.dataUrl" :alt="attachmentViewerModal.filename" class="max-h-[62vh] object-contain rounded-lg">
+        </div>
+      </div>
+    </div>
+
+    <!-- =====================================================================
+         MODAL: SMART BACKEND API URL CONFIGURATION (FOR GITHUB PAGES / DEMO)
+         ===================================================================== -->
+    <div v-if="showApiSettingsModal" class="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-claude-surface border border-claude-border rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+        <div class="flex items-center justify-between border-b border-claude-border pb-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="server-cog" class="w-5 h-5 text-blue-400"></i>
+            <div>
+              <h3 class="font-bold text-sm text-claude-text">Konfigurasi Target Backend API</h3>
+              <p class="text-[11px] text-claude-secondary">Hubungkan antarmuka ini ke server backend Vercel, Render, atau Localhost.</p>
+            </div>
+          </div>
+          <button @click="showApiSettingsModal = false" class="text-claude-muted hover:text-claude-text p-1">
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-semibold text-claude-secondary mb-1">Base URL Backend API</label>
+            <input v-model="tempApiUrl" type="text"
+              class="w-full px-3 py-2 rounded-xl bg-claude-elevated border border-claude-border text-xs text-claude-text font-mono focus:outline-none focus:border-blue-500 transition"
+              placeholder="contoh: https://hr-agent-assistant.vercel.app atau http://localhost:8000">
+            <span class="text-[10px] text-claude-muted mt-1 block">Biarkan kosong jika backend dilayani pada domain yang sama (/api/v1).</span>
+          </div>
+
+          <!-- Quick Presets -->
+          <div>
+            <label class="block text-[11px] font-medium text-claude-secondary mb-1">Preset Cepat:</label>
+            <div class="flex flex-wrap gap-1.5">
+              <button @click="tempApiUrl = 'http://localhost:8000'" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
+                Localhost (8000)
+              </button>
+              <button @click="tempApiUrl = 'https://hr-agent-assistant.vercel.app'" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
+                Vercel Cloud
+              </button>
+              <button @click="tempApiUrl = ''" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
+                Satu Domain (Relative /)
+              </button>
+            </div>
+          </div>
+
+          <!-- Connection Test Feedback -->
+          <div v-if="connectionTestResult" class="p-3 rounded-xl border text-xs flex items-start gap-2"
+            :class="connectionTestResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'">
+            <i :data-lucide="connectionTestResult.success ? 'check-circle-2' : 'alert-triangle'" class="w-4 h-4 flex-shrink-0 mt-0.5"></i>
+            <span class="leading-relaxed">{{ connectionTestResult.message }}</span>
+          </div>
+
+          <!-- Actions -->
+          <div class="pt-2 flex items-center justify-between border-t border-claude-border">
+            <button @click="testBackendConnection" :disabled="isTestingConnection"
+              class="px-3 py-1.5 rounded-xl border border-claude-border text-claude-secondary hover:text-claude-text hover:bg-claude-elevated text-xs font-medium flex items-center gap-1.5 transition">
+              <i data-lucide="activity" class="w-3.5 h-3.5 text-blue-400" :class="isTestingConnection ? 'animate-spin' : ''"></i>
+              <span>{{ isTestingConnection ? 'Menguji...' : 'Uji Koneksi (Ping)' }}</span>
+            </button>
+            <div class="flex items-center gap-2">
+              <button @click="resetApiSettings" class="px-3 py-1.5 rounded-xl text-claude-muted hover:text-rose-400 text-xs font-medium transition">
+                Reset
+              </button>
+              <button @click="saveApiSettings" class="px-4 py-1.5 rounded-xl bg-claude-blue hover:bg-blue-600 text-white text-xs font-semibold shadow-md transition">
+                Simpan & Terapkan
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

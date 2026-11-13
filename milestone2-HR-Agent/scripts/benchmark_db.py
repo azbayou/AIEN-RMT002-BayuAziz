@@ -46,14 +46,10 @@ except ImportError:
     HAS_OPIK = False
     ScoreResult = None
 
-DEFAULT_LOCAL_URL = "postgresql://hr_app:hr_app@localhost:5432/hr_assistant"
-DEFAULT_NEON_URL = (
-    "postgresql://neondb_owner:npg_TPLO5hfjSB3z"
-    "@ep-bold-paper-b3vr8inl-pooler.c-4.ap-southeast-1.aws.neon.tech"
-    "/neondb?sslmode=require&channel_binding=require"
-)
+DEFAULT_LOCAL_URL = os.getenv("LOCAL_DATABASE_URL", "postgresql://hr_app:hr_app@localhost:5432/hr_assistant")
+DEFAULT_NEON_URL = os.getenv("DATABASE_URL", "")
 
-DEFAULT_OPIK_API_KEY = "8cBiKdJSLxbIknOM4S1Zg5HR2"
+DEFAULT_OPIK_API_KEY = os.getenv("OPIK_API_KEY", "")
 DEFAULT_OPIK_WORKSPACE = "azbayou"
 DEFAULT_OPIK_PROJECT = "Milestone 2 - HR Agent"
 DEFAULT_DATASET_NAME = "db-benchmark-suite"
