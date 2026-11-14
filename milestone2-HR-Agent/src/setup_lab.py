@@ -86,7 +86,7 @@ def reset_and_seed(reset: bool = False) -> None:
             if reset:
                 cursor.execute(
                     "DROP TABLE IF EXISTS leave_attachments, approval_audit_logs, traces, tickets, leave_requests, action_proposals, "
-                    "policy_chunks, leave_balances, employees CASCADE"
+                    "policy_chunks, leave_balances, persona_tokens, medical_terms, monitoring_rules, employees CASCADE"
                 )
             dimension = settings.embedding_dimensions
             cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
