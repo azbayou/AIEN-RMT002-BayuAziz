@@ -64,9 +64,10 @@ class Settings(BaseSettings):
     def valid_database_url(cls, value):
         if not isinstance(value, str) or not value.strip():
             raise ValueError("service URL must not be blank")
-        if "://" not in value:
+        clean = value.strip().strip("'\"")
+        if "://" not in clean:
             raise ValueError("service URL must include a scheme")
-        return value.strip()
+        return clean
 
     @field_validator("redis_url", mode="before")
     @classmethod
