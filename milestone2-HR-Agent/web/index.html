@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Miyo HR Portal — PT Nusantara Digital</title>
-  <link rel="icon" type="image/png" href="./public/img/miyo.png">
+  <link rel="icon" type="image/png" href="./asset/img/miyo.png">
   <!-- Google Fonts: Inter & JetBrains Mono for Claude-like Cleanliness -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -165,7 +165,7 @@
       <!-- Top Bar -->
       <div class="max-w-3xl w-full mx-auto flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <img src="./public/img/gunungan.png" alt="Nusantara Digital" class="h-14 w-auto max-w-[90px] object-contain" onerror="this.style.display='none'">
+          <img src="./asset/img/gunungan.png" alt="Nusantara Digital" class="h-14 w-auto max-w-[90px] object-contain" onerror="this.style.display='none'">
           <span class="text-base font-semibold tracking-tight text-claude-secondary">PT Nusantara Digital</span>
         </div>
         <div class="flex items-center gap-2">
@@ -186,7 +186,7 @@
       <div class="max-w-2xl w-full mx-auto my-auto py-8">
         <div class="text-center mb-8">
           <div class="mx-auto flex items-center justify-center mb-6">
-            <img src="./public/img/miyo.png" alt="Miyo" class="w-36 h-36 object-contain transition-transform duration-300 hover:scale-105" onerror="this.style.display='none'">
+            <img src="./asset/img/miyo.png" alt="Miyo" class="w-36 h-36 object-contain transition-transform duration-300 hover:scale-105" onerror="this.style.display='none'">
           </div>
           <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-claude-blue-subtle border border-blue-500/25 text-blue-400 text-[11px] font-semibold uppercase tracking-wider mb-3">
             <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
@@ -277,7 +277,7 @@
           <!-- Brand Header -->
           <div class="h-16 flex items-center justify-between px-3.5 border-b border-claude-border">
             <div v-if="!isSidebarCollapsed" class="flex items-center gap-2.5 overflow-hidden">
-              <img src="./public/img/gunungan.png" alt="Logo" class="h-11 w-auto max-w-[50px] object-contain flex-shrink-0" onerror="this.style.display='none'">
+              <img src="./asset/img/gunungan.png" alt="Logo" class="h-11 w-auto max-w-[50px] object-contain flex-shrink-0" onerror="this.style.display='none'">
               <div class="truncate min-w-0">
                 <div class="font-bold text-[13px] text-claude-text tracking-tight truncate leading-tight">Nusantara Digital</div>
                 <div class="text-[10.5px] text-blue-400 font-medium truncate leading-tight">Miyo AI Workspace</div>
@@ -413,7 +413,7 @@
             <div v-if="chatMessages.length === 0" class="my-auto py-10">
               <div class="text-center mb-8">
                 <div class="mx-auto flex items-center justify-center mb-6">
-                  <img src="./public/img/miyo.png" alt="Miyo" class="w-52 h-52 object-contain transition-transform duration-300 hover:scale-105" onerror="this.style.display='none'">
+                  <img src="./asset/img/miyo.png" alt="Miyo" class="w-52 h-52 object-contain transition-transform duration-300 hover:scale-105" onerror="this.style.display='none'">
                 </div>
                 <h2 class="text-xl font-semibold text-claude-text tracking-tight mb-1.5">
                   Halo, {{ userDisplayName }}
@@ -445,7 +445,7 @@
               <!-- Assistant Response -->
               <div v-else class="flex items-start gap-3.5">
                 <div class="w-7 h-7 rounded-lg bg-claude-surface border border-claude-border flex items-center justify-center flex-shrink-0 mt-0.5">
-                  <img src="./public/img/miyo.png" alt="Miyo" class="w-5 h-5 object-contain" onerror="this.style.display='none'">
+                  <img src="./asset/img/miyo.png" alt="Miyo" class="w-5 h-5 object-contain" onerror="this.style.display='none'">
                 </div>
 
                 <div class="flex-1 min-w-0 space-y-3">
@@ -577,7 +577,7 @@
             <!-- Thinking Indicator -->
             <div v-if="isGenerating" class="flex items-center gap-3.5">
               <div class="w-7 h-7 rounded-lg bg-claude-surface border border-claude-border flex items-center justify-center flex-shrink-0">
-                <img src="./public/img/miyo.png" alt="Miyo" class="w-5 h-5 object-contain animate-pulse" onerror="this.style.display='none'">
+                <img src="./asset/img/miyo.png" alt="Miyo" class="w-5 h-5 object-contain animate-pulse" onerror="this.style.display='none'">
               </div>
               <div class="bg-claude-surface border border-claude-border rounded-2xl rounded-tl-sm px-4 py-3 text-xs text-claude-secondary flex items-center gap-2.5">
                 <i data-lucide="loader-2" class="w-4 h-4 text-blue-400 animate-spin"></i>

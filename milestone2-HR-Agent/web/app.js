@@ -6,7 +6,7 @@ function computeDefaultApiBase() {
   const saved = localStorage.getItem('miyo_api_base');
   if (saved && saved.trim()) return saved.trim().replace(/\/+$/, '');
   if (window.location.hostname.endsWith('github.io')) {
-    return 'https://hr-agent-assistant.vercel.app';
+    return 'https://aien-rmt-002-bayu-aziz.vercel.app';
   }
   if (window.location.protocol === 'file:' || (window.location.port && window.location.port !== '8000')) {
     return 'http://localhost:8000';

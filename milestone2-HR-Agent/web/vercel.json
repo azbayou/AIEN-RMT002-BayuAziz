@@ -1,0 +1,17 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://aien-rmt-002-bayu-aziz.vercel.app/api/$1"
+    },
+    {
+      "source": "/readyz",
+      "destination": "https://aien-rmt-002-bayu-aziz.vercel.app/readyz"
+    },
+    {
+      "source": "/healthz",
+      "destination": "https://aien-rmt-002-bayu-aziz.vercel.app/healthz"
+    }
+  ]
+}

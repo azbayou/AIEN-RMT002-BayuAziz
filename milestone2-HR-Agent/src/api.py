@@ -488,7 +488,7 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
     from fastapi.staticfiles import StaticFiles
 
     base_dir = Path(__file__).resolve().parents[1]
-    public_dir = base_dir / "ui" / "public" if (base_dir / "ui" / "public").is_dir() else (base_dir / "public")
+    public_dir = base_dir / "ui" / "public" if (base_dir / "ui" / "public").is_dir() else (base_dir / "web" / "asset")
     web_dir = base_dir / "web"
 
     if public_dir.is_dir():
