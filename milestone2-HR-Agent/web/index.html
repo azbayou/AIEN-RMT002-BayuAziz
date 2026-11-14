@@ -1505,7 +1505,7 @@
               <label class="block text-xs font-semibold text-claude-secondary mb-1">Base URL Backend API</label>
               <input v-model="tempApiUrl" type="text"
                 class="w-full px-3 py-2 rounded-xl bg-claude-elevated border border-claude-border text-xs text-claude-text font-mono focus:outline-none focus:border-blue-500 transition"
-                placeholder="contoh: https://hr-agent-assistant.vercel.app atau http://localhost:8000">
+                placeholder="contoh: https://aien-rmt-002-bayu-aziz.vercel.app atau http://localhost:8000">
               <span class="text-[10px] text-claude-muted mt-1 block">Biarkan kosong jika backend dilayani pada domain yang sama (/api/v1).</span>
             </div>
 
@@ -1516,11 +1516,8 @@
                 <button @click="tempApiUrl = 'http://localhost:8000'" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
                   Localhost (8000)
                 </button>
-                <button @click="tempApiUrl = 'https://hr-agent-assistant.vercel.app'" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
+                <button @click="tempApiUrl = 'https://aien-rmt-002-bayu-aziz.vercel.app'" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
                   Vercel Cloud
-                </button>
-                <button @click="tempApiUrl = ''" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
-                  Satu Domain (Relative /)
                 </button>
               </div>
             </div>

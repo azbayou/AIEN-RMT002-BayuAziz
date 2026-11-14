@@ -4,7 +4,14 @@ const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
 // Dynamic API Base with localStorage persistence and Smart Fallback for GitHub Pages & Localhost
 function computeDefaultApiBase() {
   const saved = localStorage.getItem('miyo_api_base');
-  if (saved && saved.trim()) return saved.trim().replace(/\/+$/, '');
+  if (saved && saved.trim()) {
+    const cleanSaved = saved.trim().replace(/\/+$/, '');
+    if (cleanSaved === 'https://hr-agent-assistant.vercel.app') {
+      localStorage.removeItem('miyo_api_base');
+    } else {
+      return cleanSaved;
+    }
+  }
   if (window.location.hostname.endsWith('github.io')) {
     return 'https://aien-rmt-002-bayu-aziz.vercel.app';
   }
