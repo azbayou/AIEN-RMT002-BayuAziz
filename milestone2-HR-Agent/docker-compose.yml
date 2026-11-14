@@ -23,7 +23,7 @@ services:
   api:
     build: .
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://hr_app:hr_app@postgres:5432/hr_assistant}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set to NeonDB connection string}
       REDIS_URL: redis://redis:6379/0
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
@@ -38,8 +38,11 @@ services:
       OPIK_PROJECT_NAME: ${OPIK_PROJECT_NAME:-Milestone 2 - HR Agent}
       OPIK_ENABLED: ${OPIK_ENABLED:-true}
     ports: ["${API_PORT:-8000}:8000"]
+    volumes:
+      - ./web:/app/web
+      - ./src:/app/src
+      - ./api:/app/api
     depends_on:
-      postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
   streamlit:
     build: .

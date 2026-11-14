@@ -6,7 +6,7 @@
     "display_name": "Alya Pratama",
     "role": "employee",
     "department": "Engineering",
-    "manager_id": "ADM-001",
+    "manager_id": null,
     "token": "token-alya",
     "balances": {"annual": 8, "sick": 10, "parental": 60}
   },
@@ -17,20 +17,9 @@
     "display_name": "Bima Santoso",
     "role": "employee",
     "department": "Engineering",
-    "manager_id": "ADM-001",
+    "manager_id": null,
     "token": "token-bima",
     "balances": {"annual": 3, "sick": 10, "parental": 60}
-  },
-  {
-    "employee_id": "MGR-001",
-    "username": "raka",
-    "password": "Password#123",
-    "display_name": "Raka Wijaya",
-    "role": "manager",
-    "department": "Engineering",
-    "manager_id": null,
-    "token": "token-manager",
-    "balances": {"annual": 12, "sick": 10, "parental": 60}
   },
   {
     "employee_id": "ADM-001",

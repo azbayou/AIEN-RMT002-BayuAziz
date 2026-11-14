@@ -46,7 +46,7 @@ except ImportError:
     HAS_OPIK = False
     ScoreResult = None
 
-DEFAULT_LOCAL_URL = os.getenv("LOCAL_DATABASE_URL", "postgresql://hr_app:hr_app@localhost:5432/hr_assistant")
+DEFAULT_LOCAL_URL = os.getenv("LOCAL_DATABASE_URL", "")
 DEFAULT_NEON_URL = os.getenv("DATABASE_URL", "")
 
 DEFAULT_OPIK_API_KEY = os.getenv("OPIK_API_KEY", "")

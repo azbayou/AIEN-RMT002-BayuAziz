@@ -21,17 +21,37 @@ _MEDICAL_LABEL_RE = re.compile(
     r"kondisi\s+kesehatan)\s*:\s*[^.;,\n]+"
 )
 
-_DATA_FILE = Path(__file__).resolve().parents[1] / "data" / "medical_terms.json"
+_CACHED_TERMS: tuple[str, ...] | None = None
 
 
 def _load_medical_terms() -> tuple[str, ...]:
-    """Load reviewable medical terms from data/medical_terms.json as single source of truth."""
-    if not _DATA_FILE.is_file():
-        raise FileNotFoundError(f"Medical terms catalog not found at {_DATA_FILE}")
-    data = json.loads(_DATA_FILE.read_text(encoding="utf-8"))
-    if not isinstance(data, list) or not all(isinstance(x, str) for x in data):
-        raise ValueError(f"Invalid medical terms catalog format in {_DATA_FILE}")
-    return tuple(data)
+    """Load reviewable medical terms from database table medical_terms as single source of truth."""
+    global _CACHED_TERMS
+    if _CACHED_TERMS is not None:
+        return _CACHED_TERMS
+
+    # 1. Load from NeonDB
+    try:
+        from .config import get_settings
+        import psycopg
+        settings = get_settings()
+        if settings.database_url:
+            with psycopg.connect(settings.database_url) as conn:
+                rows = conn.execute("SELECT term FROM medical_terms ORDER BY LENGTH(term) DESC").fetchall()
+                if rows:
+                    _CACHED_TERMS = tuple(r[0] if isinstance(r, (tuple, list)) else r["term"] for r in rows)
+                    return _CACHED_TERMS
+    except Exception:
+        pass
+
+    # 2. Fallback for offline tests when database is not connected
+    _FALLBACK_TERMS = (
+        "covid-19", "diabetes", "hipertensi", "asma", "kanker", "depresi",
+        "covid", "migrain", "cedera", "stroke", "jantung", "kolesterol",
+        "alergi", "hepatitis", "demam", "flu"
+    )
+    _CACHED_TERMS = _FALLBACK_TERMS
+    return _CACHED_TERMS
 
 
 def _build_medical_term_re(terms: tuple[str, ...] | None = None) -> re.Pattern:

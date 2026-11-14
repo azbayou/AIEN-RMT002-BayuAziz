@@ -4,6 +4,7 @@ import base64
 import binascii
 from datetime import date
 import json
+import os
 from pathlib import Path
 import re
 import time
@@ -32,6 +33,7 @@ from .contracts import (
     ManagerReviewRequest,
     ManagerReviewResult,
     ProblemDetail,
+    UpdateTicketStatusRequest,
 )
 from .domain import get_annual_leave_lead_days, get_sick_leave_doc_threshold
 from .repository import ConflictError, MemoryRepository, Repository
@@ -187,10 +189,58 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
 
     @app.get("/api/v1/policies/rules")
     def policy_rules() -> dict[str, Any]:
+        annual_policy_text = None
+        sick_policy_text = None
+
+        if hasattr(repository, "pool"):
+            try:
+                with repository.pool.connection() as connection:
+                    rows = connection.execute(
+                        "SELECT document_id, content FROM policy_chunks WHERE document_id IN ('HR-LEAVE-001', 'HR-LEAVE-002') ORDER BY chunk_id"
+                    ).fetchall()
+                    annual_chunks = []
+                    sick_chunks = []
+                    for r in rows:
+                        doc_id = r["document_id"] if isinstance(r, dict) or (hasattr(r, "__getitem__") and "document_id" in r) else r[0]
+                        content = r["content"] if isinstance(r, dict) or (hasattr(r, "__getitem__") and "content" in r) else r[1]
+                        if doc_id == "HR-LEAVE-001":
+                            annual_chunks.append(content)
+                        elif doc_id == "HR-LEAVE-002":
+                            sick_chunks.append(content)
+                    if annual_chunks:
+                        annual_policy_text = "\n\n".join(annual_chunks)
+                    if sick_chunks:
+                        sick_policy_text = "\n\n".join(sick_chunks)
+            except Exception:
+                pass
+        elif hasattr(repository, "chunks"):
+            annual_chunks = [c.content for c in repository.chunks if getattr(c, "document_id", None) == "HR-LEAVE-001"]
+            sick_chunks = [c.content for c in repository.chunks if getattr(c, "document_id", None) == "HR-LEAVE-002"]
+            if annual_chunks:
+                annual_policy_text = "\n\n".join(annual_chunks)
+            if sick_chunks:
+                sick_policy_text = "\n\n".join(sick_chunks)
+
+        lead_days = get_annual_leave_lead_days(annual_policy_text)
+        sick_thresh = get_sick_leave_doc_threshold(sick_policy_text)
         return {
             "server_date": date.today().isoformat(),
-            "annual_lead_days": get_annual_leave_lead_days(),
-            "sick_doc_threshold": get_sick_leave_doc_threshold(),
+            "annual_lead_days": lead_days,
+            "sick_doc_threshold": sick_thresh,
+            "policy_summaries": {
+                "annual": {
+                    "citation": "[HR-LEAVE-001]",
+                    "summary": f"Berdasarkan kebijakan [HR-LEAVE-001], cuti tahunan wajib diajukan paling lambat {lead_days} hari kerja sebelum tanggal mulai cuti dan tidak bertumpang tindih dengan permohonan lain.",
+                },
+                "sick": {
+                    "citation": "[HR-LEAVE-002]",
+                    "summary": f"Berdasarkan kebijakan [HR-LEAVE-002], cuti sakit lebih dari {sick_thresh} hari kerja berturut-turut wajib melampirkan surat keterangan dokter.",
+                },
+                "parental": {
+                    "citation": "[HR-LEAVE-003]",
+                    "summary": "Berdasarkan kebijakan [HR-LEAVE-003], cuti orang tua mengikuti hak cuti melahirkan / hak ayah sesuai undang-undang dan kebijakan perusahaan.",
+                },
+            },
         }
 
     @app.post("/api/v1/auth/login", response_model=LoginResponse)
@@ -349,16 +399,25 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
     def monitoring_summary(auth: AuthContext = Depends(admin_auth)) -> dict[str, Any]:
         return repository.monitoring_summary()
 
+    @app.get("/api/v1/monitoring/rules")
+    def monitoring_rules(auth: AuthContext = Depends(admin_auth)) -> list[dict[str, Any]]:
+        if hasattr(repository, "list_monitoring_rules"):
+            try:
+                return repository.list_monitoring_rules()
+            except Exception:
+                return []
+        return []
+
     @app.get("/api/v1/monitoring/alerts")
     def monitoring_alerts(auth: AuthContext = Depends(admin_auth)) -> list[dict[str, Any]]:
         summary = repository.monitoring_summary()
-        rules_path = Path(__file__).resolve().parents[1] / "data" / "monitoring_rules.json"
-        if not rules_path.is_file():
-            return []
-        try:
-            rules = json.loads(rules_path.read_text(encoding="utf-8"))
-        except Exception:
-            return []
+        if hasattr(repository, "list_monitoring_rules"):
+            try:
+                rules = repository.list_monitoring_rules()
+            except Exception:
+                rules = []
+        else:
+            rules = []
         alerts = []
         samples = summary.get("run_count", summary.get("total_traces", 0))
         for rule in rules:
@@ -381,6 +440,51 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
                 })
         return alerts
 
+    @app.get("/api/v1/tickets")
+    def list_tickets(auth: AuthContext = Depends(current_auth)) -> list[dict[str, Any]]:
+        if hasattr(repository, "list_tickets"):
+            emp_id = None if auth.role in ("manager", "monitoring_admin") else auth.employee_id
+            return repository.list_tickets(emp_id)
+        return []
+
+    @app.patch("/api/v1/tickets/{ticket_id}/status")
+    def update_ticket_status(
+        ticket_id: str,
+        payload: UpdateTicketStatusRequest,
+        auth: AuthContext = Depends(manager_auth),
+    ) -> dict[str, Any]:
+        if not hasattr(repository, "update_ticket_status"):
+            raise HTTPException(status_code=501, detail="Update ticket status not supported")
+        try:
+            return repository.update_ticket_status(ticket_id, payload.status, auth.employee_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+    @app.get("/")
+    @app.get("/api")
+    def root_info() -> dict[str, Any]:
+        return {
+            "status": "online",
+            "service": "PT Nusantara Digital - HR Agent Assistant API",
+            "environment": "vercel_serverless" if os.getenv("VERCEL") else "standalone",
+            "documentation": "/docs",
+            "version": settings.policy_index_version,
+            "endpoints": {
+                "health": "/healthz",
+                "readiness": "/readyz",
+                "personas": "/api/v1/auth/personas",
+                "chat": "/api/v1/chat",
+                "tickets": "/api/v1/tickets",
+                "leave_requests": "/api/v1/leaves/requests",
+                "monitoring_summary": "/api/v1/monitoring/summary",
+                "monitoring_rules": "/api/v1/monitoring/rules",
+                "monitoring_alerts": "/api/v1/monitoring/alerts",
+            },
+        }
+
+    is_vercel = bool(os.getenv("VERCEL"))
+    is_backend_only = os.getenv("BACKEND_ONLY", "false").lower() in ("1", "true", "yes")
+
     from fastapi.staticfiles import StaticFiles
 
     base_dir = Path(__file__).resolve().parents[1]
@@ -391,6 +495,10 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
         app.mount("/public", StaticFiles(directory=str(public_dir)), name="public")
     if web_dir.is_dir():
         app.mount("/web", StaticFiles(directory=str(web_dir)), name="web_assets")
-        app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="portal")
+        if not is_vercel and not is_backend_only:
+            app.mount("/portal", StaticFiles(directory=str(web_dir), html=True), name="portal_web")
+            # Mount at root only if web index exists and neither vercel nor backend_only is active
+            if (web_dir / "index.html").is_file() and not os.getenv("PREFER_ROOT_API"):
+                app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="portal")
 
     return app

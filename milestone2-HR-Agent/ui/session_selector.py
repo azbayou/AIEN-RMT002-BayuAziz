@@ -245,7 +245,7 @@ def render_session_selector() -> None:
             | :--- | :--- | :--- | :--- | :--- | :--- |
             | `EMP-001` | Alya Pratama | `employee` | Engineering | `token-alya` | *(Akses Langsung SSO)* |
             | `EMP-002` | Bima Santoso | `employee` | Engineering | `token-bima` | *(Akses Langsung SSO)* |
-            | `MGR-001` | Raka Wijaya | `manager` | Engineering | `token-manager` | `Password#123` |
-            | `ADM-001` | Monitoring Admin | `monitoring_admin` | HR & People Ops | `token-admin` | `Password#123` |
+            | `MGR-001` | Raka Wijaya | `manager` | Engineering | `token-manager` | *(Gunakan password terdaftar)* |
+            | `ADM-001` | Monitoring Admin | `monitoring_admin` | HR & People Ops | `token-admin` | *(Gunakan password terdaftar)* |
             """
         )

@@ -243,3 +243,21 @@ class LeaveAttachmentView(BaseModel):
     uploaded_at: datetime
 
 
+class TicketView(BaseModel):
+    ticket_id: str
+    employee_id: str
+    employee_name: str | None = None
+    department: str | None = None
+    category: str
+    summary: str
+    status: Literal["pending", "on progress", "done"] = "pending"
+    created_at: str
+    updated_at: str | None = None
+    updated_by: str | None = None
+
+
+class UpdateTicketStatusRequest(BaseModel):
+    status: Literal["pending", "on progress", "done"]
+
+
+

@@ -28,19 +28,11 @@ NUMBER_TO_INDONESIAN: dict[int, str] = {v: k for k, v in INDONESIAN_NUMBERS.item
 def get_annual_leave_lead_days(policy_text: str | None = None) -> int:
     """Ekstrak dinamis angka batas pengajuan minimal cuti tahunan (lead time hari kerja).
 
-    Membaca ketentuan dari dokumen kebijakan (misalnya data/policies/annual-leave.md atau teks RAG).
+    Membaca ketentuan dari teks kebijakan database (policy_chunks) atau hasil pencarian RAG.
     Mencari pola batas waktu pengajuan seperti 'paling lambat <angka/kata> hari kerja' atau 'minimal <angka/kata> hari kerja'.
-    Jika kebijakan berubah, batas lead time otomatis menyesuaikan tanpa hardcode.
+    Jika kebijakan di database berubah, batas lead time otomatis menyesuaikan tanpa hardcode.
     Default fallback: 3 hari kerja.
     """
-    if policy_text is None:
-        policy_path = Path(__file__).resolve().parent.parent / "data" / "policies" / "annual-leave.md"
-        if policy_path.exists():
-            try:
-                policy_text = policy_path.read_text(encoding="utf-8")
-            except Exception:
-                policy_text = ""
-
     if policy_text:
         match = re.search(
             r"(?:paling\s+lambat|minimal|paling\s+sedikit|sekurang[- ]kurangnya)\s+([a-zA-Z0-9]+)\s+hari\s+kerja",
@@ -72,19 +64,11 @@ def get_annual_leave_lead_days(policy_text: str | None = None) -> int:
 def get_sick_leave_doc_threshold(policy_text: str | None = None) -> int:
     """Ekstrak dinamis ambang batas cuti sakit berturut-turut yang mewajibkan dokumen pendukung.
 
-    Membaca ketentuan dari dokumen kebijakan (misalnya data/policies/sick-leave.md atau teks RAG).
+    Membaca ketentuan dari teks kebijakan database (policy_chunks) atau hasil pencarian RAG.
     Mencari pola 'lebih dari <angka/kata> hari kerja'.
-    Jika kebijakan berubah, ambang batas otomatis menyesuaikan tanpa hardcode.
+    Jika kebijakan di database berubah, ambang batas otomatis menyesuaikan tanpa hardcode.
     Default fallback: 2 hari kerja.
     """
-    if policy_text is None:
-        policy_path = Path(__file__).resolve().parent.parent / "data" / "policies" / "sick-leave.md"
-        if policy_path.exists():
-            try:
-                policy_text = policy_path.read_text(encoding="utf-8")
-            except Exception:
-                policy_text = ""
-
     if policy_text:
         match = re.search(
             r"lebih\s+dari\s+([a-zA-Z0-9]+)\s+hari\s+kerja",

@@ -34,9 +34,12 @@ _DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 
 def _load_employees() -> list[dict[str, Any]]:
     path = _DATA_DIR / "employees.json"
-    if not path.is_file():
-        raise FileNotFoundError(f"Employees catalog not found at {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    if path.is_file():
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return []
 
 
 class Repository(Protocol):
@@ -75,9 +78,12 @@ class Repository(Protocol):
         request_id: str,
     ) -> LeaveAttachmentView: ...
     def create_ticket(self, employee_id: str, category: str, summary: str) -> str: ...
+    def list_tickets(self, employee_id: str | None = None) -> list[dict[str, Any]]: ...
+    def update_ticket_status(self, ticket_id: str, status: str, admin_id: str) -> dict[str, Any]: ...
     def save_trace(self, trace: dict[str, Any]) -> None: ...
     def get_trace(self, trace_id: str) -> dict[str, Any] | None: ...
     def monitoring_summary(self) -> dict[str, Any]: ...
+    def list_monitoring_rules(self) -> list[dict[str, Any]]: ...
     def get_hr_analytics(self, auth: AuthContext, metric_focus: str = "overview", low_balance_threshold: int = 3) -> dict[str, Any]: ...
 
 
@@ -124,6 +130,26 @@ class MemoryRepository:
         self.attachments: dict[str, dict[str, Any]] = {}
         self.approval_audits: list[dict[str, Any]] = []
         self.tickets: dict[str, dict[str, str]] = {}
+        self.monitoring_rules: list[dict[str, Any]] = [
+            {
+                "rule_id": "agent-error-spike",
+                "metric": "error_rate",
+                "operator": "gt",
+                "threshold": 0.2,
+                "minimum_samples": 5,
+                "owner": "AI Platform",
+                "response": "Inspect redacted traces and provider health; disable mutating tools if errors persist.",
+            },
+            {
+                "rule_id": "agent-latency-p95",
+                "metric": "p95_latency_ms",
+                "operator": "gt",
+                "threshold": 8000.0,
+                "minimum_samples": 5,
+                "owner": "AI Platform",
+                "response": "Inspect provider latency, retrieval cache, and database query timing.",
+            },
+        ]
         self.traces: dict[str, dict[str, Any]] = {}
         self._lock = RLock()
 
@@ -512,11 +538,73 @@ class MemoryRepository:
                     return existing_id
             ticket_id = f"T-{uuid4().hex[:12]}"
             self.tickets[ticket_id] = {
+                "ticket_id": ticket_id,
                 "employee_id": employee_id,
                 "category": category,
                 "summary": clean_summary,
+                "status": "pending",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": None,
+                "updated_by": None,
             }
             return ticket_id
+
+    def list_tickets(self, employee_id: str | None = None) -> list[dict[str, Any]]:
+        with self._lock:
+            results = []
+            for t_id, t in self.tickets.items():
+                if employee_id and t.get("employee_id") != employee_id:
+                    continue
+                emp_id = t.get("employee_id", "")
+                emp_name = None
+                emp_dept = None
+                if emp_id in self.credentials:
+                    emp_name = self.credentials[emp_id]["context"].display_name
+                    emp_dept = self.credentials[emp_id]["context"].department
+                results.append({
+                    "ticket_id": t_id,
+                    "employee_id": emp_id,
+                    "employee_name": emp_name or emp_id,
+                    "department": emp_dept or "General",
+                    "category": t.get("category", "policy_question"),
+                    "summary": t.get("summary", ""),
+                    "status": t.get("status", "pending"),
+                    "created_at": t.get("created_at", datetime.now(timezone.utc).isoformat()),
+                    "updated_at": t.get("updated_at"),
+                    "updated_by": t.get("updated_by"),
+                })
+            results.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
+            return results
+
+    def update_ticket_status(self, ticket_id: str, status: str, admin_id: str) -> dict[str, Any]:
+        if status not in ("pending", "on progress", "done"):
+            raise ValueError(f"Status tidak valid: {status}")
+        with self._lock:
+            if ticket_id not in self.tickets:
+                raise ValueError(f"Tiket {ticket_id} tidak ditemukan")
+            t = self.tickets[ticket_id]
+            t["status"] = status
+            t["updated_at"] = datetime.now(timezone.utc).isoformat()
+            t["updated_by"] = admin_id
+            emp_id = t.get("employee_id", "")
+            emp_name = None
+            emp_dept = None
+            if emp_id in self.credentials:
+                emp_name = self.credentials[emp_id]["context"].display_name
+                emp_dept = self.credentials[emp_id]["context"].department
+            return {
+                "ticket_id": ticket_id,
+                "employee_id": emp_id,
+                "employee_name": emp_name or emp_id,
+                "department": emp_dept or "General",
+                "category": t.get("category", "policy_question"),
+                "summary": t.get("summary", ""),
+                "status": t.get("status", "pending"),
+                "created_at": t.get("created_at", datetime.now(timezone.utc).isoformat()),
+                "updated_at": t.get("updated_at"),
+                "updated_by": t.get("updated_by"),
+            }
+
 
     def save_trace(self, trace: dict[str, Any]) -> None:
         trace_id = str(trace["trace_id"])
@@ -558,6 +646,10 @@ class MemoryRepository:
             "p95_latency_ms": p95_latency,
             "tool_calls": tool_calls_count,
         }
+
+    def list_monitoring_rules(self) -> list[dict[str, Any]]:
+        # In-memory evaluation rules for offline tests
+        return deepcopy(self.monitoring_rules)
 
     def get_hr_analytics(self, auth: AuthContext, metric_focus: str = "overview", low_balance_threshold: int = 3) -> dict[str, Any]:
         if auth.role not in ("manager", "monitoring_admin"):
@@ -694,26 +786,27 @@ class PostgresRepository:
         with self.pool.connection() as connection:
             row = connection.execute(
                 """
-                SELECT employee_id, username, password_hash, display_name, role, department, manager_id
-                FROM employees
-                WHERE LOWER(username) = %s OR LOWER(employee_id) = %s
+                SELECT e.employee_id, e.username, e.password_hash, e.display_name, e.role, e.department, e.manager_id, pt.demo_token
+                FROM employees e
+                LEFT JOIN persona_tokens pt ON e.employee_id = pt.employee_id
+                WHERE LOWER(e.username) = %s OR LOWER(e.employee_id) = %s
                 """,
                 (ident, ident),
             ).fetchone()
             if not row and ident in ("raka", "rakabuming"):
                 row = connection.execute(
                     """
-                    SELECT employee_id, username, password_hash, display_name, role, department, manager_id
-                    FROM employees
-                    WHERE employee_id = 'MGR-001'
+                    SELECT e.employee_id, e.username, e.password_hash, e.display_name, e.role, e.department, e.manager_id, pt.demo_token
+                    FROM employees e
+                    LEFT JOIN persona_tokens pt ON e.employee_id = pt.employee_id
+                    WHERE e.employee_id = 'MGR-001'
                     """
                 ).fetchone()
         if not row or not row.get("password_hash"):
             return None
         if not verify_password(password, row["password_hash"]):
             return None
-        token_map = {e["employee_id"]: e["token"] for e in _load_employees()}
-        token = token_map.get(row["employee_id"], "")
+        token = row.get("demo_token") or ""
         profile = AuthContext(
             employee_id=row["employee_id"],
             display_name=row["display_name"],
@@ -724,13 +817,13 @@ class PostgresRepository:
         return LoginResponse(access_token=token, profile=profile)
 
     def list_personas(self) -> list[dict[str, Any]]:
-        token_map = {e["employee_id"]: e["token"] for e in _load_employees()}
         with self.pool.connection() as connection:
             rows = connection.execute(
                 """
-                SELECT employee_id, username, display_name, role, department, manager_id
-                FROM employees
-                ORDER BY employee_id
+                SELECT e.employee_id, e.username, e.display_name, e.role, e.department, e.manager_id, pt.demo_token
+                FROM employees e
+                LEFT JOIN persona_tokens pt ON e.employee_id = pt.employee_id
+                ORDER BY e.employee_id
                 """
             ).fetchall()
             bal_rows = connection.execute(
@@ -769,7 +862,7 @@ class PostgresRepository:
                 "department": r.get("department") or "Engineering",
                 "manager_id": r.get("manager_id"),
                 "requires_password": is_privileged,
-                "demo_token": None if is_privileged else token_map.get(emp_id),
+                "demo_token": None if is_privileged else (r.get("demo_token") or ""),
                 "balances": bal_map.get(emp_id, {}),
             })
         return result
@@ -1289,12 +1382,108 @@ class PostgresRepository:
             ticket_id = f"T-{uuid4().hex[:12]}"
             connection.execute(
                 """
-                INSERT INTO tickets (ticket_id, employee_id, category, summary)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO tickets (ticket_id, employee_id, category, summary, status)
+                VALUES (%s, %s, %s, %s, 'pending')
                 """,
                 (ticket_id, employee_id, category, clean_summary),
             )
         return ticket_id
+
+    def list_tickets(self, employee_id: str | None = None) -> list[dict[str, Any]]:
+        query = """
+            SELECT 
+                t.ticket_id,
+                t.employee_id,
+                e.display_name AS employee_name,
+                e.department,
+                t.category,
+                t.summary,
+                COALESCE(t.status, 'pending') AS status,
+                t.created_at,
+                t.updated_at,
+                t.updated_by
+            FROM tickets t
+            LEFT JOIN employees e ON t.employee_id = e.employee_id
+        """
+        params: list[Any] = []
+        if employee_id:
+            query += " WHERE t.employee_id = %s"
+            params.append(employee_id)
+        query += " ORDER BY t.created_at DESC"
+
+        with self.pool.connection() as connection:
+            rows = connection.execute(query, params).fetchall()
+
+        results = []
+        for r in rows:
+            created_str = (
+                r["created_at"].isoformat()
+                if isinstance(r["created_at"], (datetime, date))
+                else str(r["created_at"])
+            )
+            updated_str = (
+                r["updated_at"].isoformat()
+                if isinstance(r.get("updated_at"), (datetime, date))
+                else (str(r["updated_at"]) if r.get("updated_at") else None)
+            )
+            results.append({
+                "ticket_id": r["ticket_id"],
+                "employee_id": r["employee_id"],
+                "employee_name": r.get("employee_name") or r["employee_id"],
+                "department": r.get("department") or "General",
+                "category": r["category"],
+                "summary": r["summary"],
+                "status": r.get("status") or "pending",
+                "created_at": created_str,
+                "updated_at": updated_str,
+                "updated_by": r.get("updated_by"),
+            })
+        return results
+
+    def update_ticket_status(self, ticket_id: str, status: str, admin_id: str) -> dict[str, Any]:
+        if status not in ("pending", "on progress", "done"):
+            raise ValueError(f"Status tidak valid: {status}")
+        with self.pool.connection() as connection:
+            row = connection.execute(
+                """
+                UPDATE tickets
+                SET status = %s, updated_at = CURRENT_TIMESTAMP, updated_by = %s
+                WHERE ticket_id = %s
+                RETURNING ticket_id, employee_id, category, summary, status, created_at, updated_at, updated_by
+                """,
+                (status, admin_id, ticket_id),
+            ).fetchone()
+            if not row:
+                raise ValueError(f"Tiket {ticket_id} tidak ditemukan")
+
+            emp_row = connection.execute(
+                "SELECT display_name, department FROM employees WHERE employee_id = %s",
+                (row["employee_id"],),
+            ).fetchone()
+
+        created_str = (
+            row["created_at"].isoformat()
+            if isinstance(row["created_at"], (datetime, date))
+            else str(row["created_at"])
+        )
+        updated_str = (
+            row["updated_at"].isoformat()
+            if isinstance(row.get("updated_at"), (datetime, date))
+            else (str(row["updated_at"]) if row.get("updated_at") else None)
+        )
+        return {
+            "ticket_id": row["ticket_id"],
+            "employee_id": row["employee_id"],
+            "employee_name": emp_row["display_name"] if emp_row else row["employee_id"],
+            "department": emp_row["department"] if emp_row else "General",
+            "category": row["category"],
+            "summary": row["summary"],
+            "status": row["status"],
+            "created_at": created_str,
+            "updated_at": updated_str,
+            "updated_by": row.get("updated_by"),
+        }
+
 
     def save_trace(self, trace: dict[str, Any]) -> None:
         trace_id = str(trace["trace_id"])
@@ -1350,6 +1539,28 @@ class PostgresRepository:
             "p95_latency_ms": p95_latency,
             "tool_calls": tool_calls,
         }
+
+    def list_monitoring_rules(self) -> list[dict[str, Any]]:
+        with self.pool.connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT rule_id, metric, operator, threshold, minimum_samples, owner, response
+                FROM monitoring_rules
+                ORDER BY rule_id
+                """
+            ).fetchall()
+        return [
+            {
+                "rule_id": r["rule_id"],
+                "metric": r["metric"],
+                "operator": r["operator"],
+                "threshold": float(r["threshold"]),
+                "minimum_samples": int(r["minimum_samples"]),
+                "owner": r["owner"],
+                "response": r["response"],
+            }
+            for r in rows
+        ]
 
     def get_hr_analytics(self, auth: AuthContext, metric_focus: str = "overview", low_balance_threshold: int = 3) -> dict[str, Any]:
         if auth.role not in ("manager", "monitoring_admin"):

@@ -13,6 +13,7 @@ COPY data/ ./data/
 COPY tests/ ./tests/
 COPY scripts/ ./scripts/
 COPY app.py app2.py ui_contract.py demo_personas.json pyproject.toml README.md ./
+COPY Dockerfile /app/Dockerfile
 COPY ui/ ./ui/
 COPY public/ ./public/
 COPY web/ ./web/
@@ -24,4 +25,4 @@ USER appuser
 
 EXPOSE 8000
 ENTRYPOINT ["/app/scripts/entrypoint.sh"]
-CMD ["uvicorn"]
+CMD ["uvicorn", "src.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

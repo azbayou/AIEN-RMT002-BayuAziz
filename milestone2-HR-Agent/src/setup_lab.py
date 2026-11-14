@@ -70,11 +70,6 @@ def chunk_policy(path: Path) -> list[dict[str, str]]:
     return chunks
 
 
-def _embedding(text: str, dimensions: int) -> list[float]:
-    digest = hashlib.sha256(text.encode("utf-8")).digest()
-    return [digest[index % len(digest)] / 255.0 for index in range(dimensions)]
-
-
 def reset_and_seed(reset: bool = False) -> None:
     settings = get_settings()
     employees = json.loads((ROOT / "data" / "employees.json").read_text(encoding="utf-8"))
@@ -120,6 +115,22 @@ def reset_and_seed(reset: bool = False) -> None:
                     available_days INTEGER NOT NULL CHECK (available_days >= 0),
                     as_of_date DATE NOT NULL,
                     PRIMARY KEY (employee_id, leave_type)
+                );
+                CREATE TABLE IF NOT EXISTS persona_tokens (
+                    employee_id TEXT PRIMARY KEY REFERENCES employees(employee_id),
+                    demo_token TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS medical_terms (
+                    term TEXT PRIMARY KEY
+                );
+                CREATE TABLE IF NOT EXISTS monitoring_rules (
+                    rule_id TEXT PRIMARY KEY,
+                    metric TEXT NOT NULL,
+                    operator TEXT NOT NULL,
+                    threshold DOUBLE PRECISION NOT NULL,
+                    minimum_samples INTEGER NOT NULL DEFAULT 1,
+                    owner TEXT NOT NULL,
+                    response TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS policy_chunks (
                     chunk_id TEXT PRIMARY KEY,
@@ -198,8 +209,16 @@ def reset_and_seed(reset: bool = False) -> None:
                     employee_id TEXT NOT NULL REFERENCES employees(employee_id),
                     category TEXT NOT NULL,
                     summary TEXT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'on progress', 'done')),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMPTZ,
+                    updated_by TEXT REFERENCES employees(employee_id)
                 );
+                ALTER TABLE tickets ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+                ALTER TABLE tickets ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+                ALTER TABLE tickets ADD COLUMN IF NOT EXISTS updated_by TEXT REFERENCES employees(employee_id);
+                ALTER TABLE tickets DROP CONSTRAINT IF EXISTS tickets_status_check;
+                ALTER TABLE tickets ADD CONSTRAINT tickets_status_check CHECK (status IN ('pending', 'on progress', 'done'));
                 CREATE TABLE IF NOT EXISTS traces (
                     trace_id TEXT PRIMARY KEY,
                     employee_id TEXT NOT NULL REFERENCES employees(employee_id),
@@ -210,50 +229,114 @@ def reset_and_seed(reset: bool = False) -> None:
                     ON traces (employee_id, created_at);
                 """
             )
-            for employee in employees:
-                if employee.get("employee_id") == "MGR-001":
-                    continue
-                username = employee.get("username") or employee["employee_id"].lower()
-                raw_password = employee.get("password", "Password#123")
-                # Gunakan salt deterministik berbasis employee_id saat seed agar idempotent
-                pwd_salt = hashlib.sha256(f"salt:{employee['employee_id']}".encode()).hexdigest()[:16]
-                pwd_hash = hash_password(raw_password, salt=pwd_salt)
-                cursor.execute(
-                    """
-                    INSERT INTO employees
-                        (employee_id, username, password_hash, display_name, role, department, manager_id, token_hash)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (employee_id) DO UPDATE SET
-                        username = EXCLUDED.username,
-                        password_hash = EXCLUDED.password_hash,
-                        display_name = EXCLUDED.display_name,
-                        role = EXCLUDED.role,
-                        department = EXCLUDED.department,
-                        manager_id = EXCLUDED.manager_id,
-                        token_hash = EXCLUDED.token_hash
-                    """,
-                    (
-                        employee["employee_id"],
-                        username,
-                        pwd_hash,
-                        employee["display_name"],
-                        employee["role"],
-                        employee.get("department"),
-                        employee.get("manager_id"),
-                        token_hash(employee["token"]),
-                    ),
-                )
-                for leave_type, available_days in employee.get("balances", {}).items():
+            # Pastikan akun Raka Wijaya (MGR-001) yang sudah dihapus dari DB tidak tertinggal
+            cursor.execute("UPDATE employees SET manager_id = NULL WHERE manager_id = 'MGR-001'")
+            cursor.execute("UPDATE leave_requests SET reviewed_by = NULL WHERE reviewed_by = 'MGR-001'")
+            cursor.execute("DELETE FROM approval_audit_logs WHERE reviewer_id = 'MGR-001'")
+            cursor.execute("DELETE FROM persona_tokens WHERE employee_id = 'MGR-001'")
+            cursor.execute("DELETE FROM leave_balances WHERE employee_id = 'MGR-001'")
+            cursor.execute("DELETE FROM leave_attachments WHERE employee_id = 'MGR-001'")
+            cursor.execute("DELETE FROM leave_requests WHERE employee_id = 'MGR-001'")
+            cursor.execute("DELETE FROM action_proposals WHERE employee_id = 'MGR-001'")
+            cursor.execute("DELETE FROM tickets WHERE employee_id = 'MGR-001'")
+            cursor.execute("DELETE FROM traces WHERE employee_id = 'MGR-001'")
+            cursor.execute("DELETE FROM employees WHERE employee_id = 'MGR-001'")
+
+            cursor.execute("SELECT COUNT(*) FROM employees")
+            emp_count = cursor.fetchone()[0]
+            if emp_count == 0 or reset:
+                for employee in employees:
+                    username = employee.get("username") or employee["employee_id"].lower()
+                    raw_password = employee.get("password", "Password#123")
+                    # Gunakan salt deterministik berbasis employee_id saat seed agar idempotent
+                    pwd_salt = hashlib.sha256(f"salt:{employee['employee_id']}".encode()).hexdigest()[:16]
+                    pwd_hash = hash_password(raw_password, salt=pwd_salt)
                     cursor.execute(
                         """
-                        INSERT INTO leave_balances (employee_id, leave_type, available_days, as_of_date)
-                        VALUES (%s, %s, %s, CURRENT_DATE)
-                        ON CONFLICT (employee_id, leave_type) DO UPDATE SET
-                            available_days = EXCLUDED.available_days,
-                            as_of_date = EXCLUDED.as_of_date
+                        INSERT INTO employees
+                            (employee_id, username, password_hash, display_name, role, department, manager_id, token_hash)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (employee_id) DO UPDATE SET
+                            username = EXCLUDED.username,
+                            password_hash = EXCLUDED.password_hash,
+                            display_name = EXCLUDED.display_name,
+                            role = EXCLUDED.role,
+                            department = EXCLUDED.department,
+                            manager_id = EXCLUDED.manager_id,
+                            token_hash = EXCLUDED.token_hash
                         """,
-                        (employee["employee_id"], leave_type, available_days),
+                        (
+                            employee["employee_id"],
+                            username,
+                            pwd_hash,
+                            employee["display_name"],
+                            employee["role"],
+                            employee.get("department"),
+                            employee.get("manager_id"),
+                            token_hash(employee["token"]),
+                        ),
                     )
+                    for leave_type, available_days in employee.get("balances", {}).items():
+                        cursor.execute(
+                            """
+                            INSERT INTO leave_balances (employee_id, leave_type, available_days, as_of_date)
+                            VALUES (%s, %s, %s, CURRENT_DATE)
+                            ON CONFLICT (employee_id, leave_type) DO UPDATE SET
+                                available_days = EXCLUDED.available_days,
+                                as_of_date = EXCLUDED.as_of_date
+                            """,
+                            (employee["employee_id"], leave_type, available_days),
+                        )
+                    cursor.execute(
+                        """
+                        INSERT INTO persona_tokens (employee_id, demo_token)
+                        VALUES (%s, %s)
+                        ON CONFLICT (employee_id) DO UPDATE SET
+                            demo_token = EXCLUDED.demo_token
+                        """,
+                        (employee["employee_id"], employee["token"]),
+                    )
+
+            med_terms_path = ROOT / "data" / "medical_terms.json"
+            if med_terms_path.is_file():
+                try:
+                    med_terms = json.loads(med_terms_path.read_text(encoding="utf-8"))
+                    for term in med_terms:
+                        cursor.execute(
+                            """
+                            INSERT INTO medical_terms (term)
+                            VALUES (%s)
+                            ON CONFLICT (term) DO NOTHING
+                            """,
+                            (term,),
+                        )
+                except Exception:
+                    pass
+
+            mon_rules_path = ROOT / "data" / "monitoring_rules.json"
+            if mon_rules_path.is_file():
+                try:
+                    mon_rules = json.loads(mon_rules_path.read_text(encoding="utf-8"))
+                    for r in mon_rules:
+                        cursor.execute(
+                            """
+                            INSERT INTO monitoring_rules
+                                (rule_id, metric, operator, threshold, minimum_samples, owner, response)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (rule_id) DO NOTHING
+                            """,
+                            (
+                                r["rule_id"],
+                                r["metric"],
+                                r.get("operator", "gt"),
+                                float(r["threshold"]),
+                                int(r.get("minimum_samples", 1)),
+                                r.get("owner", "AI Platform"),
+                                r.get("response", ""),
+                            ),
+                        )
+                except Exception:
+                    pass
 
             provider = (
                 OpenAIProvider(
@@ -285,14 +368,7 @@ def reset_and_seed(reset: bool = False) -> None:
                     INSERT INTO policy_chunks
                         (chunk_id, document_id, title, section, version, effective_date, content, embedding)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (chunk_id) DO UPDATE SET
-                        document_id = EXCLUDED.document_id,
-                        title = EXCLUDED.title,
-                        section = EXCLUDED.section,
-                        version = EXCLUDED.version,
-                        effective_date = EXCLUDED.effective_date,
-                        content = EXCLUDED.content,
-                        embedding = EXCLUDED.embedding
+                    ON CONFLICT (chunk_id) DO NOTHING
                     """,
                     (
                         chunk["chunk_id"],

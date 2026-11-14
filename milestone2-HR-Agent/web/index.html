@@ -164,9 +164,9 @@
     <div v-if="!isAuthenticated" class="flex-1 overflow-y-auto flex flex-col justify-between p-6">
       <!-- Top Bar -->
       <div class="max-w-3xl w-full mx-auto flex items-center justify-between">
-        <div class="flex items-center gap-2.5">
-          <img src="./public/img/gunungan.png" alt="Nusantara Digital" class="w-7 h-7 object-contain" onerror="this.style.display='none'">
-          <span class="text-xs font-semibold tracking-tight text-claude-secondary">PT Nusantara Digital</span>
+        <div class="flex items-center gap-3">
+          <img src="./public/img/gunungan.png" alt="Nusantara Digital" class="h-14 w-auto max-w-[90px] object-contain" onerror="this.style.display='none'">
+          <span class="text-base font-semibold tracking-tight text-claude-secondary">PT Nusantara Digital</span>
         </div>
         <div class="flex items-center gap-2">
           <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-claude-surface border border-claude-border text-claude-secondary">
@@ -176,7 +176,7 @@
           <button @click="toggleTheme" class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" :title="isDarkMode ? 'Mode Terang' : 'Mode Gelap'">
             <i :data-lucide="isDarkMode ? 'sun' : 'moon'" class="w-4 h-4"></i>
           </button>
-          <button @click="openApiSettingsModal" class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" title="Konfigurasi URL Backend API">
+          <button @click="openSettingsModal" class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" title="Pengaturan Sistem & Sesi">
             <i data-lucide="settings" class="w-4 h-4"></i>
           </button>
         </div>
@@ -185,8 +185,8 @@
       <!-- Center SSO Directory -->
       <div class="max-w-2xl w-full mx-auto my-auto py-8">
         <div class="text-center mb-8">
-          <div class="w-16 h-16 rounded-2xl bg-claude-surface border border-claude-border mx-auto flex items-center justify-center mb-4 shadow-sm">
-            <img src="./public/img/miyo.png" alt="Miyo" class="w-11 h-11 object-contain" onerror="this.style.display='none'">
+          <div class="mx-auto flex items-center justify-center mb-6">
+            <img src="./public/img/miyo.png" alt="Miyo" class="w-36 h-36 object-contain transition-transform duration-300 hover:scale-105" onerror="this.style.display='none'">
           </div>
           <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-claude-blue-subtle border border-blue-500/25 text-blue-400 text-[11px] font-semibold uppercase tracking-wider mb-3">
             <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
@@ -272,25 +272,33 @@
     <div v-else class="flex-1 flex h-full w-full overflow-hidden">
 
       <!-- LEFT SIDEBAR (CLAUDE MINIMALIST BLACK-BLUE) -->
-      <aside :class="['bg-claude-sidebar border-r border-claude-border flex flex-col justify-between transition-all duration-200 z-30 flex-shrink-0', isSidebarCollapsed ? 'w-16' : 'w-64']">
+      <aside :class="['bg-claude-sidebar border-r border-claude-border flex flex-col justify-between transition-all duration-200 z-30 flex-shrink-0', isSidebarCollapsed ? 'w-16' : 'w-72']">
         <div>
           <!-- Brand Header -->
-          <div class="h-14 flex items-center justify-between px-3.5 border-b border-claude-border">
+          <div class="h-16 flex items-center justify-between px-3.5 border-b border-claude-border">
             <div v-if="!isSidebarCollapsed" class="flex items-center gap-2.5 overflow-hidden">
-              <img src="./public/img/gunungan.png" alt="Logo" class="w-6 h-6 object-contain flex-shrink-0" onerror="this.style.display='none'">
-              <div class="truncate">
-                <div class="font-semibold text-xs text-claude-text tracking-tight truncate">Nusantara Digital</div>
-                <div class="text-[10px] text-blue-400 font-medium">Miyo AI Workspace</div>
+              <img src="./public/img/gunungan.png" alt="Logo" class="h-11 w-auto max-w-[50px] object-contain flex-shrink-0" onerror="this.style.display='none'">
+              <div class="truncate min-w-0">
+                <div class="font-bold text-[13px] text-claude-text tracking-tight truncate leading-tight">Nusantara Digital</div>
+                <div class="text-[10.5px] text-blue-400 font-medium truncate leading-tight">Miyo AI Workspace</div>
               </div>
             </div>
-            <button @click="isSidebarCollapsed = !isSidebarCollapsed; refreshIcons()" class="p-1.5 rounded-lg text-claude-muted hover:text-claude-text hover:bg-claude-surface transition" :title="isSidebarCollapsed ? 'Buka Sidebar' : 'Tutup Sidebar'">
-              <i :data-lucide="isSidebarCollapsed ? 'panel-left-open' : 'panel-left-close'" class="w-4 h-4"></i>
-            </button>
+            <div v-if="!isSidebarCollapsed" class="flex items-center">
+              <!-- Collapse Sidebar Button -->
+              <button @click="isSidebarCollapsed = !isSidebarCollapsed; refreshIcons()" class="p-1.5 rounded-lg text-claude-muted hover:text-claude-text hover:bg-claude-surface transition" :title="isSidebarCollapsed ? 'Buka Sidebar' : 'Tutup Sidebar'">
+                <i :data-lucide="isSidebarCollapsed ? 'panel-left-open' : 'panel-left-close'" class="w-4 h-4"></i>
+              </button>
+            </div>
+            <div v-else class="flex flex-col items-center justify-center w-full gap-1">
+              <button @click="isSidebarCollapsed = !isSidebarCollapsed; refreshIcons()" class="p-1.5 rounded-lg text-claude-muted hover:text-claude-text hover:bg-claude-surface transition" title="Buka Sidebar">
+                <i data-lucide="panel-left-open" class="w-4 h-4"></i>
+              </button>
+            </div>
           </div>
 
-          <!-- Active Identity Card & Quick Switcher -->
+          <!-- Active Identity Card -->
           <div class="p-2.5 border-b border-claude-border">
-            <div v-if="!isSidebarCollapsed" class="bg-claude-surface border border-claude-border rounded-xl p-2.5 space-y-2">
+            <div v-if="!isSidebarCollapsed" class="bg-claude-surface border border-claude-border rounded-xl p-2.5">
               <div class="flex items-center gap-2.5">
                 <div class="w-8 h-8 rounded-lg bg-claude-blue-subtle border border-blue-500/30 flex items-center justify-center font-mono font-bold text-blue-400 text-xs flex-shrink-0">
                   {{ userInitials }}
@@ -303,16 +311,6 @@
                     <span class="text-[10px] text-claude-secondary truncate">{{ userRoleLabel }}</span>
                   </div>
                 </div>
-              </div>
-
-              <!-- Dynamic DB Persona Switcher -->
-              <div class="pt-1 border-t border-claude-border">
-                <label class="block text-[10px] font-medium text-claude-muted mb-1">Beralih Akun Sesi:</label>
-                <select v-model="selectedPersonaId" @change="onSidebarPersonaSwitch" class="w-full bg-claude-elevated border border-claude-border rounded-lg px-2 py-1 text-[11px] text-claude-text focus:outline-none focus:border-blue-500 transition">
-                  <option v-for="p in personasCatalog" :key="p.employee_id" :value="p.employee_id">
-                    {{ p.display_name }} ({{ p.role === 'monitoring_admin' ? 'Admin' : p.role === 'manager' ? 'Manager' : 'Pegawai' }})
-                  </option>
-                </select>
               </div>
             </div>
             <div v-else class="flex justify-center py-1">
@@ -349,37 +347,17 @@
           </nav>
         </div>
 
-        <!-- Sidebar Bottom: Audit Toggle, Logout & Health -->
-        <div class="p-2.5 border-t border-claude-border space-y-2">
-          <!-- Dev Audit Mode Toggle -->
-          <button @click="toggleDevAudit"
-            :class="[
-              'w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-[11px] font-medium border transition',
-              showDevAudit
-                ? 'bg-claude-blue-subtle border-blue-500/30 text-blue-400'
-                : 'bg-claude-surface border-claude-border text-claude-muted hover:text-claude-text'
-            ]"
-            title="Mode Audit Developer (Sitasi & Jejak Telemetri)">
-            <div class="flex items-center gap-2 truncate">
-              <i data-lucide="terminal" class="w-3.5 h-3.5 flex-shrink-0"></i>
-              <span v-if="!isSidebarCollapsed" class="truncate">Mode Audit Dev</span>
-            </div>
-            <span v-if="!isSidebarCollapsed" class="w-2 h-2 rounded-full" :class="showDevAudit ? 'bg-blue-400' : 'bg-zinc-600'"></span>
-          </button>
-
-          <!-- Logout / Switch Session -->
-          <button @click="logoutSession" class="w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-[11px] font-medium text-claude-secondary hover:text-rose-400 hover:bg-rose-500/10 transition" title="Keluar Sesi">
-            <i data-lucide="log-out" class="w-3.5 h-3.5 flex-shrink-0"></i>
-            <span v-if="!isSidebarCollapsed">Ganti Sesi Pengguna</span>
-          </button>
-
-          <!-- Health Status Pill -->
-          <div v-if="!isSidebarCollapsed" class="pt-1 flex items-center justify-between text-[10px] text-claude-muted px-1">
+        <!-- Sidebar Bottom: System Health -->
+        <div class="p-2.5 border-t border-claude-border">
+          <div v-if="!isSidebarCollapsed" class="flex items-center justify-between text-[10px] text-claude-muted px-1">
             <span class="flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full" :class="isBackendReady ? 'bg-emerald-500' : 'bg-rose-500'"></span>
               <span>{{ isBackendReady ? 'Sistem & DB Siap' : 'Degraded' }}</span>
             </span>
             <span class="font-mono">{{ policyRules.server_date }}</span>
+          </div>
+          <div v-else class="flex justify-center py-1">
+            <span class="w-2 h-2 rounded-full" :class="isBackendReady ? 'bg-emerald-500' : 'bg-rose-500'" :title="isBackendReady ? 'Sistem & DB Siap' : 'Degraded'"></span>
           </div>
         </div>
       </aside>
@@ -387,18 +365,15 @@
       <!-- MAIN WORKSPACE AREA -->
       <main class="flex-1 flex flex-col h-full overflow-hidden bg-claude-bg">
         <!-- Minimalist Top Header -->
-        <header class="h-14 border-b border-claude-border px-6 flex items-center justify-between bg-claude-sidebar/50 backdrop-blur-md flex-shrink-0">
-          <div class="flex items-center gap-3">
-            <img src="./public/img/miyo.png" alt="Miyo" class="w-7 h-7 rounded-lg bg-claude-surface border border-claude-border p-0.5 object-contain" onerror="this.style.display='none'">
-            <div>
-              <h1 class="text-xs font-semibold text-claude-text tracking-tight">{{ currentTabTitle }}</h1>
-              <p class="text-[10px] text-claude-muted hidden sm:block">PT Nusantara Digital &middot; Portal SDM Terverifikasi</p>
-            </div>
+        <header class="h-20 border-b border-claude-border px-6 flex items-center justify-between bg-claude-sidebar/50 backdrop-blur-md flex-shrink-0">
+          <div>
+            <h1 class="text-sm font-semibold text-claude-text tracking-tight">{{ currentTabTitle }}</h1>
+            <p class="text-[11px] text-claude-muted hidden sm:block">PT Nusantara Digital &middot; Portal SDM Terverifikasi</p>
           </div>
 
           <div class="flex items-center gap-2.5">
             <!-- Dynamic Balances Pill (Employee & Manager) -->
-            <div v-if="!isAdmin" class="hidden md:flex items-center gap-2 px-3 py-1 rounded-lg bg-claude-surface border border-claude-border text-[11px]">
+            <div v-if="!isAdmin" class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-claude-surface border border-claude-border text-[11px]">
               <span class="text-claude-muted">Saldo Cuti:</span>
               <span class="font-mono font-semibold text-blue-400" title="Cuti Tahunan">Tahunan {{ annualBalanceDays }}h</span>
               <span class="text-claude-border">|</span>
@@ -408,7 +383,7 @@
             </div>
 
             <!-- Date Display -->
-            <div class="hidden lg:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-claude-surface border border-claude-border text-[11px] text-claude-secondary">
+            <div class="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-claude-surface border border-claude-border text-[11px] text-claude-secondary">
               <i data-lucide="calendar" class="w-3.5 h-3.5 text-blue-400"></i>
               <span>{{ currentDateFormatted }}</span>
             </div>
@@ -418,8 +393,10 @@
               <i :data-lucide="isDarkMode ? 'sun' : 'moon'" class="w-4 h-4"></i>
             </button>
 
-            <!-- API Backend Settings -->
-            <button @click="openApiSettingsModal" class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" title="Konfigurasi URL Backend API">
+            <!-- Settings Gear Button (Pojok Kanan Atas) -->
+            <button @click="openSettingsModal"
+              class="p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text hover:bg-claude-elevated transition"
+              title="Pengaturan Sistem & Sesi">
               <i data-lucide="settings" class="w-4 h-4"></i>
             </button>
           </div>
@@ -435,8 +412,8 @@
             <!-- Empty State Greeting (Claude Minimalist Center) -->
             <div v-if="chatMessages.length === 0" class="my-auto py-10">
               <div class="text-center mb-8">
-                <div class="w-14 h-14 rounded-2xl bg-claude-surface border border-claude-border mx-auto flex items-center justify-center mb-4 shadow-sm">
-                  <img src="./public/img/miyo.png" alt="Miyo" class="w-10 h-10 object-contain" onerror="this.style.display='none'">
+                <div class="mx-auto flex items-center justify-center mb-6">
+                  <img src="./public/img/miyo.png" alt="Miyo" class="w-52 h-52 object-contain transition-transform duration-300 hover:scale-105" onerror="this.style.display='none'">
                 </div>
                 <h2 class="text-xl font-semibold text-claude-text tracking-tight mb-1.5">
                   Halo, {{ userDisplayName }}
@@ -611,45 +588,48 @@
 
           <!-- Bottom Chat Input Dock (Claude Style) -->
           <div class="pt-3 flex-shrink-0">
-            <div class="bg-claude-surface border border-claude-border focus-within:border-blue-500/60 rounded-2xl p-2 flex items-center gap-2 shadow-lg transition">
-              <!-- Voice STT Button -->
-              <button @click="toggleVoiceRecording"
-                :class="[
-                  'p-2.5 rounded-xl transition flex items-center justify-center flex-shrink-0',
-                  isRecording ? 'bg-rose-600 text-white animate-pulse' : 'text-claude-muted hover:text-claude-text hover:bg-claude-elevated'
-                ]"
-                :title="isRecording ? 'Hentikan Rekaman' : 'Input Suara'">
-                <i :data-lucide="isRecording ? 'square' : 'mic'" class="w-4 h-4"></i>
-              </button>
-
-              <!-- Recording Visualizer -->
-              <div v-if="isRecording" class="flex-1 flex items-center gap-2 px-2 text-xs text-rose-400 font-medium">
-                <span>Mendengarkan... Klik tombol merah untuk selesai</span>
-                <div class="flex items-end gap-1 h-4 ml-2">
-                  <span class="w-1 bg-rose-500 rounded-full h-4 voice-bar"></span>
-                  <span class="w-1 bg-rose-500 rounded-full h-3 voice-bar"></span>
-                  <span class="w-1 bg-rose-500 rounded-full h-4 voice-bar"></span>
-                  <span class="w-1 bg-rose-500 rounded-full h-2 voice-bar"></span>
-                </div>
-              </div>
-
-              <!-- Prompt Input -->
-              <input v-else v-model="userInputText" @keydown.enter.prevent="sendChatMessage"
-                placeholder="Tanyakan kebijakan HR, sisa saldo, atau ajukan cuti..."
-                class="flex-1 bg-transparent text-xs text-claude-text placeholder-claude-muted focus:outline-none px-2 py-1.5">
-
-              <!-- Clear Chat Icon Button -->
+            <div class="flex items-center gap-2">
+              <!-- Clear Chat Button (Di Luar Typing Box - Sebelah Kiri) -->
               <button v-if="chatMessages.length > 0 && !isRecording" @click="clearChat"
-                class="p-2 rounded-xl text-claude-muted hover:text-rose-400 hover:bg-rose-500/10 transition flex-shrink-0"
+                class="p-3 rounded-2xl bg-claude-surface border border-claude-border text-claude-muted hover:text-rose-400 hover:border-rose-500/30 hover:bg-rose-500/10 transition flex items-center justify-center flex-shrink-0 shadow-md"
                 title="Bersihkan Percakapan">
                 <i data-lucide="trash-2" class="w-4 h-4"></i>
               </button>
 
-              <!-- Send Button -->
-              <button @click="sendChatMessage" :disabled="!userInputText.trim() || isGenerating"
-                class="p-2.5 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white transition disabled:opacity-30 disabled:pointer-events-none flex-shrink-0">
-                <i data-lucide="arrow-up" class="w-4 h-4"></i>
-              </button>
+              <!-- Typing Box Container -->
+              <div class="flex-1 bg-claude-surface border border-claude-border focus-within:border-blue-500/60 rounded-2xl p-2 flex items-center gap-2 shadow-lg transition">
+                <!-- Voice STT Button -->
+                <button @click="toggleVoiceRecording"
+                  :class="[
+                    'p-2.5 rounded-xl transition flex items-center justify-center flex-shrink-0',
+                    isRecording ? 'bg-rose-600 text-white animate-pulse' : 'text-claude-muted hover:text-claude-text hover:bg-claude-elevated'
+                  ]"
+                  :title="isRecording ? 'Hentikan Rekaman' : 'Input Suara'">
+                  <i :data-lucide="isRecording ? 'square' : 'mic'" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Recording Visualizer -->
+                <div v-if="isRecording" class="flex-1 flex items-center gap-2 px-2 text-xs text-rose-400 font-medium">
+                  <span>Mendengarkan... Klik tombol merah untuk selesai</span>
+                  <div class="flex items-end gap-1 h-4 ml-2">
+                    <span class="w-1 bg-rose-500 rounded-full h-4 voice-bar"></span>
+                    <span class="w-1 bg-rose-500 rounded-full h-3 voice-bar"></span>
+                    <span class="w-1 bg-rose-500 rounded-full h-4 voice-bar"></span>
+                    <span class="w-1 bg-rose-500 rounded-full h-2 voice-bar"></span>
+                  </div>
+                </div>
+
+                <!-- Prompt Input -->
+                <input v-else v-model="userInputText" @keydown.enter.prevent="sendChatMessage"
+                  placeholder="Tanyakan kebijakan HR, sisa saldo, atau ajukan cuti..."
+                  class="flex-1 bg-transparent text-xs text-claude-text placeholder-claude-muted focus:outline-none px-2 py-1.5">
+
+                <!-- Send Button -->
+                <button @click="sendChatMessage" :disabled="!userInputText.trim() || isGenerating"
+                  class="p-2.5 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white transition disabled:opacity-30 disabled:pointer-events-none flex-shrink-0">
+                  <i data-lucide="arrow-up" class="w-4 h-4"></i>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -940,6 +920,255 @@
         </div>
 
         <!-- =================================================================
+             TAB: TICKETS (EMAIL INBOX CONCEPT FOR EMPLOYEE REQUESTS)
+             ================================================================= -->
+        <div v-show="activeTab === 'tickets'" class="flex-1 flex flex-col h-full overflow-hidden max-w-6xl w-full mx-auto px-4 sm:px-6 py-4">
+          <!-- Top Inbox Bar: Header, Search & Filter Controls -->
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-claude-border flex-shrink-0">
+            <div>
+              <div class="flex items-center gap-2">
+                <h2 class="text-base font-semibold text-claude-text">Inbox Tiket & Permintaan Karyawan</h2>
+                <span v-if="pendingTicketsCount > 0" class="px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                  {{ pendingTicketsCount }} Pending
+                </span>
+              </div>
+              <p class="text-xs text-claude-secondary">
+                {{ isAdmin || isManager ? 'Pusat peninjauan eskalasi kebijakan, pertanyaan HR, dan permintaan khusus karyawan.' : 'Pantau tiket eskalasi dan permohonan yang telah Anda ajukan.' }}
+              </p>
+            </div>
+
+            <div class="flex items-center gap-2 flex-wrap">
+              <!-- Search box -->
+              <div class="relative">
+                <i data-lucide="search" class="w-3.5 h-3.5 text-claude-muted absolute left-2.5 top-1/2 -translate-y-1/2"></i>
+                <input type="text" v-model="ticketSearchQuery" placeholder="Cari tiket..."
+                  class="pl-8 pr-3 py-1.5 text-xs rounded-xl bg-claude-surface border border-claude-border text-claude-text placeholder-claude-muted focus:outline-none focus:border-blue-500/50 w-36 sm:w-48 transition">
+              </div>
+
+              <!-- Filter Pills -->
+              <div class="flex items-center rounded-xl bg-claude-sidebar border border-claude-border p-0.5 text-xs">
+                <button @click="ticketFilterStatus = 'all'; refreshIcons()"
+                  :class="['px-2.5 py-1 rounded-lg text-[11px] font-medium transition', ticketFilterStatus === 'all' ? 'bg-claude-surface text-blue-400 font-semibold shadow-sm' : 'text-claude-muted hover:text-claude-text']">
+                  Semua
+                </button>
+                <button @click="ticketFilterStatus = 'pending'; refreshIcons()"
+                  :class="['px-2.5 py-1 rounded-lg text-[11px] font-medium transition', ticketFilterStatus === 'pending' ? 'bg-amber-500/20 text-amber-300 font-semibold shadow-sm' : 'text-claude-muted hover:text-claude-text']">
+                  Pending
+                </button>
+                <button @click="ticketFilterStatus = 'on progress'; refreshIcons()"
+                  :class="['px-2.5 py-1 rounded-lg text-[11px] font-medium transition', ticketFilterStatus === 'on progress' ? 'bg-blue-500/20 text-blue-300 font-semibold shadow-sm' : 'text-claude-muted hover:text-claude-text']">
+                  Diproses
+                </button>
+                <button @click="ticketFilterStatus = 'done'; refreshIcons()"
+                  :class="['px-2.5 py-1 rounded-lg text-[11px] font-medium transition', ticketFilterStatus === 'done' ? 'bg-emerald-500/20 text-emerald-300 font-semibold shadow-sm' : 'text-claude-muted hover:text-claude-text']">
+                  Selesai
+                </button>
+              </div>
+
+              <!-- Refresh Button -->
+              <button @click="fetchTickets()" class="p-2 rounded-xl bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition" title="Segarkan Inbox">
+                <i data-lucide="refresh-cw" class="w-3.5 h-3.5" :class="isLoadingTickets ? 'animate-spin' : ''"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Main Inbox Split View (Two Columns like Email Client) -->
+          <div class="flex-1 flex flex-col md:flex-row gap-4 pt-3 overflow-hidden min-h-0">
+            <!-- Left Column: Tickets Message List -->
+            <div class="w-full md:w-5/12 lg:w-4/12 flex flex-col border border-claude-border rounded-2xl bg-claude-sidebar overflow-hidden shadow-sm flex-shrink-0">
+              <div class="p-2.5 border-b border-claude-border text-[11px] text-claude-muted flex items-center justify-between">
+                <span>{{ filteredTickets.length }} Permohonan</span>
+                <span class="font-mono text-[10px]">{{ policyRules.server_date }}</span>
+              </div>
+
+              <div class="flex-1 overflow-y-auto divide-y divide-claude-border/50">
+                <div v-if="filteredTickets.length === 0" class="p-8 text-center text-xs text-claude-muted space-y-2">
+                  <i data-lucide="inbox" class="w-8 h-8 mx-auto text-claude-muted/60"></i>
+                  <div>Tidak ada tiket dalam filter ini.</div>
+                </div>
+
+                <div v-for="t in filteredTickets" :key="t.ticket_id"
+                  @click="selectTicket(t)"
+                  :class="[
+                    'p-3 cursor-pointer transition text-left flex flex-col gap-1.5 relative border-l-2',
+                    selectedTicketId === t.ticket_id
+                      ? 'bg-claude-surface border-l-blue-500 shadow-sm'
+                      : 'hover:bg-claude-surface/60 border-l-transparent'
+                  ]">
+                  <!-- Sender & Status Header -->
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0">
+                      <div class="w-6 h-6 rounded-md bg-claude-blue-subtle border border-blue-500/20 text-blue-400 font-mono text-[10px] font-bold flex items-center justify-center flex-shrink-0">
+                        {{ getInitials(t.employee_name || t.employee_id) }}
+                      </div>
+                      <span class="font-semibold text-xs text-claude-text truncate">{{ t.employee_name || t.employee_id }}</span>
+                    </div>
+
+                    <!-- Status Pill -->
+                    <span :class="[
+                      'px-2 py-0.5 rounded-full text-[10px] font-semibold font-mono flex-shrink-0',
+                      t.status === 'done' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                      t.status === 'on progress' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
+                      'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                    ]">
+                      {{ t.status === 'done' ? 'Done' : t.status === 'on progress' ? 'On Progress' : 'Pending' }}
+                    </span>
+                  </div>
+
+                  <!-- Category Tag & ID -->
+                  <div class="flex items-center gap-1.5 text-[10px] text-claude-muted">
+                    <span class="font-mono text-blue-400">{{ t.ticket_id }}</span>
+                    <span>&middot;</span>
+                    <span class="capitalize">{{ (t.category || '').replace('_', ' ') }}</span>
+                  </div>
+
+                  <!-- Summary Preview (Excerpt) -->
+                  <p class="text-xs text-claude-secondary line-clamp-2 leading-relaxed">
+                    {{ t.summary }}
+                  </p>
+
+                  <div class="text-[10px] text-claude-muted pt-0.5">
+                    {{ t.created_at ? t.created_at.slice(0, 16).replace('T', ' ') : '' }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Column: Selected Ticket Reading & Admin Action Panel -->
+            <div class="flex-1 flex flex-col border border-claude-border rounded-2xl bg-claude-surface overflow-hidden shadow-sm min-h-0">
+              <!-- Empty Selection State -->
+              <div v-if="!selectedTicket" class="my-auto py-16 text-center text-xs text-claude-muted space-y-3">
+                <div class="w-12 h-12 rounded-2xl bg-claude-elevated border border-claude-border flex items-center justify-center mx-auto text-claude-muted">
+                  <i data-lucide="mail-open" class="w-6 h-6"></i>
+                </div>
+                <div class="font-medium text-claude-text">Pilih Tiket dari Inbox</div>
+                <p class="text-xs text-claude-secondary max-w-xs mx-auto">Klik salah satu tiket di kolom kiri untuk membaca rincian lengkap dan menindaklanjuti statusnya.</p>
+              </div>
+
+              <!-- Ticket Detail View -->
+              <div v-else class="flex-1 flex flex-col h-full overflow-y-auto p-5 sm:p-6 space-y-5">
+                <!-- Ticket Header -->
+                <div class="flex items-start justify-between gap-4 pb-4 border-b border-claude-border">
+                  <div class="space-y-1">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="font-mono font-bold text-sm text-blue-400">{{ selectedTicket.ticket_id }}</span>
+                      <span class="px-2 py-0.5 rounded text-[11px] font-medium bg-claude-elevated border border-claude-border text-claude-secondary capitalize">
+                        Kategori: {{ (selectedTicket.category || '').replace('_', ' ') }}
+                      </span>
+                      <span :class="[
+                        'px-2.5 py-0.5 rounded-full text-xs font-semibold font-mono',
+                        selectedTicket.status === 'done' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30' :
+                        selectedTicket.status === 'on progress' ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30' :
+                        'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                      ]">
+                        Status: {{ (selectedTicket.status || 'pending').toUpperCase() }}
+                      </span>
+                    </div>
+                    <div class="text-xs text-claude-muted">
+                      Diterima sistem pada {{ selectedTicket.created_at ? selectedTicket.created_at.slice(0, 19).replace('T', ' ') : '-' }}
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Requester Identity Card -->
+                <div class="p-3.5 rounded-xl bg-claude-sidebar border border-claude-border flex items-center justify-between gap-3">
+                  <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-claude-blue-subtle border border-blue-500/25 text-blue-400 font-mono font-bold text-xs flex items-center justify-center flex-shrink-0">
+                      {{ getInitials(selectedTicket.employee_name || selectedTicket.employee_id) }}
+                    </div>
+                    <div>
+                      <div class="text-xs font-semibold text-claude-text">{{ selectedTicket.employee_name || selectedTicket.employee_id }}</div>
+                      <div class="text-[11px] text-claude-secondary flex items-center gap-2 mt-0.5">
+                        <span class="font-mono text-blue-400">{{ selectedTicket.employee_id }}</span>
+                        <span>&middot;</span>
+                        <span>{{ selectedTicket.department || 'Engineering' }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Message Body -->
+                <div class="space-y-2">
+                  <label class="block text-xs font-semibold text-claude-secondary uppercase tracking-wider">
+                    Uraian / Ringkasan Permintaan Karyawan:
+                  </label>
+                  <div class="p-4 rounded-xl bg-claude-elevated border border-claude-border text-xs text-claude-text leading-relaxed whitespace-pre-wrap font-sans">
+                    {{ selectedTicket.summary }}
+                  </div>
+                </div>
+
+                <!-- Admin Action Card (Status Update Form) -->
+                <div class="mt-auto p-4 rounded-xl bg-claude-sidebar border border-claude-border space-y-3">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold text-claude-text flex items-center gap-1.5">
+                      <i data-lucide="check-square" class="w-4 h-4 text-blue-400"></i>
+                      <span>Panel Status & Tindak Lanjut Tiket</span>
+                    </span>
+                    <span v-if="selectedTicket.updated_at" class="text-[10px] text-claude-muted">
+                      Terakhir diperbarui: {{ selectedTicket.updated_at.slice(0, 16).replace('T', ' ') }}
+                      <span v-if="selectedTicket.updated_by">oleh {{ selectedTicket.updated_by }}</span>
+                    </span>
+                  </div>
+
+                  <!-- If Admin or Manager: Form to Change Status -->
+                  <div v-if="isAdmin || isManager" class="space-y-3">
+                    <div class="grid grid-cols-3 gap-2">
+                      <button type="button" @click="editTicketStatus = 'pending'"
+                        :class="[
+                          'py-2 px-3 rounded-lg text-xs font-medium border text-center transition flex items-center justify-center gap-1.5',
+                          editTicketStatus === 'pending'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 font-semibold'
+                            : 'bg-claude-surface border-claude-border text-claude-secondary hover:text-claude-text'
+                        ]">
+                        <span class="w-2 h-2 rounded-full bg-amber-400"></span>
+                        <span>Pending</span>
+                      </button>
+
+                      <button type="button" @click="editTicketStatus = 'on progress'"
+                        :class="[
+                          'py-2 px-3 rounded-lg text-xs font-medium border text-center transition flex items-center justify-center gap-1.5',
+                          editTicketStatus === 'on progress'
+                            ? 'bg-blue-500/20 text-blue-300 border-blue-500/50 font-semibold'
+                            : 'bg-claude-surface border-claude-border text-claude-secondary hover:text-claude-text'
+                        ]">
+                        <span class="w-2 h-2 rounded-full bg-blue-400"></span>
+                        <span>On Progress</span>
+                      </button>
+
+                      <button type="button" @click="editTicketStatus = 'done'"
+                        :class="[
+                          'py-2 px-3 rounded-lg text-xs font-medium border text-center transition flex items-center justify-center gap-1.5',
+                          editTicketStatus === 'done'
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 font-semibold'
+                            : 'bg-claude-surface border-claude-border text-claude-secondary hover:text-claude-text'
+                        ]">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                        <span>Done</span>
+                      </button>
+                    </div>
+
+                    <div class="flex items-center justify-end">
+                      <button @click="submitTicketStatusChange(selectedTicket.ticket_id, editTicketStatus)"
+                        :disabled="isUpdatingTicket || editTicketStatus === selectedTicket.status"
+                        class="px-4 py-2 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white text-xs font-semibold shadow-sm transition disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2">
+                        <i data-lucide="save" class="w-3.5 h-3.5" :class="isUpdatingTicket ? 'animate-spin' : ''"></i>
+                        <span>{{ isUpdatingTicket ? 'Menyimpan...' : 'Perbarui Status Tiket' }}</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- If Employee: Read Only Status Note -->
+                  <div v-else class="text-xs text-claude-secondary bg-claude-surface p-3 rounded-lg border border-claude-border flex items-center gap-2">
+                    <i data-lucide="info" class="w-4 h-4 text-blue-400 flex-shrink-0"></i>
+                    <span>Status tiket ini dikelola oleh tim HR & Manager. Setiap perubahan status akan otomatis tertera di sini.</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- =================================================================
              TAB 5: MONITORING OPERASIONAL (ADMIN TELEMETRY & SLI/SLA)
              ================================================================= -->
         <div v-show="activeTab === 'monitoring'" class="flex-1 overflow-y-auto max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
@@ -1025,7 +1254,7 @@
         <form @submit.prevent="submitPasswordLogin" class="space-y-3.5 text-xs">
           <div v-if="!pendingStepUpPersona">
             <label class="block text-claude-secondary font-medium mb-1">Username / ID Pegawai:</label>
-            <input type="text" v-model="loginUsername" required placeholder="Contoh: raka, admin, MGR-001"
+            <input type="text" v-model="loginUsername" required placeholder="Contoh: alya, bima, admin, EMP-001"
               class="w-full bg-claude-elevated border border-claude-border rounded-xl px-3 py-2 text-claude-text focus:outline-none focus:border-blue-500">
           </div>
           <div>
@@ -1093,18 +1322,48 @@
             </div>
           </div>
 
-          <!-- Dynamic Policy Notice -->
+          <!-- Total Business Days Calculation -->
           <div class="p-3 rounded-xl border" :class="formWorkingDays > 0 ? 'bg-claude-elevated border-claude-border' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'">
             <div class="flex items-center justify-between font-semibold">
-              <span>Total Durasi Hari Kerja (Senin&ndash;Jumat):</span>
-              <span class="text-blue-400 font-mono text-sm">{{ formWorkingDays }} Hari Kerja</span>
+              <span class="flex items-center gap-1.5">
+                <i data-lucide="calculator" class="w-4 h-4 text-blue-400"></i>
+                <span>Total Durasi Hari Kerja (Senin&ndash;Jumat):</span>
+              </span>
+              <span class="text-blue-400 font-mono text-sm font-bold">{{ formWorkingDays }} Hari Kerja</span>
             </div>
-            <div v-if="formLeaveType === 'annual'" class="text-[11px] text-claude-secondary mt-1">
-              [HR-LEAVE-001] Cuti tahunan wajib diajukan minimal {{ policyRules.annual_lead_days }} hari kerja sebelumnya.
+          </div>
+
+          <!-- Cached Agent Policy Guardrail (Dynamic Chunk Policy RAG from Server Init) -->
+          <div class="p-3 rounded-xl border transition space-y-1.5"
+            :class="isConsultingAgent ? 'bg-blue-500/5 border-blue-500/30 animate-pulse' : 'bg-blue-500/10 border-blue-500/30 text-claude-text'">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-semibold text-blue-400 flex items-center gap-1.5">
+                <i data-lucide="shield-check" class="w-3.5 h-3.5" :class="isConsultingAgent ? 'animate-spin' : ''"></i>
+                <span>{{ isConsultingAgent ? 'Agen Miyo Memeriksa Ulang Chunk Policy...' : 'Guardrail Kebijakan HR (Chunk RAG Terverifikasi):' }}</span>
+              </span>
+              <div class="flex items-center gap-1.5">
+                <span v-if="!isConsultingAgent" class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 font-mono text-[10px] font-bold">
+                  {{ agentPolicyCitation || (formLeaveType === 'annual' ? '[HR-LEAVE-001]' : '[HR-LEAVE-002]') }}
+                </span>
+                <!-- Optional Manual Force Re-check Button -->
+                <button type="button" @click="fetchAgentPolicyGuardrail(formLeaveType, true)" :disabled="isConsultingAgent"
+                  class="p-1 rounded text-claude-muted hover:text-blue-400 hover:bg-blue-500/10 transition" title="Periksa Ulang Langsung ke Model LLM">
+                  <i data-lucide="rotate-cw" class="w-3 h-3" :class="isConsultingAgent ? 'animate-spin' : ''"></i>
+                </button>
+              </div>
             </div>
-            <div v-else-if="formLeaveType === 'sick'" class="text-[11px] text-claude-secondary mt-1">
-              [HR-LEAVE-002] Cuti sakit &gt; {{ policyRules.sick_doc_threshold }} hari kerja berturut-turut wajib melampirkan surat keterangan dokter.
-            </div>
+
+            <p v-if="isConsultingAgent" class="text-[11px] text-claude-muted italic flex items-center gap-1.5">
+              <span>Menanyakan aturan lead-time &amp; syarat dokumen ke model LLM...</span>
+            </p>
+            <p v-else-if="agentPolicySummary" class="text-[11px] text-claude-text leading-relaxed">
+              {{ agentPolicySummary }}
+            </p>
+            <p v-else class="text-[11px] text-claude-secondary leading-relaxed">
+              <span v-if="formLeaveType === 'annual'">[HR-LEAVE-001] Cuti tahunan wajib diajukan minimal {{ policyRules.annual_lead_days }} hari kerja sebelumnya.</span>
+              <span v-else-if="formLeaveType === 'sick'">[HR-LEAVE-002] Cuti sakit &gt; {{ policyRules.sick_doc_threshold }} hari kerja berturut-turut wajib melampirkan surat keterangan dokter.</span>
+              <span v-else>[HR-LEAVE-003] Cuti orang tua mengikuti ketentuan hak cuti melahirkan / ayah sesuai undang-undang.</span>
+            </p>
           </div>
 
           <!-- Sick Leave Attachment Input -->
@@ -1176,69 +1435,118 @@
     </div>
 
     <!-- =====================================================================
-         MODAL: SMART BACKEND API URL CONFIGURATION (FOR GITHUB PAGES / DEMO)
+         MODAL: SETTINGS & SYSTEM CONFIGURATION (DEV AUDIT, SESSION, BACKEND API)
          ===================================================================== -->
-    <div v-if="showApiSettingsModal" class="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
-      <div class="bg-claude-surface border border-claude-border rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+    <div v-if="showSettingsModal || showApiSettingsModal" class="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
+      <div class="bg-claude-surface border border-claude-border rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
         <div class="flex items-center justify-between border-b border-claude-border pb-3">
-          <div class="flex items-center gap-2">
-            <i data-lucide="server-cog" class="w-5 h-5 text-blue-400"></i>
+          <div class="flex items-center gap-2.5">
+            <div class="w-8 h-8 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center text-blue-400">
+              <i data-lucide="settings" class="w-4 h-4"></i>
+            </div>
             <div>
-              <h3 class="font-bold text-sm text-claude-text">Konfigurasi Target Backend API</h3>
-              <p class="text-[11px] text-claude-secondary">Hubungkan antarmuka ini ke server backend Vercel, Render, atau Localhost.</p>
+              <h3 class="font-bold text-sm text-claude-text">Pengaturan Sistem &amp; Sesi Miyo</h3>
+              <p class="text-[11px] text-claude-secondary">Mode audit dev, pergantian sesi pengguna, dan target backend API.</p>
             </div>
           </div>
-          <button @click="showApiSettingsModal = false" class="text-claude-muted hover:text-claude-text p-1">
+          <button @click="closeSettingsModal" class="text-claude-muted hover:text-claude-text p-1.5 rounded-lg hover:bg-claude-elevated transition" title="Tutup">
             <i data-lucide="x" class="w-4 h-4"></i>
           </button>
         </div>
 
-        <div class="space-y-3">
-          <div>
-            <label class="block text-xs font-semibold text-claude-secondary mb-1">Base URL Backend API</label>
-            <input v-model="tempApiUrl" type="text"
-              class="w-full px-3 py-2 rounded-xl bg-claude-elevated border border-claude-border text-xs text-claude-text font-mono focus:outline-none focus:border-blue-500 transition"
-              placeholder="contoh: https://hr-agent-assistant.vercel.app atau http://localhost:8000">
-            <span class="text-[10px] text-claude-muted mt-1 block">Biarkan kosong jika backend dilayani pada domain yang sama (/api/v1).</span>
-          </div>
+        <div class="space-y-4">
+          <!-- Quick Session & Dev Audit Actions (When Logged In) -->
+          <div v-if="isAuthenticated" class="space-y-3 p-3.5 rounded-xl bg-claude-elevated border border-claude-border">
+            <div class="flex items-center justify-between text-xs border-b border-claude-border/60 pb-2">
+              <div class="flex items-center gap-2">
+                <div class="w-6 h-6 rounded-lg bg-blue-500/20 text-blue-400 font-mono font-bold text-[10px] flex items-center justify-center">
+                  {{ userInitials }}
+                </div>
+                <div>
+                  <span class="font-semibold text-claude-text">{{ userDisplayName }}</span>
+                  <span class="text-[10px] text-claude-muted ml-1.5 font-mono">({{ activePersona?.employee_id }} &middot; {{ userRoleLabel }})</span>
+                </div>
+              </div>
+            </div>
 
-          <!-- Quick Presets -->
-          <div>
-            <label class="block text-[11px] font-medium text-claude-secondary mb-1">Preset Cepat:</label>
-            <div class="flex flex-wrap gap-1.5">
-              <button @click="tempApiUrl = 'http://localhost:8000'" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
-                Localhost (8000)
+            <!-- Tombol Mode Audit Dev -->
+            <div class="flex items-center justify-between pt-1">
+              <div class="space-y-0.5">
+                <div class="text-xs font-semibold text-claude-text flex items-center gap-1.5">
+                  <i data-lucide="terminal" class="w-3.5 h-3.5 text-blue-400"></i>
+                  <span>Mode Audit Dev</span>
+                </div>
+                <p class="text-[10px] text-claude-muted">Tampilkan sitasi guardrail RAG dan trace telemetry ID di chat</p>
+              </div>
+              <button @click="toggleDevAudit"
+                class="px-3 py-1.5 rounded-xl border text-xs font-mono font-bold transition flex items-center gap-1.5"
+                :class="showDevAudit ? 'bg-blue-500 text-white border-blue-600 shadow-sm' : 'bg-claude-surface border-claude-border text-claude-muted hover:text-claude-text'">
+                <span>{{ showDevAudit ? 'ON' : 'OFF' }}</span>
               </button>
-              <button @click="tempApiUrl = 'https://hr-agent-assistant.vercel.app'" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
-                Vercel Cloud
-              </button>
-              <button @click="tempApiUrl = ''" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
-                Satu Domain (Relative /)
+            </div>
+
+            <!-- Tombol Ganti Sesi Pengguna -->
+            <div class="pt-2 border-t border-claude-border/60 flex items-center justify-between">
+              <div class="space-y-0.5">
+                <div class="text-xs font-semibold text-claude-text">Ganti Sesi Pengguna</div>
+                <p class="text-[10px] text-claude-muted">Keluar dari sesi saat ini &amp; pilih akun profil lain</p>
+              </div>
+              <button @click="closeSettingsModal(); logoutSession()"
+                class="px-3 py-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 text-xs font-semibold transition flex items-center gap-1.5">
+                <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+                <span>Ganti Sesi</span>
               </button>
             </div>
           </div>
 
-          <!-- Connection Test Feedback -->
-          <div v-if="connectionTestResult" class="p-3 rounded-xl border text-xs flex items-start gap-2"
-            :class="connectionTestResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'">
-            <i :data-lucide="connectionTestResult.success ? 'check-circle-2' : 'alert-triangle'" class="w-4 h-4 flex-shrink-0 mt-0.5"></i>
-            <span class="leading-relaxed">{{ connectionTestResult.message }}</span>
-          </div>
+          <!-- Section 2: Konfigurasi Target Backend API -->
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-semibold text-claude-secondary mb-1">Base URL Backend API</label>
+              <input v-model="tempApiUrl" type="text"
+                class="w-full px-3 py-2 rounded-xl bg-claude-elevated border border-claude-border text-xs text-claude-text font-mono focus:outline-none focus:border-blue-500 transition"
+                placeholder="contoh: https://hr-agent-assistant.vercel.app atau http://localhost:8000">
+              <span class="text-[10px] text-claude-muted mt-1 block">Biarkan kosong jika backend dilayani pada domain yang sama (/api/v1).</span>
+            </div>
 
-          <!-- Actions -->
-          <div class="pt-2 flex items-center justify-between border-t border-claude-border">
-            <button @click="testBackendConnection" :disabled="isTestingConnection"
-              class="px-3 py-1.5 rounded-xl border border-claude-border text-claude-secondary hover:text-claude-text hover:bg-claude-elevated text-xs font-medium flex items-center gap-1.5 transition">
-              <i data-lucide="activity" class="w-3.5 h-3.5 text-blue-400" :class="isTestingConnection ? 'animate-spin' : ''"></i>
-              <span>{{ isTestingConnection ? 'Menguji...' : 'Uji Koneksi (Ping)' }}</span>
-            </button>
-            <div class="flex items-center gap-2">
-              <button @click="resetApiSettings" class="px-3 py-1.5 rounded-xl text-claude-muted hover:text-rose-400 text-xs font-medium transition">
-                Reset
+            <!-- Quick Presets -->
+            <div>
+              <label class="block text-[11px] font-medium text-claude-secondary mb-1">Preset Cepat:</label>
+              <div class="flex flex-wrap gap-1.5">
+                <button @click="tempApiUrl = 'http://localhost:8000'" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
+                  Localhost (8000)
+                </button>
+                <button @click="tempApiUrl = 'https://hr-agent-assistant.vercel.app'" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
+                  Vercel Cloud
+                </button>
+                <button @click="tempApiUrl = ''" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
+                  Satu Domain (Relative /)
+                </button>
+              </div>
+            </div>
+
+            <!-- Connection Test Feedback -->
+            <div v-if="connectionTestResult" class="p-3 rounded-xl border text-xs flex items-start gap-2"
+              :class="connectionTestResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'">
+              <i :data-lucide="connectionTestResult.success ? 'check-circle-2' : 'alert-triangle'" class="w-4 h-4 flex-shrink-0 mt-0.5"></i>
+              <span class="leading-relaxed">{{ connectionTestResult.message }}</span>
+            </div>
+
+            <!-- Actions -->
+            <div class="pt-2 flex items-center justify-between border-t border-claude-border">
+              <button @click="testBackendConnection" :disabled="isTestingConnection"
+                class="px-3 py-1.5 rounded-xl border border-claude-border text-claude-secondary hover:text-claude-text hover:bg-claude-elevated text-xs font-medium flex items-center gap-1.5 transition">
+                <i data-lucide="activity" class="w-3.5 h-3.5 text-blue-400" :class="isTestingConnection ? 'animate-spin' : ''"></i>
+                <span>{{ isTestingConnection ? 'Menguji...' : 'Uji Koneksi (Ping)' }}</span>
               </button>
-              <button @click="saveApiSettings" class="px-4 py-1.5 rounded-xl bg-claude-blue hover:bg-blue-600 text-white text-xs font-semibold shadow-md transition">
-                Simpan & Terapkan
-              </button>
+              <div class="flex items-center gap-2">
+                <button @click="resetApiSettings" class="px-3 py-1.5 rounded-xl text-claude-muted hover:text-rose-400 text-xs font-medium transition">
+                  Reset
+                </button>
+                <button @click="saveApiSettings" class="px-4 py-1.5 rounded-xl bg-claude-blue hover:bg-blue-600 text-white text-xs font-semibold shadow-md transition">
+                  Simpan & Terapkan
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1247,6 +1555,6 @@
 
   </div>
 
-  <script src="./app.js"></script>
+  <script src="./app.js?v=3.0"></script>
 </body>
 </html>

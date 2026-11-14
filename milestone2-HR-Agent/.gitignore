@@ -24,6 +24,5 @@ outputs/*.json
 outputs/*.md
 scripts/benchmark_results.json
 
-# Internal Work Breakdown & Private Docs
+# Internal Work Breakdown
 WBS/
-docs/

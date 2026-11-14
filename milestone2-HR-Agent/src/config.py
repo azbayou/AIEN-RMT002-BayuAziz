@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     app_name: str = "HR Policy and Leave Assistant"
     environment: str = "development"
-    database_url: str = "postgresql://hr_app:hr_app@postgres:5432/hr_assistant"
+    database_url: str = ""
     redis_url: str | None = "redis://redis:6379/0"
     openai_api_key: str | None = None
     openai_base_url: str | None = None

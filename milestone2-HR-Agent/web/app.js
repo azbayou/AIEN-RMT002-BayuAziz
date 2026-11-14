@@ -1,5 +1,5 @@
 // Miyo HR Portal — Industrial-Grade Reactive SPA (Vue 3 + Tailwind CSS + Lucide Icons)
-const { createApp, ref, computed, onMounted, nextTick } = Vue;
+const { createApp, ref, computed, onMounted, nextTick, watch } = Vue;
 
 // Dynamic API Base with localStorage persistence and Smart Fallback for GitHub Pages & Localhost
 function computeDefaultApiBase() {
@@ -18,20 +18,37 @@ createApp({
   setup() {
     // --- BACKEND API CONFIGURATION STATE ---
     const apiBaseUrl = ref(computeDefaultApiBase());
-    const showApiSettingsModal = ref(false);
+    const showSettingsModal = ref(false);
+    const showApiSettingsModal = showSettingsModal; // Backward compatibility alias
     const tempApiUrl = ref(apiBaseUrl.value);
     const isTestingConnection = ref(false);
     const connectionTestResult = ref(null);
+    const isSettingsMenuOpen = ref(false);
 
     function getApiBase() {
       return (apiBaseUrl.value || '').trim().replace(/\/+$/, '');
     }
 
-    function openApiSettingsModal() {
+    function openSettingsModal() {
       tempApiUrl.value = apiBaseUrl.value;
       connectionTestResult.value = null;
-      showApiSettingsModal.value = true;
+      showSettingsModal.value = true;
       refreshIcons();
+    }
+
+    function closeSettingsModal() {
+      showSettingsModal.value = false;
+      isSettingsMenuOpen.value = false;
+    }
+
+    const openApiSettingsModal = openSettingsModal;
+
+    function toggleSettingsMenu() {
+      openSettingsModal();
+    }
+
+    function closeSettingsMenu() {
+      closeSettingsModal();
     }
 
     async function testBackendConnection() {
@@ -163,6 +180,7 @@ createApp({
 
         if (rulesRes) {
           policyRules.value = rulesRes;
+          warmPolicyCacheFromRules(rulesRes);
           const d = new Date(`${rulesRes.server_date}T00:00:00`);
           calYear.value = d.getFullYear();
           calMonth.value = d.getMonth() + 1;
@@ -346,7 +364,7 @@ createApp({
     const visibleTabs = computed(() => {
       const list = [
         { id: 'chat', label: 'Asisten Kebijakan', icon: 'message-square' },
-        { id: 'my_requests', label: 'Permohonan Cuti Saya', icon: 'file-text' },
+        { id: 'my_requests', label: 'Permohonan Cuti', icon: 'file-text' },
         { id: 'calendar', label: 'Kalender Cuti', icon: 'calendar' }
       ];
       if (isManager.value) {
@@ -358,10 +376,16 @@ createApp({
           badge: pendingCount > 0 ? pendingCount : null
         });
       }
+      list.push({
+        id: 'tickets',
+        label: 'Tickets',
+        icon: 'inbox',
+        badge: pendingTicketsCount.value > 0 ? pendingTicketsCount.value : null
+      });
       if (isAdmin.value) {
         list.push({
           id: 'monitoring',
-          label: 'Monitoring Operasional',
+          label: 'Monitoring Sistem',
           icon: 'activity',
           badge: monitoringAlerts.value.length > 0 ? monitoringAlerts.value.length : null
         });
@@ -442,6 +466,7 @@ createApp({
       await Promise.all([
         fetchMyBalances(),
         fetchMyRequests(),
+        fetchTickets(),
         isManager.value ? fetchTeamRequests() : Promise.resolve(),
         isManager.value ? fetchAnalyticsOverview() : Promise.resolve(),
         isAdmin.value ? fetchMonitoringData() : Promise.resolve()
@@ -682,6 +707,100 @@ createApp({
       }
     }
 
+    // --- AGENT POLICY GUARDRAIL CACHING & CONSULTATION ---
+    const isConsultingAgent = ref(false);
+    const agentPolicySummary = ref('');
+    const agentPolicyCitation = ref('');
+    const policyCache = ref({});
+
+    function warmPolicyCacheFromRules(rules) {
+      if (!rules) return;
+      if (rules.policy_summaries) {
+        policyCache.value = { ...rules.policy_summaries };
+      } else {
+        const lead = rules.annual_lead_days || 3;
+        const thresh = rules.sick_doc_threshold || 2;
+        policyCache.value = {
+          annual: {
+            citation: '[HR-LEAVE-001]',
+            summary: `Berdasarkan kebijakan [HR-LEAVE-001], cuti tahunan wajib diajukan minimal ${lead} hari kerja sebelumnya dan tidak bertumpang tindih dengan permohonan lain.`,
+            lead_days: lead,
+          },
+          sick: {
+            citation: '[HR-LEAVE-002]',
+            summary: `Berdasarkan kebijakan [HR-LEAVE-002], cuti sakit lebih dari ${thresh} hari kerja berturut-turut wajib melampirkan surat keterangan dokter.`,
+            threshold_days: thresh,
+          },
+          parental: {
+            citation: '[HR-LEAVE-003]',
+            summary: 'Berdasarkan kebijakan [HR-LEAVE-003], cuti orang tua mengikuti hak cuti melahirkan / hak ayah sesuai undang-undang dan kebijakan perusahaan.',
+          }
+        };
+      }
+    }
+
+    async function fetchAgentPolicyGuardrail(leaveType, forceRefresh = false) {
+      // 1. Session Cache Check (Zero Token, Zero Latency)
+      if (!forceRefresh && policyCache.value && policyCache.value[leaveType]) {
+        const cached = policyCache.value[leaveType];
+        agentPolicySummary.value = cached.summary;
+        agentPolicyCitation.value = cached.citation;
+        isConsultingAgent.value = false;
+        refreshIcons();
+        return;
+      }
+
+      // 2. Fetch from Agent LLM (Only when explicitly requested or cache missing)
+      isConsultingAgent.value = true;
+      agentPolicySummary.value = '';
+      agentPolicyCitation.value = '';
+
+      const typeLabels = { annual: 'cuti tahunan', sick: 'cuti sakit', parental: 'cuti orang tua' };
+      const label = typeLabels[leaveType] || leaveType;
+
+      try {
+        const token = sessionStorage.getItem('miyo_active_token') || 'token-alya';
+        const res = await fetch(`${getApiBase()}/api/v1/chat`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            message: `Berapa hari kerja minimal lead time pengajuan untuk ${label} sebelum tanggal mulai dan apa syarat dokumennya berdasarkan kebijakan perusahaan? Sebutkan sitasi dokumen resminya.`
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          let citation = '[HR-LEAVE-001]';
+          if (data.citations && data.citations.length > 0) {
+            citation = data.citations.join(', ');
+          } else {
+            const match = data.reply.match(/\[(HR-LEAVE-[0-9]+)\]/i);
+            citation = match ? match[0] : (leaveType === 'annual' ? '[HR-LEAVE-001]' : '[HR-LEAVE-002]');
+          }
+          agentPolicySummary.value = data.reply;
+          agentPolicyCitation.value = citation;
+
+          // Save to Cache for subsequent opens/switches
+          policyCache.value[leaveType] = {
+            citation,
+            summary: data.reply
+          };
+        }
+      } catch (err) {
+        console.warn('Gagal memanggil Agent untuk guardrail kebijakan, menggunakan fallback cache:', err);
+        if (policyCache.value && policyCache.value[leaveType]) {
+          agentPolicySummary.value = policyCache.value[leaveType].summary;
+          agentPolicyCitation.value = policyCache.value[leaveType].citation;
+        }
+      } finally {
+        isConsultingAgent.value = false;
+        refreshIcons();
+      }
+    }
+
     function openLeaveModal() {
       formLeaveType.value = 'annual';
       const minDate = calculateMinStartDate('annual');
@@ -692,6 +811,7 @@ createApp({
       formReason.value = '';
       formAttachment.value = null;
       isLeaveModalOpen.value = true;
+      fetchAgentPolicyGuardrail('annual');
       refreshIcons();
     }
 
@@ -702,6 +822,7 @@ createApp({
         formStartDate.value = minDate;
       }
       recalculateDuration();
+      fetchAgentPolicyGuardrail(formLeaveType.value);
     }
 
     function recalculateDuration() {
@@ -1052,6 +1173,106 @@ createApp({
       }
     }
 
+    // --- TICKETS STATE & ACTIONS (EMAIL INBOX CONCEPT) ---
+    const ticketsList = ref([]);
+    const isLoadingTickets = ref(false);
+    const selectedTicketId = ref('');
+    const ticketFilterStatus = ref('all');
+    const ticketSearchQuery = ref('');
+    const isUpdatingTicket = ref(false);
+    const editTicketStatus = ref('pending');
+
+    const selectedTicket = computed(() => {
+      return ticketsList.value.find(t => t.ticket_id === selectedTicketId.value) || null;
+    });
+
+    const pendingTicketsCount = computed(() => {
+      return ticketsList.value.filter(t => t.status === 'pending').length;
+    });
+
+    const filteredTickets = computed(() => {
+      let list = ticketsList.value;
+      if (ticketFilterStatus.value !== 'all') {
+        list = list.filter(t => t.status === ticketFilterStatus.value);
+      }
+      if (ticketSearchQuery.value.trim()) {
+        const q = ticketSearchQuery.value.toLowerCase();
+        list = list.filter(t =>
+          (t.summary && t.summary.toLowerCase().includes(q)) ||
+          (t.ticket_id && t.ticket_id.toLowerCase().includes(q)) ||
+          (t.employee_name && t.employee_name.toLowerCase().includes(q)) ||
+          (t.employee_id && t.employee_id.toLowerCase().includes(q)) ||
+          (t.category && t.category.toLowerCase().includes(q))
+        );
+      }
+      return list;
+    });
+
+    async function fetchTickets() {
+      if (!activePersona.value?.demo_token) return;
+      isLoadingTickets.value = true;
+      try {
+        const data = await apiCall('/api/v1/tickets');
+        ticketsList.value = Array.isArray(data) ? data : [];
+        if (ticketsList.value.length > 0) {
+          if (!selectedTicketId.value || !ticketsList.value.some(t => t.ticket_id === selectedTicketId.value)) {
+            selectedTicketId.value = ticketsList.value[0].ticket_id;
+            editTicketStatus.value = ticketsList.value[0].status || 'pending';
+          } else {
+            const cur = ticketsList.value.find(t => t.ticket_id === selectedTicketId.value);
+            if (cur) editTicketStatus.value = cur.status || 'pending';
+          }
+        } else {
+          selectedTicketId.value = '';
+        }
+      } catch (err) {
+        console.error('Fetch tickets error:', err);
+      } finally {
+        isLoadingTickets.value = false;
+        refreshIcons();
+      }
+    }
+
+    function selectTicket(ticket) {
+      if (!ticket) return;
+      selectedTicketId.value = ticket.ticket_id;
+      editTicketStatus.value = ticket.status || 'pending';
+      refreshIcons();
+    }
+
+    async function submitTicketStatusChange(ticketId, newStatus) {
+      if (!activePersona.value?.demo_token) return;
+      if (!isManager.value && !isAdmin.value) {
+        notify('Hanya Manager atau Admin yang dapat memperbarui status tiket', 'error');
+        return;
+      }
+      isUpdatingTicket.value = true;
+      try {
+        const updated = await apiCall(`/api/v1/tickets/${ticketId}/status`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: newStatus })
+        });
+        const idx = ticketsList.value.findIndex(t => t.ticket_id === ticketId);
+        if (idx !== -1) {
+          ticketsList.value[idx] = updated;
+        }
+        editTicketStatus.value = updated.status;
+        notify(`Status tiket ${ticketId} berhasil diperbarui menjadi "${updated.status}"`, 'success');
+      } catch (err) {
+        notify(err.message || 'Gagal memperbarui status tiket', 'error');
+      } finally {
+        isUpdatingTicket.value = false;
+        refreshIcons();
+      }
+    }
+
+    watch(activeTab, (newTab) => {
+      if (newTab === 'tickets') {
+        fetchTickets();
+      }
+      refreshIcons();
+    });
+
     // --- FORMATTERS ---
     function formatStatus(st) {
       const map = {
@@ -1162,6 +1383,11 @@ createApp({
       formWorkingDays,
       formReason,
       formAttachment,
+      isConsultingAgent,
+      agentPolicySummary,
+      agentPolicyCitation,
+      policyCache,
+      fetchAgentPolicyGuardrail,
       openLeaveModal,
       onLeaveTypeChange,
       recalculateDuration,
@@ -1192,19 +1418,38 @@ createApp({
       monitoringSummary,
       monitoringAlerts,
       fetchMonitoringData,
+      ticketsList,
+      isLoadingTickets,
+      selectedTicketId,
+      selectedTicket,
+      ticketFilterStatus,
+      ticketSearchQuery,
+      isUpdatingTicket,
+      editTicketStatus,
+      pendingTicketsCount,
+      filteredTickets,
+      fetchTickets,
+      selectTicket,
+      submitTicketStatusChange,
       formatStatus,
       formatLeaveType,
       statusBadgeClass,
       refreshIcons,
       apiBaseUrl,
+      showSettingsModal,
       showApiSettingsModal,
       tempApiUrl,
       isTestingConnection,
       connectionTestResult,
+      openSettingsModal,
       openApiSettingsModal,
+      closeSettingsModal,
       testBackendConnection,
       saveApiSettings,
-      resetApiSettings
+      resetApiSettings,
+      isSettingsMenuOpen,
+      toggleSettingsMenu,
+      closeSettingsMenu
     };
   }
 }).mount('#app');

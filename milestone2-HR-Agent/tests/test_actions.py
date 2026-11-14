@@ -104,3 +104,31 @@ def test_concurrent_confirmation_creates_one_request(repository: MemoryRepositor
     assert sum(result is not None for result in results) == 2
     assert len(repository.list_leave_requests("EMP-001")) == 1
     assert all(result.status == "pending_manager_review" for result in results if result is not None)
+
+
+def test_ticket_status_update_and_listing(repository: MemoryRepository) -> None:
+    t_id = repository.create_ticket("EMP-001", "privacy", "Sensor nomor hp 081234567890")
+
+    # Listing all tickets
+    tickets = repository.list_tickets()
+    assert len(tickets) >= 1
+    t = next(x for x in tickets if x["ticket_id"] == t_id)
+    assert t["status"] == "pending"
+    assert t["employee_name"] == "Alya Pratama"
+
+    # Update to on progress
+    updated = repository.update_ticket_status(t_id, "on progress", "ADM-001")
+    assert updated["status"] == "on progress"
+    assert updated["updated_by"] == "ADM-001"
+
+    # Update to done
+    done = repository.update_ticket_status(t_id, "done", "ADM-001")
+    assert done["status"] == "done"
+
+    # Invalid status raises ValueError
+    try:
+        repository.update_ticket_status(t_id, "invalid_status", "ADM-001")
+        assert False, "Should have raised ValueError"
+    except ValueError:
+        pass
+

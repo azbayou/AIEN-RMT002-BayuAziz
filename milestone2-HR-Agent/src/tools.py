@@ -107,7 +107,7 @@ MANAGER_ANALYTICS_TOOL_SCHEMA: dict[str, Any] = {
                 "maximum": 30,
             },
         },
-        "required": ["metric_focus"],
+        "required": ["metric_focus", "low_balance_threshold"],
         "additionalProperties": False,
     },
 }
