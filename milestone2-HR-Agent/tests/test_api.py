@@ -169,28 +169,50 @@ def test_root_info_advertises_valid_leave_request_endpoints(client: TestClient) 
 
 
 def test_memory_repository_works_without_disk_data_files() -> None:
-    repo = MemoryRepository()
-    assert repo.authenticate("token-alya") is not None
-    assert repo.authenticate("token-bima") is not None
-    assert repo.authenticate("token-manager") is not None
-    assert repo.authenticate("token-admin") is not None
-    assert len(repo.list_personas()) >= 3
-    assert any(b.leave_type == "annual" for b in repo.get_balances("EMP-001"))
+    empty_repo = MemoryRepository()
+    assert empty_repo.list_personas() == []
+    assert empty_repo.authenticate("token-alya") is None
 
     custom_repo = MemoryRepository(
         employees=[
             {
-                "employee_id": "EMP-999",
-                "display_name": "Custom User",
+                "employee_id": "EMP-001",
+                "username": "alya",
+                "display_name": "Alya Pratama",
                 "role": "employee",
-                "token": "token-custom",
-                "balances": {"annual": 7},
-            }
+                "department": "Engineering",
+                "manager_id": None,
+                "token": "token-alya",
+                "balances": {"annual": 8, "sick": 10, "parental": 60},
+            },
+            {
+                "employee_id": "EMP-002",
+                "username": "bima",
+                "display_name": "Bima Santoso",
+                "role": "employee",
+                "department": "Engineering",
+                "manager_id": None,
+                "token": "token-bima",
+                "balances": {"annual": 3, "sick": 10, "parental": 60},
+            },
+            {
+                "employee_id": "ADM-001",
+                "username": "admin",
+                "display_name": "Monitoring Admin",
+                "role": "monitoring_admin",
+                "department": "HR & People Ops",
+                "manager_id": None,
+                "token": "token-admin",
+                "balances": {},
+            },
         ]
     )
-    ctx = custom_repo.authenticate("token-custom")
-    assert ctx is not None and ctx.employee_id == "EMP-999"
-    assert custom_repo.authenticate("token-alya") is None
+    assert custom_repo.authenticate("token-alya") is not None
+    assert custom_repo.authenticate("token-bima") is not None
+    assert custom_repo.authenticate("token-admin") is not None
+    assert custom_repo.authenticate("token-manager") is None
+    assert len(custom_repo.list_personas()) == 3
+    assert any(b.leave_type == "annual" for b in custom_repo.get_balances("EMP-001"))
 
 
 def test_openai_provider_gemini_stt_priority_and_combined_error(monkeypatch) -> None:

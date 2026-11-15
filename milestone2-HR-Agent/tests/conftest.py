@@ -16,6 +16,43 @@ from src.retrieval import RetrievalService
 from src.tools import ToolExecutor
 
 
+TEST_EMPLOYEES: list[dict[str, object]] = [
+    {
+        "employee_id": "EMP-001",
+        "username": "alya",
+        "password": "Password#123",
+        "display_name": "Alya Pratama",
+        "role": "employee",
+        "department": "Engineering",
+        "manager_id": None,
+        "token": "token-alya",
+        "balances": {"annual": 8, "sick": 10, "parental": 60},
+    },
+    {
+        "employee_id": "EMP-002",
+        "username": "bima",
+        "password": "Password#123",
+        "display_name": "Bima Santoso",
+        "role": "employee",
+        "department": "Engineering",
+        "manager_id": None,
+        "token": "token-bima",
+        "balances": {"annual": 3, "sick": 10, "parental": 60},
+    },
+    {
+        "employee_id": "ADM-001",
+        "username": "admin",
+        "password": "Password#123",
+        "display_name": "Monitoring Admin",
+        "role": "monitoring_admin",
+        "department": "HR & People Ops",
+        "manager_id": None,
+        "token": "token-admin",
+        "balances": {},
+    },
+]
+
+
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
@@ -28,7 +65,7 @@ def settings() -> Settings:
 
 @pytest.fixture
 def repository() -> MemoryRepository:
-    repo = MemoryRepository()
+    repo = MemoryRepository(employees=TEST_EMPLOYEES)
     repo.chunks = [
         PolicyChunk(
             chunk_id="chunk-annual",

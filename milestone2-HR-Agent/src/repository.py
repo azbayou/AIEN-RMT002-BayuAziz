@@ -27,55 +27,6 @@ from .contracts import (
 )
 from .security import hash_password, redact, token_hash, verify_password
 
-def _default_employees() -> list[dict[str, Any]]:
-    """Return built-in in-memory employee fixtures for unit tests without reading disk files."""
-    return [
-        {
-            "employee_id": "EMP-001",
-            "username": "alya",
-            "password": "Password#123",
-            "display_name": "Alya Pratama",
-            "role": "employee",
-            "department": "Engineering",
-            "manager_id": "MGR-001",
-            "token": "token-alya",
-            "balances": {"annual": 8, "sick": 10, "parental": 60},
-        },
-        {
-            "employee_id": "EMP-002",
-            "username": "bima",
-            "password": "Password#123",
-            "display_name": "Bima Santoso",
-            "role": "employee",
-            "department": "Engineering",
-            "manager_id": "MGR-001",
-            "token": "token-bima",
-            "balances": {"annual": 3, "sick": 10, "parental": 60},
-        },
-        {
-            "employee_id": "MGR-001",
-            "username": "raka",
-            "password": "Password#123",
-            "display_name": "Raka Wijaya",
-            "role": "manager",
-            "department": "Engineering",
-            "manager_id": None,
-            "token": "token-manager",
-            "balances": {"annual": 10, "sick": 10, "parental": 0},
-        },
-        {
-            "employee_id": "ADM-001",
-            "username": "admin",
-            "password": "Password#123",
-            "display_name": "Monitoring Admin",
-            "role": "monitoring_admin",
-            "department": "HR & People Ops",
-            "manager_id": None,
-            "token": "token-admin",
-            "balances": {},
-        },
-    ]
-
 
 class Repository(Protocol):
     def health(self) -> bool: ...
@@ -133,7 +84,7 @@ class MemoryRepository:
         self.credentials: dict[str, dict[str, Any]] = {}
         self.balances: dict[str, list[LeaveBalance]] = {}
         today = date.today()
-        employee_rows = employees if employees is not None else _default_employees()
+        employee_rows = employees or []
         for emp in employee_rows:
             emp_id = emp["employee_id"]
             auth_ctx = AuthContext(
@@ -203,8 +154,6 @@ class MemoryRepository:
         ident = username.strip().casefold()
         for emp_id, rec in self.credentials.items():
             valid_idents = {emp_id.casefold(), rec["username"]}
-            if emp_id.casefold() == "mgr-001":
-                valid_idents.update(["raka", "rakabuming"])
             if ident in valid_idents:
                 if verify_password(password, rec["password_hash"]):
                     return LoginResponse(
@@ -829,15 +778,6 @@ class PostgresRepository:
                 """,
                 (ident, ident),
             ).fetchone()
-            if not row and ident in ("raka", "rakabuming"):
-                row = connection.execute(
-                    """
-                    SELECT e.employee_id, e.username, e.password_hash, e.display_name, e.role, e.department, e.manager_id, pt.demo_token
-                    FROM employees e
-                    LEFT JOIN persona_tokens pt ON e.employee_id = pt.employee_id
-                    WHERE e.employee_id = 'MGR-001'
-                    """
-                ).fetchone()
         if not row or not row.get("password_hash"):
             return None
         if not verify_password(password, row["password_hash"]):
