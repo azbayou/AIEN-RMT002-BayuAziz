@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from src.cache import NullCache
 from src.providers import DeterministicProvider
-from src.repository import MemoryRepository
+from src.repository import PostgresRepository
 from src.retrieval import RetrievalService
 from src.security import redact
 
 
-def test_hybrid_retrieval_prefers_lexical_match(repository: MemoryRepository) -> None:
+def test_hybrid_retrieval_prefers_lexical_match(repository: PostgresRepository) -> None:
     service = RetrievalService(repository, DeterministicProvider(), NullCache(), 0)
     results = service.search("jatah cuti tahunan", top_k=2)
     assert results[0].document_id == "HR-LEAVE-001"

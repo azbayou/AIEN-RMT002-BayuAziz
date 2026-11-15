@@ -11,7 +11,7 @@ from src.config import Settings
 from src.contracts import AuthContext, ChatRequest
 from src.opik_tracker import NullSpan, NullTrace, NullTracker, OpikTracker, create_opik_tracker
 from src.providers import DeterministicProvider
-from src.repository import MemoryRepository
+from src.repository import PostgresRepository
 from src.cache import NullCache
 from src.retrieval import RetrievalService
 from src.security import stable_safety_id
@@ -106,7 +106,7 @@ def test_opik_tracker_redaction_and_safety_id():
         assert "diabetes" not in str(trace_end_args["output"])
 
 
-def test_agent_service_with_null_tracker(repository: MemoryRepository):
+def test_agent_service_with_null_tracker(repository: PostgresRepository):
     provider = DeterministicProvider()
     settings = Settings(model_mode="fake", opik_enabled=False)
     cache = NullCache()

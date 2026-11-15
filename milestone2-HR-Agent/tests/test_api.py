@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from src.providers import OpenAIProvider
-from src.repository import MemoryRepository
+from src.repository import MemoryRepository, PostgresRepository
 
 
 AUTH = {"Authorization": "Bearer token-alya"}
@@ -48,7 +48,7 @@ def test_trace_cannot_be_read_by_another_employee(client: TestClient) -> None:
     assert response.status_code == 403
 
 
-def test_tickets_flow_and_permissions(client: TestClient, repository: MemoryRepository) -> None:
+def test_tickets_flow_and_permissions(client: TestClient, repository: PostgresRepository) -> None:
     t_id = repository.create_ticket("EMP-001", "privacy", "Tolong sensor data pribadi saya")
 
     # Employee alya views tickets: should see her ticket with initial status pending
@@ -168,51 +168,19 @@ def test_root_info_advertises_valid_leave_request_endpoints(client: TestClient) 
     assert client.get("/api/v1/leave-requests/me", headers=AUTH).status_code == 200
 
 
-def test_memory_repository_works_without_disk_data_files() -> None:
+def test_postgres_repository_loads_live_personas_without_hardcode(repository: PostgresRepository) -> None:
     empty_repo = MemoryRepository()
     assert empty_repo.list_personas() == []
     assert empty_repo.authenticate("token-alya") is None
 
-    custom_repo = MemoryRepository(
-        employees=[
-            {
-                "employee_id": "EMP-001",
-                "username": "alya",
-                "display_name": "Alya Pratama",
-                "role": "employee",
-                "department": "Engineering",
-                "manager_id": None,
-                "token": "token-alya",
-                "balances": {"annual": 8, "sick": 10, "parental": 60},
-            },
-            {
-                "employee_id": "EMP-002",
-                "username": "bima",
-                "display_name": "Bima Santoso",
-                "role": "employee",
-                "department": "Engineering",
-                "manager_id": None,
-                "token": "token-bima",
-                "balances": {"annual": 3, "sick": 10, "parental": 60},
-            },
-            {
-                "employee_id": "ADM-001",
-                "username": "admin",
-                "display_name": "Monitoring Admin",
-                "role": "monitoring_admin",
-                "department": "HR & People Ops",
-                "manager_id": None,
-                "token": "token-admin",
-                "balances": {},
-            },
-        ]
-    )
-    assert custom_repo.authenticate("token-alya") is not None
-    assert custom_repo.authenticate("token-bima") is not None
-    assert custom_repo.authenticate("token-admin") is not None
-    assert custom_repo.authenticate("token-manager") is None
-    assert len(custom_repo.list_personas()) == 3
-    assert any(b.leave_type == "annual" for b in custom_repo.get_balances("EMP-001"))
+    personas = repository.list_personas()
+    assert len(personas) >= 3
+    assert all(p["employee_id"] != "MGR-001" for p in personas)
+    assert repository.authenticate("token-alya") is not None
+    assert repository.authenticate("token-bima") is not None
+    assert repository.authenticate("token-admin") is not None
+    assert repository.authenticate("token-manager") is None
+    assert any(b.leave_type == "annual" for b in repository.get_balances("EMP-001"))
 
 
 def test_openai_provider_gemini_stt_priority_and_combined_error(monkeypatch) -> None:

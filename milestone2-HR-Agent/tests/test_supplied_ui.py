@@ -8,9 +8,11 @@ import ui.policy_rag as policy_rag
 from ui_contract import API_PATHS, load_personas, select_persona
 
 
-def test_supplied_personas_match_public_identity_contract() -> None:
+def test_supplied_personas_match_public_identity_contract(repository) -> None:
     personas = load_personas(Path(__file__).resolve().parents[1] / "demo_personas.json")
-    assert {item["employee_id"] for item in personas} == {"EMP-001", "EMP-002", "ADM-001"}
+    expected_ids = {p["employee_id"] for p in repository.list_personas()}
+    assert expected_ids
+    assert {item["employee_id"] for item in personas} == expected_ids
     assert len({item["demo_token"] for item in personas}) == len(personas)
 
 

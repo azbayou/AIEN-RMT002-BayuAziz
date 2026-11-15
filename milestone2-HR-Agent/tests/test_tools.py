@@ -9,12 +9,12 @@ from src.cache import NullCache
 from src.config import Settings
 from src.contracts import AuthContext
 from src.providers import DeterministicProvider
-from src.repository import MemoryRepository
+from src.repository import PostgresRepository
 from src.retrieval import RetrievalService
 from src.tools import TOOL_SCHEMAS, ToolExecutor
 
 
-def executor(repository: MemoryRepository) -> ToolExecutor:
+def executor(repository: PostgresRepository) -> ToolExecutor:
     retrieval = RetrievalService(repository, DeterministicProvider(), NullCache(), 0)
     return ToolExecutor(
         repository,
@@ -38,7 +38,7 @@ def test_tool_schemas_are_strict_and_have_complete_required_properties() -> None
         assert set(parameters["required"]) == set(parameters["properties"])
 
 
-def test_malformed_and_unknown_tool_calls_are_rejected(repository: MemoryRepository) -> None:
+def test_malformed_and_unknown_tool_calls_are_rejected(repository: PostgresRepository) -> None:
     tools = executor(repository)
     auth = AuthContext(employee_id="EMP-001", display_name="Alya")
     with pytest.raises(ValidationError):
@@ -50,8 +50,9 @@ def test_malformed_and_unknown_tool_calls_are_rejected(repository: MemoryReposit
 
 
 def test_prepare_leave_is_identity_bound_and_does_not_create_request(
-    repository: MemoryRepository,
+    repository: PostgresRepository,
 ) -> None:
+    before_ids = {r.request_id for r in repository.list_leave_requests("EMP-001")}
     tools = executor(repository)
     proposal, _ = tools.execute(
         "prepare_leave_request",
@@ -65,11 +66,11 @@ def test_prepare_leave_is_identity_bound_and_does_not_create_request(
     )
     assert proposal.requires_confirmation is True
     assert proposal.expires_at is not None
-    assert repository.list_leave_requests("EMP-001") == []
+    assert {r.request_id for r in repository.list_leave_requests("EMP-001")} == before_ids
     assert repository.get_proposal(proposal.proposal_id)[0] == "EMP-001"
 
 
-def test_prepare_leave_rejects_employee_id_spoofing(repository: MemoryRepository) -> None:
+def test_prepare_leave_rejects_employee_id_spoofing(repository: PostgresRepository) -> None:
     tools = executor(repository)
     with pytest.raises(ValidationError):
         tools.execute(
