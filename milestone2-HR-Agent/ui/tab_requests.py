@@ -29,6 +29,21 @@ def render_tab_my_requests(token: str, persona: dict, is_admin: bool) -> None:
                     st.session_state["show_leave_modal"] = True
                     st.rerun()
 
+    # Live leave balances summary from /api/v1/leave-balances/me
+    balances = api_request("GET", API_PATHS["leave_balances"], token, suppress_error=True)
+    if not is_admin and isinstance(balances, list) and balances:
+        bal_map = {
+            item.get("leave_type"): item.get("available_days", 0)
+            for item in balances
+            if isinstance(item, dict)
+        }
+        st.markdown("#### Sisa Saldo Cuti Aktif")
+        b_col1, b_col2, b_col3 = st.columns(3)
+        b_col1.metric("Cuti Tahunan", f"{bal_map.get('annual', 0)} Hari")
+        b_col2.metric("Cuti Sakit", f"{bal_map.get('sick', 0)} Hari")
+        b_col3.metric("Cuti Orang Tua", f"{bal_map.get('parental', 0)} Hari")
+        st.markdown("---")
+
     leave_data = api_request("GET", API_PATHS["my_requests"], token)
 
     if leave_data is not None:

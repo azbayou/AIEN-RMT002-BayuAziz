@@ -126,16 +126,26 @@ def render_tab_team_approvals(token: str, persona: dict, is_admin: bool) -> None
                             else:
                                 st.warning("Pegawai belum melampirkan surat dokter")
 
+                        is_self_request = bool(emp_id and emp_id == persona.get("employee_id"))
                         note_key = f"note_{req_id}"
                         review_note = st.text_input(
                             "Catatan Review Manajer",
                             value="Reviewed by manager",
                             key=note_key,
                             max_chars=300,
+                            disabled=is_self_request,
                         )
+                        if is_self_request:
+                            st.warning("Anda tidak dapat meninjau permohonan cuti milik sendiri.")
                         b_col1, b_col2, _ = st.columns([1.5, 1.5, 3])
                         with b_col1:
-                            if st.button("Setujui Permohonan", key=f"btn_appr_{req_id}", type="primary", use_container_width=True):
+                            if st.button(
+                                "Setujui Permohonan",
+                                key=f"btn_appr_{req_id}",
+                                type="primary",
+                                use_container_width=True,
+                                disabled=is_self_request,
+                            ):
                                 res = api_request(
                                     "POST",
                                     f"/api/v1/manager/leave-requests/{req_id}/review",
@@ -147,7 +157,12 @@ def render_tab_team_approvals(token: str, persona: dict, is_admin: bool) -> None
                                     time.sleep(0.5)
                                     st.rerun()
                         with b_col2:
-                            if st.button("Tolak Permohonan", key=f"btn_rej_{req_id}", use_container_width=True):
+                            if st.button(
+                                "Tolak Permohonan",
+                                key=f"btn_rej_{req_id}",
+                                use_container_width=True,
+                                disabled=is_self_request,
+                            ):
                                 res = api_request(
                                     "POST",
                                     f"/api/v1/manager/leave-requests/{req_id}/review",

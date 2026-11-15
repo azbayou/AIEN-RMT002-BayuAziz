@@ -5,21 +5,39 @@ import os
 import threading
 import time
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import streamlit as st
 
 from ui.config import API_URL
 
+_LOCAL_API_PREFIXES = (
+    "http://localhost",
+    "http://127.0.0.1",
+    "http://0.0.0.0",
+    "https://localhost",
+)
+_LOCAL_HOSTNAMES = {"localhost", "127.0.0.1", "0.0.0.0"}
+
+
+def _is_local_api_url(url: str) -> bool:
+    """Return True only when API_URL points to a loopback/local interface."""
+    normalized = (url or "").strip().lower()
+    if not normalized.startswith(_LOCAL_API_PREFIXES):
+        return False
+    parsed = urlparse(normalized)
+    return parsed.hostname in _LOCAL_HOSTNAMES
+
 
 def ensure_api_running() -> None:
-    """If running in an all-in-one environment without an external API, start FastAPI in background."""
-    if "api" in API_URL or "onrender.com" in API_URL:
+    """If running locally without an external API, start FastAPI in background."""
+    if not _is_local_api_url(API_URL):
         return
     if "FASTAPI_DAEMON_STARTED" not in st.session_state:
         st.session_state["FASTAPI_DAEMON_STARTED"] = True
         try:
-            httpx.get(f"{API_URL}/healthz", timeout=1.0)
+            httpx.get(f"{API_URL}/healthz", timeout=3.0)
         except Exception:
             try:
                 import uvicorn

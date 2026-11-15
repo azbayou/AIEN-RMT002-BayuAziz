@@ -10,8 +10,13 @@ API_PATHS = {
     "chat": "/api/v1/chat",
     "confirm": "/api/v1/action-proposals/{proposal_id}/confirm",
     "my_requests": "/api/v1/leave-requests/me",
+    "leave_balances": "/api/v1/leave-balances/me",
     "monitoring_summary": "/api/v1/monitoring/summary",
     "monitoring_alerts": "/api/v1/monitoring/alerts",
+    "personas": "/api/v1/auth/personas",
+    "policy_rules": "/api/v1/policies/rules",
+    "tickets": "/api/v1/tickets",
+    "ticket_status": "/api/v1/tickets/{ticket_id}/status",
 }
 
 
@@ -29,12 +34,19 @@ def load_personas(path: Path) -> list[dict[str, str]]:
 
 
 def select_persona(state: dict, persona: dict[str, str]) -> None:
-    """Clear responses and confirmation keys when the active identity changes."""
+    """Clear responses, attachments, and confirmation keys when the active identity changes."""
     if state.get("active_employee_id") == persona["employee_id"]:
         return
     state["active_employee_id"] = persona["employee_id"]
-    state.pop("last_chat", None)
+    for static_key in (
+        "last_chat",
+        "pending_sick_attachment",
+        "uploaded_file_obj",
+        "dlg_sick_doc_uploader",
+        "pending_assistant_query",
+    ):
+        state.pop(static_key, None)
     for key in list(state):
-        if key.startswith("idem_"):
+        if key.startswith(("idem_", "pending_sick_att_")):
             state.pop(key, None)
 

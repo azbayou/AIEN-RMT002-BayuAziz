@@ -114,11 +114,17 @@ class OpenAIProvider:
 
         b64_audio = base64.b64encode(audio_bytes).decode("ascii")
 
-        # Models to try: multimodal fast models (gemini-3.5-flash, gemini-3.6-flash)
+        # Models to try: valid multimodal Gemini Flash models first
         models_to_try = []
         if self.gemini_stt_model and "transcribe" not in self.gemini_stt_model:
             models_to_try.append(self.gemini_stt_model)
-        for candidate in ("gemini-3.5-flash", "gemini-3.6-flash"):
+        for candidate in (
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-3.5-flash",
+            "gemini-3.6-flash",
+        ):
             if candidate not in models_to_try:
                 models_to_try.append(candidate)
         if self.gemini_stt_model and self.gemini_stt_model not in models_to_try:
@@ -170,7 +176,10 @@ class OpenAIProvider:
                 else:
                     last_error = f"HTTP {resp.status_code}: {resp.text[:150]}"
             except Exception as err:
-                last_error = str(err)
+                msg = str(err)
+                if self.gemini_api_key:
+                    msg = msg.replace(self.gemini_api_key, "[REDACTED]")
+                last_error = msg
 
         if last_error:
             raise RuntimeError(f"Gemini STT error: {last_error}")
@@ -180,13 +189,14 @@ class OpenAIProvider:
         if not audio_bytes:
             raise ValueError("audio payload must not be empty")
 
+        gemini_error: str | None = None
         # 1. Attempt Gemini STT if configured
         if self.gemini_api_key:
             try:
                 return self._transcribe_with_gemini(audio_bytes, filename=filename, language=language)
-            except Exception:
+            except Exception as err:
                 # If Gemini encounters an API/network error, fallback to OpenAI Whisper
-                pass
+                gemini_error = str(err)
 
         # 2. Primary / Fallback to OpenAI Whisper
         buffer = io.BytesIO(audio_bytes)
@@ -202,9 +212,13 @@ class OpenAIProvider:
             return str(text).strip()
         except Exception as whisper_err:
             err_msg = str(whisper_err)
+            if gemini_error:
+                raise RuntimeError(
+                    f"Speech-to-text failed (Gemini: {gemini_error}; Whisper: {err_msg})"
+                ) from whisper_err
             if "403" in err_msg or "whisper-1" in err_msg:
                 raise RuntimeError(
-                    "Speech-to-text service is unavailable: OpenAI whisper-1 permission denied and Gemini STT fallback failed."
+                    f"Speech-to-text service is unavailable: OpenAI whisper-1 permission denied and Gemini STT is not configured ({err_msg})."
                 ) from whisper_err
             raise
 

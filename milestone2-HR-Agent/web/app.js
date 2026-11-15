@@ -778,6 +778,20 @@ createApp({
       }
 
       // 2. Fetch from Agent LLM (Only when explicitly requested or cache missing)
+      const token = activePersona.value?.demo_token || '';
+      if (!token) {
+        if (!policyCache.value || !policyCache.value[leaveType]) {
+          warmPolicyCacheFromRules(policyRules.value);
+        }
+        const fallback = policyCache.value?.[leaveType];
+        const defaultCitation = leaveType === 'annual' ? '[HR-LEAVE-001]' : (leaveType === 'parental' ? '[HR-LEAVE-003]' : '[HR-LEAVE-002]');
+        agentPolicySummary.value = fallback?.summary || 'Silakan masuk untuk memuat ringkasan kebijakan dari asisten.';
+        agentPolicyCitation.value = fallback?.citation || defaultCitation;
+        isConsultingAgent.value = false;
+        refreshIcons();
+        return;
+      }
+
       isConsultingAgent.value = true;
       agentPolicySummary.value = '';
       agentPolicyCitation.value = '';
@@ -786,7 +800,6 @@ createApp({
       const label = typeLabels[leaveType] || leaveType;
 
       try {
-        const token = sessionStorage.getItem('miyo_active_token') || 'token-alya';
         const res = await fetch(`${getApiBase()}/api/v1/chat`, {
           method: 'POST',
           headers: {
@@ -800,24 +813,41 @@ createApp({
 
         if (res.ok) {
           const data = await res.json();
-          let citation = '[HR-LEAVE-001]';
-          if (data.citations && data.citations.length > 0) {
-            citation = data.citations.join(', ');
-          } else {
-            const match = data.reply.match(/\[(HR-LEAVE-[0-9]+)\]/i);
-            citation = match ? match[0] : (leaveType === 'annual' ? '[HR-LEAVE-001]' : '[HR-LEAVE-002]');
+          const defaultCitation = leaveType === 'annual' ? '[HR-LEAVE-001]' : (leaveType === 'parental' ? '[HR-LEAVE-003]' : '[HR-LEAVE-002]');
+          let citation = defaultCitation;
+          if (Array.isArray(data.citations) && data.citations.length > 0) {
+            const mapped = data.citations
+              .map(c => typeof c === 'string' ? c : (c.document_id ? '[' + c.document_id + ']' : (c.title || '')))
+              .filter(Boolean)
+              .join(', ');
+            if (mapped) citation = mapped;
+          } else if (typeof data.answer === 'string') {
+            const match = data.answer.match(/\[(HR-LEAVE-[0-9]+)\]/i);
+            citation = match ? match[0] : defaultCitation;
           }
-          agentPolicySummary.value = data.reply;
+          const summary = data.answer || 'Informasi kebijakan berhasil dimuat.';
+          agentPolicySummary.value = summary;
           agentPolicyCitation.value = citation;
 
           // Save to Cache for subsequent opens/switches
           policyCache.value[leaveType] = {
             citation,
-            summary: data.reply
+            summary
           };
+        } else {
+          if (!policyCache.value || !policyCache.value[leaveType]) {
+            warmPolicyCacheFromRules(policyRules.value);
+          }
+          if (policyCache.value && policyCache.value[leaveType]) {
+            agentPolicySummary.value = policyCache.value[leaveType].summary;
+            agentPolicyCitation.value = policyCache.value[leaveType].citation;
+          }
         }
       } catch (err) {
         console.warn('Gagal memanggil Agent untuk guardrail kebijakan, menggunakan fallback cache:', err);
+        if (!policyCache.value || !policyCache.value[leaveType]) {
+          warmPolicyCacheFromRules(policyRules.value);
+        }
         if (policyCache.value && policyCache.value[leaveType]) {
           agentPolicySummary.value = policyCache.value[leaveType].summary;
           agentPolicyCitation.value = policyCache.value[leaveType].citation;
@@ -928,10 +958,23 @@ createApp({
 
         mediaRecorder.onstop = async () => {
           stream.getTracks().forEach(t => t.stop());
+          isRecording.value = false;
           const audioBlob = new Blob(audioChunks, { type: mimeType });
+          if (audioBlob.size < 4) {
+            notify('Rekaman suara terlalu singkat atau kosong. Silakan rekam ulang.', 'info');
+            return;
+          }
           const reader = new FileReader();
+          reader.onerror = () => {
+            notify('Gagal membaca data rekaman audio dari perangkat.', 'error');
+          };
           reader.onload = async () => {
-            const b64 = reader.result.split(',')[1];
+            const rawResult = typeof reader.result === 'string' ? reader.result : '';
+            const b64 = rawResult.includes(',') ? rawResult.split(',')[1] : '';
+            if (!b64) {
+              notify('Format rekaman audio tidak valid. Silakan coba lagi.', 'error');
+              return;
+            }
             try {
               const res = await apiCall('/api/v1/audio/transcribe', {
                 method: 'POST',
@@ -941,14 +984,24 @@ createApp({
                   language: 'id'
                 })
               });
-              if (res.text) {
+              if (res && res.text) {
                 userInputText.value = res.text;
                 sendChatMessage();
               } else {
                 notify('Tidak ada ucapan yang terdeteksi.', 'info');
               }
             } catch (err) {
-              notify(`Gagal menerjemahkan suara: ${err.message}`, 'error');
+              const rawMsg = String(err?.message || '');
+              const lower = rawMsg.toLowerCase();
+              if (lower.includes('no speech detected')) {
+                notify('Tidak ada ucapan yang terdeteksi pada rekaman. Silakan ulangi dan bicara lebih jelas.', 'info');
+              } else if (lower.includes('audio size') || lower.includes('invalid base64')) {
+                notify('Ukuran atau format rekaman audio tidak valid. Silakan rekam ulang minimal 1 detik.', 'error');
+              } else if (lower.includes('unavailable') || lower.includes('502') || lower.includes('bad gateway')) {
+                notify('Layanan suara-ke-teks (STT) sedang tidak tersedia. Silakan ketik pesan Anda secara manual.', 'error');
+              } else {
+                notify(`Gagal menerjemahkan suara: ${rawMsg || 'Terjadi kesalahan pada layanan STT.'}`, 'error');
+              }
             }
           };
           reader.readAsDataURL(audioBlob);

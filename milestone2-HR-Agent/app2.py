@@ -15,10 +15,12 @@ import ui.tab_requests
 import ui.tab_calendar
 import ui.tab_approvals
 import ui.tab_monitoring
+import ui.tab_tickets
 
 importlib.reload(ui.config)
 importlib.reload(ui.sidebar)
 importlib.reload(ui.tab_chat)
+importlib.reload(ui.tab_tickets)
 
 from ui.api_client import ensure_api_running
 from ui.config import GUNUNGAN_LOGO, MIYO_LOGO, init_page_and_theme
@@ -29,6 +31,7 @@ from ui.tab_calendar import render_tab_calendar
 from ui.tab_chat import render_tab_chat
 from ui.tab_monitoring import render_tab_monitoring
 from ui.tab_requests import render_tab_my_requests
+from ui.tab_tickets import render_tab_tickets
 
 # 1. Initialize Page Config, Theme State, and Ensure Background API
 ensure_api_running()
@@ -65,6 +68,8 @@ elif selected_tab == "Permohonan Cuti Saya":
     render_tab_my_requests(token, persona, is_admin)
 elif selected_tab == "Kalender Cuti":
     render_tab_calendar(token, persona, is_manager, is_admin)
+elif selected_tab == "Tickets":
+    render_tab_tickets(token, persona, is_manager, is_admin)
 elif selected_tab == "Persetujuan Tim" and is_manager:
     render_tab_team_approvals(token, persona, is_admin)
 elif selected_tab == "Monitoring Operasional" and is_admin:

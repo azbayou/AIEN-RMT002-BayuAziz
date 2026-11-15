@@ -1,26 +1,42 @@
 """Sub-App Session Selector with Minimalist SSO List Row (Linear / Google Workspace Style)."""
 from __future__ import annotations
 
-import json
 import os
 
 import httpx
 import streamlit as st
 
-from ui.config import API_URL, BASE_DIR, GUNUNGAN_LOGO, MIYO_LOGO
+from ui.config import API_URL, GUNUNGAN_LOGO, MIYO_LOGO
 from ui.icons import svg_icon
-from ui_contract import select_persona
+from ui_contract import API_PATHS, select_persona
 
 
 def _load_system_employees() -> list[dict]:
-    """Read employee directory dynamically from data/employees.json."""
-    emp_path = BASE_DIR / "data" / "employees.json"
-    if emp_path.exists():
-        try:
-            return json.loads(emp_path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+    """Fetch employee directory dynamically from the backend /api/v1/auth/personas endpoint."""
+    try:
+        resp = httpx.get(f"{API_URL}{API_PATHS['personas']}", timeout=5.0)
+        if resp.status_code == 200:
+            data = resp.json()
+            if isinstance(data, list):
+                return data
+    except Exception:
+        pass
     return []
+
+
+def _purge_sensitive_session_state() -> None:
+    """Purge stale medical attachments, pending queries, and idempotency keys on login."""
+    for key in (
+        "last_chat",
+        "pending_sick_attachment",
+        "uploaded_file_obj",
+        "dlg_sick_doc_uploader",
+        "pending_assistant_query",
+    ):
+        st.session_state.pop(key, None)
+    for key in list(st.session_state):
+        if key.startswith(("idem_", "pending_sick_att_")):
+            st.session_state.pop(key, None)
 
 
 def render_session_selector() -> None:
@@ -68,7 +84,10 @@ def render_session_selector() -> None:
 
     employees = _load_system_employees()
     if not employees:
-        st.error("[ERROR] Direktori pegawai tidak ditemukan di data/employees.json.")
+        st.error(
+            f"[ERROR] Daftar persona tidak dapat dimuat dari backend API ({API_URL}{API_PATHS['personas']}). "
+            "Pastikan layanan backend aktif dan dapat dihubungi."
+        )
         return
 
     # Check if a step-up authentication modal/panel is pending
@@ -127,7 +146,9 @@ def render_session_selector() -> None:
                                 "label": f"{profile['display_name']} — {profile.get('department') or profile['role'].title()}",
                                 "scenario": f"Akun {profile['role']} terverifikasi.",
                                 "demo_token": access_token,
+                                "role": profile["role"],
                             }
+                            _purge_sensitive_session_state()
                             st.session_state["authenticated"] = True
                             st.session_state["active_persona"] = active_persona
                             select_persona(st.session_state, active_persona)
@@ -217,18 +238,24 @@ def render_session_selector() -> None:
                         st.session_state["pending_stepup_user"] = emp
                         st.rerun()
                     else:
-                        active_persona = {
-                            "employee_id": emp_id,
-                            "label": f"{emp['display_name']} — {emp.get('department', 'Engineering')}",
-                            "scenario": "Akun pegawai reguler terotentikasi.",
-                            "demo_token": emp["token"],
-                        }
-                        st.session_state["authenticated"] = True
-                        st.session_state["active_persona"] = active_persona
-                        select_persona(st.session_state, active_persona)
-                        st.session_state["chat_history"] = []
-                        st.session_state["confirmed_proposals"] = set()
-                        st.rerun()
+                        demo_token = emp.get("demo_token") or emp.get("token")
+                        if not demo_token:
+                            st.error("Token SSO tidak tersedia untuk akun ini. Silakan login menggunakan password.")
+                        else:
+                            active_persona = {
+                                "employee_id": emp_id,
+                                "label": f"{emp['display_name']} — {emp.get('department', 'Engineering')}",
+                                "scenario": "Akun pegawai reguler terotentikasi.",
+                                "demo_token": demo_token,
+                                "role": role,
+                            }
+                            _purge_sensitive_session_state()
+                            st.session_state["authenticated"] = True
+                            st.session_state["active_persona"] = active_persona
+                            select_persona(st.session_state, active_persona)
+                            st.session_state["chat_history"] = []
+                            st.session_state["confirmed_proposals"] = set()
+                            st.rerun()
 
             st.markdown(
                 '<div style="height: 1px; background-color: var(--border-subtle); margin: 6px 0 14px 0;"></div>',
@@ -237,15 +264,23 @@ def render_session_selector() -> None:
 
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Expandable Info on Test Credentials
+    # Expandable Info on Test Credentials (derived dynamically from backend API personas)
     with st.expander("Informasi Kredensial Pengujian (Demo)", expanded=False):
-        st.markdown(
-            """
-            | ID Pegawai | Nama Pegawai | Role | Departemen | Token Bearer | Password Verifikasi |
-            | :--- | :--- | :--- | :--- | :--- | :--- |
-            | `EMP-001` | Alya Pratama | `employee` | Engineering | `token-alya` | *(Akses Langsung SSO)* |
-            | `EMP-002` | Bima Santoso | `employee` | Engineering | `token-bima` | *(Akses Langsung SSO)* |
-            | `MGR-001` | Raka Wijaya | `manager` | Engineering | `token-manager` | *(Gunakan password terdaftar)* |
-            | `ADM-001` | Monitoring Admin | `monitoring_admin` | HR & People Ops | `token-admin` | *(Gunakan password terdaftar)* |
-            """
-        )
+        rows_md = [
+            "| ID Pegawai | Nama Pegawai | Role | Departemen | Token / Auth | Password Verifikasi |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- |",
+        ]
+        for emp in employees:
+            emp_id = emp.get("employee_id", "-")
+            emp_name = emp.get("display_name", "-")
+            emp_role = emp.get("role", "employee")
+            emp_dept = emp.get("department", "-")
+            emp_tok = emp.get("demo_token") or emp.get("token")
+            tok_cell = f"`{emp_tok}`" if emp_tok else "*(Via `POST /api/v1/auth/login`)*"
+            pwd_cell = (
+                "*(Gunakan password terdaftar)*"
+                if emp.get("requires_password") or emp_role in ("manager", "monitoring_admin")
+                else "*(Akses Langsung SSO)*"
+            )
+            rows_md.append(f"| `{emp_id}` | {emp_name} | `{emp_role}` | {emp_dept} | {tok_cell} | {pwd_cell} |")
+        st.markdown("\n".join(rows_md))

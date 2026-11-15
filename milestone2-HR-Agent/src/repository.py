@@ -4,9 +4,7 @@ from __future__ import annotations
 import base64
 from copy import deepcopy
 from datetime import date, datetime, timezone
-import json
 from math import sqrt
-from pathlib import Path
 import re
 from threading import RLock
 from typing import Any, Protocol
@@ -29,17 +27,54 @@ from .contracts import (
 )
 from .security import hash_password, redact, token_hash, verify_password
 
-_DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-
-
-def _load_employees() -> list[dict[str, Any]]:
-    path = _DATA_DIR / "employees.json"
-    if path.is_file():
-        try:
-            return json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            pass
-    return []
+def _default_employees() -> list[dict[str, Any]]:
+    """Return built-in in-memory employee fixtures for unit tests without reading disk files."""
+    return [
+        {
+            "employee_id": "EMP-001",
+            "username": "alya",
+            "password": "Password#123",
+            "display_name": "Alya Pratama",
+            "role": "employee",
+            "department": "Engineering",
+            "manager_id": "MGR-001",
+            "token": "token-alya",
+            "balances": {"annual": 8, "sick": 10, "parental": 60},
+        },
+        {
+            "employee_id": "EMP-002",
+            "username": "bima",
+            "password": "Password#123",
+            "display_name": "Bima Santoso",
+            "role": "employee",
+            "department": "Engineering",
+            "manager_id": "MGR-001",
+            "token": "token-bima",
+            "balances": {"annual": 3, "sick": 10, "parental": 60},
+        },
+        {
+            "employee_id": "MGR-001",
+            "username": "raka",
+            "password": "Password#123",
+            "display_name": "Raka Wijaya",
+            "role": "manager",
+            "department": "Engineering",
+            "manager_id": None,
+            "token": "token-manager",
+            "balances": {"annual": 10, "sick": 10, "parental": 0},
+        },
+        {
+            "employee_id": "ADM-001",
+            "username": "admin",
+            "password": "Password#123",
+            "display_name": "Monitoring Admin",
+            "role": "monitoring_admin",
+            "department": "HR & People Ops",
+            "manager_id": None,
+            "token": "token-admin",
+            "balances": {},
+        },
+    ]
 
 
 class Repository(Protocol):
@@ -92,13 +127,14 @@ class ConflictError(RuntimeError):
 
 
 class MemoryRepository:
-    def __init__(self) -> None:
+    def __init__(self, employees: list[dict[str, Any]] | None = None) -> None:
         self.chunks: list[PolicyChunk] = []
         self.identities: dict[str, tuple[AuthContext, str]] = {}
         self.credentials: dict[str, dict[str, Any]] = {}
         self.balances: dict[str, list[LeaveBalance]] = {}
         today = date.today()
-        for emp in _load_employees():
+        employee_rows = employees if employees is not None else _default_employees()
+        for emp in employee_rows:
             emp_id = emp["employee_id"]
             auth_ctx = AuthContext(
                 employee_id=emp_id,

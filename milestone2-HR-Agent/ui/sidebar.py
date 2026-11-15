@@ -6,10 +6,11 @@ import os
 
 import streamlit as st
 
-from ui.api_client import get_health_status
+from ui.api_client import api_request, get_health_status
 from ui.config import GUNUNGAN_LOGO, MIYO_LOGO
 from ui.icons import svg_icon
 from ui.leave_form import leave_dialog
+from ui_contract import API_PATHS
 
 
 def render_sidebar() -> tuple[str, dict, bool, bool, str]:
@@ -69,6 +70,39 @@ def render_sidebar() -> tuple[str, dict, bool, bool, str]:
             unsafe_allow_html=True,
         )
 
+        # Sisa Saldo Cuti Summary Card (live from /api/v1/leave-balances/me)
+        balances = api_request("GET", API_PATHS["leave_balances"], token, suppress_error=True)
+        if not is_admin and isinstance(balances, list) and balances:
+            bal_map = {
+                item.get("leave_type"): item.get("available_days", 0)
+                for item in balances
+                if isinstance(item, dict)
+            }
+            st.markdown(
+                f"""
+                <div style="background-color: var(--bg-surface-elevated); border: 1px solid var(--border-subtle); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px;">
+                    <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-orange); margin-bottom: 8px;">
+                        Sisa Saldo Cuti
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center;">
+                        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 4px;">
+                            <div style="font-size: 0.68rem; color: var(--text-muted);">Tahunan</div>
+                            <div style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono);">{bal_map.get('annual', 0)}h</div>
+                        </div>
+                        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 4px;">
+                            <div style="font-size: 0.68rem; color: var(--text-muted);">Sakit</div>
+                            <div style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono);">{bal_map.get('sick', 0)}h</div>
+                        </div>
+                        <div style="background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 6px; padding: 6px 4px;">
+                            <div style="font-size: 0.68rem; color: var(--text-muted);">Orang Tua</div>
+                            <div style="font-size: 0.95rem; font-weight: 700; color: var(--text-primary); font-family: var(--font-mono);">{bal_map.get('parental', 0)}h</div>
+                        </div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
         # Menu Bar: Sidebar Vertical Navigation Tabs with Highlight
         st.markdown(
             "<div style='font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-orange); margin-bottom: 8px;'>Menu Bar</div>",
@@ -79,6 +113,7 @@ def render_sidebar() -> tuple[str, dict, bool, bool, str]:
             "Asisten Kebijakan",
             "Permohonan Cuti Saya",
             "Kalender Cuti",
+            "Tickets",
         ]
         if is_manager:
             nav_options.append("Persetujuan Tim")
@@ -114,8 +149,20 @@ def render_sidebar() -> tuple[str, dict, bool, bool, str]:
             st.session_state["active_persona"] = None
             st.session_state["chat_history"] = []
             st.session_state["confirmed_proposals"] = set()
-            st.session_state.pop("pending_stepup_user", None)
-            st.session_state.pop("nav_active_tab", None)
+            for state_key in (
+                "active_employee_id",
+                "last_chat",
+                "pending_stepup_user",
+                "nav_active_tab",
+                "pending_sick_attachment",
+                "uploaded_file_obj",
+                "dlg_sick_doc_uploader",
+                "pending_assistant_query",
+            ):
+                st.session_state.pop(state_key, None)
+            for key in list(st.session_state):
+                if key.startswith(("pending_sick_att_", "idem_")):
+                    st.session_state.pop(key, None)
             st.rerun()
 
         st.markdown("<div style='height: 24px;'></div>", unsafe_allow_html=True)

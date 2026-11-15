@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
+from src.providers import OpenAIProvider
 from src.repository import MemoryRepository
 
 
@@ -91,5 +95,159 @@ def test_tickets_flow_and_permissions(client: TestClient, repository: MemoryRepo
     )
     assert res_done.status_code == 200
     assert res_done.json()["status"] == "done"
+
+
+def test_cors_headers_disallow_credentials_with_wildcard_origin(client: TestClient) -> None:
+    preflight = client.options(
+        "/api/v1/chat",
+        headers={
+            "Origin": "http://evil.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "Content-Type, Authorization",
+        },
+    )
+    assert preflight.status_code == 200
+    assert preflight.headers.get("access-control-allow-origin") == "*"
+    assert preflight.headers.get("access-control-allow-credentials") != "true"
+
+    health = client.get("/healthz", headers={"Origin": "http://evil.com"})
+    assert health.status_code == 200
+    assert health.headers.get("access-control-allow-origin") == "*"
+    assert health.headers.get("access-control-allow-credentials") != "true"
+
+    vercel_path = Path(__file__).resolve().parents[1] / "vercel.json"
+    if vercel_path.is_file():
+        vercel_cfg = json.loads(vercel_path.read_text(encoding="utf-8"))
+        for block in vercel_cfg.get("headers", []):
+            header_keys = {h["key"].lower() for h in block.get("headers", [])}
+            assert "access-control-allow-credentials" not in header_keys
+
+
+def test_rfc7807_format_for_404_and_405_routing_errors(client: TestClient) -> None:
+    res_404 = client.get("/api/v1/nonexistent-route-xyz")
+    assert res_404.status_code == 404
+    body_404 = res_404.json()
+    assert body_404["type"] == "about:blank"
+    assert body_404["title"] == "Not found"
+    assert body_404["status"] == 404
+    assert body_404["detail"]
+
+    res_405 = client.post("/healthz")
+    assert res_405.status_code == 405
+    body_405 = res_405.json()
+    assert body_405["type"] == "about:blank"
+    assert body_405["title"] == "Method not allowed"
+    assert body_405["status"] == 405
+    assert body_405["detail"]
+
+
+def test_validation_error_422_includes_field_level_detail(client: TestClient) -> None:
+    res_chat = client.post("/api/v1/chat", headers=AUTH, json={})
+    assert res_chat.status_code == 422
+    body_chat = res_chat.json()
+    assert body_chat["title"] == "Invalid request"
+    assert body_chat["status"] == 422
+    assert "Request validation failed:" in body_chat["detail"]
+    assert "message" in body_chat["detail"]
+
+    res_login = client.post("/api/v1/auth/login", json={"username": ""})
+    assert res_login.status_code == 422
+    body_login = res_login.json()
+    assert "username" in body_login["detail"] or "password" in body_login["detail"]
+
+
+def test_root_info_advertises_valid_leave_request_endpoints(client: TestClient) -> None:
+    for path in ("/", "/api"):
+        res = client.get(path)
+        assert res.status_code == 200
+        endpoints = res.json()["endpoints"]
+        assert endpoints["leave_requests"] == "/api/v1/leave-requests/me"
+        assert endpoints["manager_leave_requests"] == "/api/v1/manager/leave-requests"
+        assert "/api/v1/leaves/requests" not in endpoints.values()
+
+    assert client.get("/api/v1/leave-requests/me", headers=AUTH).status_code == 200
+
+
+def test_memory_repository_works_without_disk_data_files() -> None:
+    repo = MemoryRepository()
+    assert repo.authenticate("token-alya") is not None
+    assert repo.authenticate("token-bima") is not None
+    assert repo.authenticate("token-manager") is not None
+    assert repo.authenticate("token-admin") is not None
+    assert len(repo.list_personas()) >= 3
+    assert any(b.leave_type == "annual" for b in repo.get_balances("EMP-001"))
+
+    custom_repo = MemoryRepository(
+        employees=[
+            {
+                "employee_id": "EMP-999",
+                "display_name": "Custom User",
+                "role": "employee",
+                "token": "token-custom",
+                "balances": {"annual": 7},
+            }
+        ]
+    )
+    ctx = custom_repo.authenticate("token-custom")
+    assert ctx is not None and ctx.employee_id == "EMP-999"
+    assert custom_repo.authenticate("token-alya") is None
+
+
+def test_openai_provider_gemini_stt_priority_and_combined_error(monkeypatch) -> None:
+    import src.providers as providers_mod
+
+    provider = OpenAIProvider(
+        api_key="sk-test",
+        model="gpt-4o-mini",
+        embedding_model="text-embedding-3-small",
+        gemini_api_key="gm-secret-key",
+        gemini_stt_model="gemini-3.5-transcribe",
+    )
+    called_urls: list[str] = []
+
+    class FakeResp:
+        def __init__(self, status_code: int, text: str = "", json_data=None):
+            self.status_code = status_code
+            self.text = text
+            self._json = json_data or {}
+
+        def json(self):
+            return self._json
+
+    def fake_post_fail(url: str, json: dict, timeout: float):
+        called_urls.append(url)
+        return FakeResp(404, text="model not found")
+
+    monkeypatch.setattr(providers_mod.httpx, "post", fake_post_fail)
+    monkeypatch.setattr(
+        provider.client.audio.transcriptions,
+        "create",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("403 whisper-1 denied")),
+    )
+
+    try:
+        provider.transcribe(b"RIFF\x00\x00\x00\x00WAVE", "sample.wav", "id")
+        raise AssertionError("Expected RuntimeError when both Gemini and Whisper fail")
+    except RuntimeError as exc:
+        msg = str(exc)
+        assert "Gemini:" in msg
+        assert "Whisper:" in msg
+        assert "gm-secret-key" not in msg
+
+    assert called_urls[0].split("/models/")[1].startswith("gemini-2.5-flash:")
+    assert called_urls[1].split("/models/")[1].startswith("gemini-2.0-flash:")
+    assert called_urls[2].split("/models/")[1].startswith("gemini-1.5-flash:")
+
+    # Verify [NO_SPEECH] returns empty string and valid transcript returns clean text
+    monkeypatch.setattr(
+        providers_mod.httpx,
+        "post",
+        lambda url, json, timeout: FakeResp(
+            200,
+            json_data={"candidates": [{"content": {"parts": [{"text": "[NO_SPEECH]"}]}}]},
+        ),
+    )
+    assert provider.transcribe(b"RIFF\x00\x00\x00\x00WAVE", "silence.wav", "id") == ""
+
 
 

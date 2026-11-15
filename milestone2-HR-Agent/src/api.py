@@ -14,6 +14,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
 from .contracts import (
@@ -96,28 +97,39 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(request: Request, exc: RequestValidationError):
+        field_errors = []
+        for err in exc.errors()[:5]:
+            loc = ".".join(str(part) for part in err.get("loc", []) if part != "body")
+            msg = err.get("msg", "invalid value")
+            field_errors.append(f"{loc}: {msg}" if loc else msg)
+        detail = (
+            f"Request validation failed: {'; '.join(field_errors)}"
+            if field_errors
+            else "Request validation failed."
+        )
         return JSONResponse(
             status_code=422,
             content=ProblemDetail(
                 title="Invalid request",
                 status=422,
-                detail="Request validation failed.",
+                detail=redact(detail),
             ).model_dump(),
         )
 
-    @app.exception_handler(HTTPException)
-    async def http_exception_handler(request: Request, exc: HTTPException):
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_handler(request: Request, exc: StarletteHTTPException):
         titles = {
             401: "Unauthorized",
             403: "Forbidden",
             404: "Not found",
+            405: "Method not allowed",
             409: "Conflict",
         }
         return JSONResponse(
@@ -475,7 +487,8 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
                 "personas": "/api/v1/auth/personas",
                 "chat": "/api/v1/chat",
                 "tickets": "/api/v1/tickets",
-                "leave_requests": "/api/v1/leaves/requests",
+                "leave_requests": "/api/v1/leave-requests/me",
+                "manager_leave_requests": "/api/v1/manager/leave-requests",
                 "monitoring_summary": "/api/v1/monitoring/summary",
                 "monitoring_rules": "/api/v1/monitoring/rules",
                 "monitoring_alerts": "/api/v1/monitoring/alerts",
