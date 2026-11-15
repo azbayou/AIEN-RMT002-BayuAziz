@@ -2,7 +2,7 @@
 <html lang="id" class="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
   <title>Miyo HR Portal — PT Nusantara Digital</title>
   <link rel="icon" type="image/png" href="./asset/img/miyo.png">
   <!-- Google Fonts: Inter & JetBrains Mono for Claude-like Cleanliness -->
@@ -33,10 +33,16 @@
               text: 'var(--text-primary)',
               secondary: 'var(--text-secondary)',
               muted: 'var(--text-muted)',
-              blue: '#2563eb',
-              'blue-hover': '#1d4ed8',
-              'blue-light': '#3b82f6',
-              'blue-subtle': 'rgba(37, 99, 235, 0.12)'
+              blue: 'var(--accent-primary)',
+              'blue-hover': 'var(--accent-hover)',
+              'blue-light': 'var(--accent-highlight)',
+              'blue-subtle': 'var(--accent-subtle)'
+            },
+            blue: {
+              300: '#E0F8C7',
+              400: 'rgb(var(--accent-highlight-rgb) / <alpha-value>)',
+              500: '#B7D894',
+              600: 'rgb(var(--accent-primary-rgb) / <alpha-value>)'
             }
           },
           fontFamily: {
@@ -63,37 +69,60 @@
       overflow: hidden;
     }
 
-    @media (max-width: 768px) {
+    @media (max-width: 767px) {
       body {
         zoom: 1.0;
         height: 100vh;
+        height: 100dvh;
         width: 100vw;
         max-height: 100vh;
+        max-height: 100dvh;
       }
     }
 
-    /* Light Mode Tokens (Clean Slate & Crisp White) */
+    /* Light Mode Tokens (ColorHunt Opsi 1 — Soft Mint) */
     :root {
-      --bg-app: #f8fafc;
-      --bg-sidebar: #f1f5f9;
+      --bg-app: #f6fcef;
+      --bg-sidebar: #ecf7df;
       --bg-surface: #ffffff;
-      --bg-elevated: #f8fafc;
-      --border-subtle: #e2e8f0;
-      --text-primary: #090d16;
-      --text-secondary: #334155;
-      --text-muted: #64748b;
+      --bg-elevated: #E0F8C7;
+      --border-subtle: #cbe3b0;
+      --text-primary: #202734;
+      --text-secondary: #36415A;
+      --text-muted: #5a6782;
+      --accent-primary: #36415A;
+      --accent-primary-rgb: 54 65 90;
+      --accent-hover: #202734;
+      --accent-contrast: #E0F8C7;
+      --accent-highlight: #36415A;
+      --accent-highlight-rgb: 54 65 90;
+      --accent-subtle: #E0F8C7;
     }
 
-    /* Dark Mode Tokens (Deep Obsidian Black & Midnight Blue Accent) */
+    /* Dark Mode Tokens (ColorHunt Opsi 1 — Deep Navy & Sage Green) */
     html.dark {
-      --bg-app: #090a0f;
-      --bg-sidebar: #0d0f17;
-      --bg-surface: #12151f;
-      --bg-elevated: #181c29;
-      --border-subtle: #1e2436;
+      --bg-app: #202734;
+      --bg-sidebar: #1a202c;
+      --bg-surface: #283142;
+      --bg-elevated: #36415A;
+      --border-subtle: #36415A;
       --text-primary: #f1f5f9;
-      --text-secondary: #94a3b8;
-      --text-muted: #64748b;
+      --text-secondary: #cbd5e1;
+      --text-muted: #94a3b8;
+      --accent-primary: #B7D894;
+      --accent-primary-rgb: 183 216 148;
+      --accent-hover: #a5cc7e;
+      --accent-contrast: #202734;
+      --accent-highlight: #E0F8C7;
+      --accent-highlight-rgb: 224 248 199;
+      --accent-subtle: rgba(183, 216, 148, 0.14);
+    }
+
+    /* Kontras tinggi pada tombol & bubble aksen utama */
+    .bg-claude-blue,
+    .bg-blue-600,
+    .hover\:bg-blue-600:hover {
+      color: var(--accent-contrast) !important;
     }
 
     [v-cloak] { display: none; }
@@ -102,7 +131,7 @@
     ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 9999px; }
-    ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent-primary); }
 
     /* Claude-inspired Markdown Prose */
     .prose-claude p { margin-bottom: 0.75rem; line-height: 1.65; }
@@ -111,20 +140,20 @@
     .prose-claude ol { list-style-type: decimal; margin-left: 1.25rem; margin-bottom: 0.75rem; }
     .prose-claude li { margin-bottom: 0.35rem; line-height: 1.6; }
     .prose-claude code {
-      background-color: rgba(59, 130, 246, 0.12);
-      color: #60a5fa;
+      background-color: var(--accent-subtle);
+      color: var(--accent-highlight);
       padding: 0.15rem 0.4rem;
       border-radius: 0.375rem;
       font-size: 0.84em;
       font-family: 'JetBrains Mono', monospace;
     }
     html:not(.dark) .prose-claude code {
-      background-color: rgba(37, 99, 235, 0.08);
-      color: #1d4ed8;
+      background-color: #E0F8C7;
+      color: #202734;
     }
     .prose-claude strong { color: var(--text-primary); font-weight: 600; }
     .prose-claude blockquote {
-      border-left: 3px solid #2563eb;
+      border-left: 3px solid var(--accent-primary);
       padding-left: 0.85rem;
       color: var(--text-secondary);
       margin: 0.75rem 0;
@@ -141,7 +170,7 @@
   </style>
 </head>
 
-<body class="bg-claude-bg text-claude-text font-sans antialiased h-screen overflow-hidden select-none">
+<body class="bg-claude-bg text-claude-text font-sans antialiased h-[100dvh] overflow-hidden select-none">
   <div id="app" v-cloak class="h-full w-full flex flex-col">
 
     <!-- GLOBAL TOAST NOTIFICATION -->
@@ -269,27 +298,39 @@
     <!-- =====================================================================
          GATE 2: AUTHENTICATED MAIN WORKSPACE (SIDEBAR + MAIN VIEWPORT)
          ===================================================================== -->
-    <div v-else class="flex-1 flex h-full w-full overflow-hidden">
+    <div v-else class="flex-1 min-h-0 flex h-full w-full overflow-hidden relative">
 
-      <!-- LEFT SIDEBAR (CLAUDE MINIMALIST BLACK-BLUE) -->
-      <aside :class="['bg-claude-sidebar border-r border-claude-border flex flex-col justify-between transition-all duration-200 z-30 flex-shrink-0', isSidebarCollapsed ? 'w-16' : 'w-72']">
+      <!-- Mobile Sidebar Backdrop -->
+      <div v-if="isMobileSidebarOpen" @click="closeMobileSidebar"
+        class="fixed inset-0 bg-black/60 backdrop-blur-[1px] z-30 md:hidden transition-opacity"></div>
+
+      <!-- LEFT SIDEBAR (CLAUDE MINIMALIST DRAWER ON MOBILE / INLINE ON DESKTOP) -->
+      <aside :class="[
+        'fixed inset-y-0 left-0 z-40 w-64 max-w-[78vw] md:static md:z-30 bg-claude-sidebar border-r border-claude-border flex flex-col justify-between transition-all duration-200 flex-shrink-0',
+        isMobileSidebarOpen ? 'translate-x-0 shadow-2xl' : '-translate-x-full md:translate-x-0',
+        isSidebarCollapsed ? 'md:w-16' : 'md:w-72'
+      ]">
         <div>
           <!-- Brand Header -->
-          <div class="h-16 flex items-center justify-between px-3.5 border-b border-claude-border">
-            <div v-if="!isSidebarCollapsed" class="flex items-center gap-2.5 overflow-hidden">
+          <div class="h-14 md:h-16 flex items-center justify-between px-3.5 border-b border-claude-border">
+            <div v-if="showSidebarExpanded" class="flex items-center gap-2.5 overflow-hidden">
               <img src="./asset/img/gunungan.png" alt="Logo" class="h-11 w-auto max-w-[50px] object-contain flex-shrink-0" onerror="this.style.display='none'">
               <div class="truncate min-w-0">
                 <div class="font-bold text-[13px] text-claude-text tracking-tight truncate leading-tight">Nusantara Digital</div>
                 <div class="text-[10.5px] text-blue-400 font-medium truncate leading-tight">Miyo AI Workspace</div>
               </div>
             </div>
-            <div v-if="!isSidebarCollapsed" class="flex items-center">
-              <!-- Collapse Sidebar Button -->
-              <button @click="isSidebarCollapsed = !isSidebarCollapsed; refreshIcons()" class="p-1.5 rounded-lg text-claude-muted hover:text-claude-text hover:bg-claude-surface transition" :title="isSidebarCollapsed ? 'Buka Sidebar' : 'Tutup Sidebar'">
+            <div v-if="showSidebarExpanded" class="flex items-center gap-1">
+              <!-- Mobile Close Drawer Button -->
+              <button @click="closeMobileSidebar" class="md:hidden p-1.5 rounded-lg text-claude-muted hover:text-claude-text hover:bg-claude-surface transition" title="Tutup Menu">
+                <i data-lucide="x" class="w-4 h-4"></i>
+              </button>
+              <!-- Desktop Collapse Sidebar Button -->
+              <button @click="isSidebarCollapsed = !isSidebarCollapsed; refreshIcons()" class="hidden md:flex p-1.5 rounded-lg text-claude-muted hover:text-claude-text hover:bg-claude-surface transition" :title="isSidebarCollapsed ? 'Buka Sidebar' : 'Tutup Sidebar'">
                 <i :data-lucide="isSidebarCollapsed ? 'panel-left-open' : 'panel-left-close'" class="w-4 h-4"></i>
               </button>
             </div>
-            <div v-else class="flex flex-col items-center justify-center w-full gap-1">
+            <div v-else class="hidden md:flex flex-col items-center justify-center w-full gap-1">
               <button @click="isSidebarCollapsed = !isSidebarCollapsed; refreshIcons()" class="p-1.5 rounded-lg text-claude-muted hover:text-claude-text hover:bg-claude-surface transition" title="Buka Sidebar">
                 <i data-lucide="panel-left-open" class="w-4 h-4"></i>
               </button>
@@ -298,7 +339,7 @@
 
           <!-- Active Identity Card -->
           <div class="p-2.5 border-b border-claude-border">
-            <div v-if="!isSidebarCollapsed" class="bg-claude-surface border border-claude-border rounded-xl p-2.5">
+            <div v-if="showSidebarExpanded" class="bg-claude-surface border border-claude-border rounded-xl p-2.5">
               <div class="flex items-center gap-2.5">
                 <div class="w-8 h-8 rounded-lg bg-claude-blue-subtle border border-blue-500/30 flex items-center justify-center font-mono font-bold text-blue-400 text-xs flex-shrink-0">
                   {{ userInitials }}
@@ -322,15 +363,15 @@
 
           <!-- Primary CTA: Formulir Pengajuan Cuti -->
           <div v-if="!isAdmin" class="px-2.5 pt-2.5">
-            <button @click="openLeaveModal" class="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white text-xs font-semibold shadow-sm transition active:scale-[0.99]" title="Formulir Pengajuan Cuti">
+            <button @click="openLeaveModal(); closeMobileSidebar()" class="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white text-xs font-semibold shadow-sm transition active:scale-[0.99]" title="Formulir Pengajuan Cuti">
               <i data-lucide="calendar-plus" class="w-4 h-4 flex-shrink-0"></i>
-              <span v-if="!isSidebarCollapsed">Ajukan Cuti Baru</span>
+              <span v-if="showSidebarExpanded">Ajukan Cuti Baru</span>
             </button>
           </div>
 
           <!-- Navigation Tabs -->
           <nav class="p-2.5 space-y-1">
-            <button v-for="tab in visibleTabs" :key="tab.id" @click="activeTab = tab.id; refreshIcons()"
+            <button v-for="tab in visibleTabs" :key="tab.id" @click="selectTab(tab.id)"
               :class="[
                 'w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-medium transition text-left',
                 activeTab === tab.id
@@ -339,8 +380,8 @@
               ]"
               :title="tab.label">
               <i :data-lucide="tab.icon" class="w-4 h-4 flex-shrink-0" :class="activeTab === tab.id ? 'text-blue-400' : 'text-claude-muted'"></i>
-              <span v-if="!isSidebarCollapsed" class="truncate flex-1">{{ tab.label }}</span>
-              <span v-if="!isSidebarCollapsed && tab.badge" class="px-1.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-blue-600 text-white">
+              <span v-if="showSidebarExpanded" class="truncate flex-1">{{ tab.label }}</span>
+              <span v-if="showSidebarExpanded && tab.badge" class="px-1.5 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-blue-600 text-white">
                 {{ tab.badge }}
               </span>
             </button>
@@ -349,7 +390,7 @@
 
         <!-- Sidebar Bottom: System Health -->
         <div class="p-2.5 border-t border-claude-border">
-          <div v-if="!isSidebarCollapsed" class="flex items-center justify-between text-[10px] text-claude-muted px-1">
+          <div v-if="showSidebarExpanded" class="flex items-center justify-between text-[10px] text-claude-muted px-1">
             <span class="flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full" :class="isBackendReady ? 'bg-emerald-500' : 'bg-rose-500'"></span>
               <span>{{ isBackendReady ? 'Sistem & DB Siap' : 'Degraded' }}</span>
@@ -363,12 +404,16 @@
       </aside>
 
       <!-- MAIN WORKSPACE AREA -->
-      <main class="flex-1 flex flex-col h-full overflow-hidden bg-claude-bg">
+      <main class="flex-1 min-w-0 min-h-0 flex flex-col h-full overflow-hidden bg-claude-bg">
         <!-- Minimalist Top Header -->
-        <header class="h-20 border-b border-claude-border px-6 flex items-center justify-between bg-claude-sidebar/50 backdrop-blur-md flex-shrink-0">
-          <div>
-            <h1 class="text-sm font-semibold text-claude-text tracking-tight">{{ currentTabTitle }}</h1>
-            <p class="text-[11px] text-claude-muted hidden sm:block">PT Nusantara Digital &middot; Portal SDM Terverifikasi</p>
+        <header class="h-14 md:h-20 border-b border-claude-border px-3 sm:px-6 flex items-center justify-between bg-claude-sidebar/50 backdrop-blur-md flex-shrink-0">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <button @click="openMobileSidebar"
+              class="md:hidden p-2 rounded-lg bg-claude-surface border border-claude-border text-claude-secondary hover:text-claude-text transition flex-shrink-0"
+              title="Buka Menu Navigasi">
+              <i data-lucide="menu" class="w-4 h-4"></i>
+            </button>
+            <h1 class="text-sm font-semibold text-claude-text tracking-tight truncate">{{ currentTabTitle }}</h1>
           </div>
 
           <div class="flex items-center gap-2.5">
@@ -405,17 +450,17 @@
         <!-- =================================================================
              TAB 1: ASISTEN KEBIJAKAN (CLAUDE CLEAN CHAT INTERFACE)
              ================================================================= -->
-        <div v-show="activeTab === 'chat'" class="flex-1 flex flex-col justify-between max-w-3xl w-full mx-auto px-4 sm:px-6 py-4 overflow-hidden">
+        <div v-show="activeTab === 'chat'" class="flex-1 min-h-0 flex flex-col justify-between max-w-3xl w-full mx-auto px-3 sm:px-6 py-2.5 sm:py-4 overflow-hidden">
           <!-- Messages Stream -->
-          <div ref="chatContainer" class="flex-1 overflow-y-auto space-y-5 pr-1">
+          <div ref="chatContainer" class="flex-1 min-h-0 overflow-y-auto space-y-4 sm:space-y-5 pr-1">
 
             <!-- Empty State Greeting (Claude Minimalist Center) -->
-            <div v-if="chatMessages.length === 0" class="my-auto py-10">
-              <div class="text-center mb-8">
-                <div class="mx-auto flex items-center justify-center mb-6">
-                  <img src="./asset/img/miyo.png" alt="Miyo" class="w-52 h-52 object-contain transition-transform duration-300 hover:scale-105" onerror="this.style.display='none'">
+            <div v-if="chatMessages.length === 0" class="my-auto py-3 sm:py-10">
+              <div class="text-center mb-4 sm:mb-8">
+                <div class="mx-auto flex items-center justify-center mb-3 sm:mb-6">
+                  <img src="./asset/img/miyo.png" alt="Miyo" class="w-28 h-28 sm:w-52 sm:h-52 object-contain transition-transform duration-300 hover:scale-105" onerror="this.style.display='none'">
                 </div>
-                <h2 class="text-xl font-semibold text-claude-text tracking-tight mb-1.5">
+                <h2 class="text-lg sm:text-xl font-semibold text-claude-text tracking-tight mb-1 sm:mb-1.5">
                   Halo, {{ userDisplayName }}
                 </h2>
                 <p class="text-xs text-claude-secondary max-w-md mx-auto leading-relaxed">
@@ -424,9 +469,9 @@
               </div>
 
               <!-- Recommended Prompt Grid -->
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-w-2xl mx-auto">
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5 max-w-2xl mx-auto">
                 <button v-for="(q, idx) in quickQueries" :key="idx" @click="sendQuickPrompt(q)"
-                  class="p-3.5 rounded-xl bg-claude-surface hover:bg-claude-elevated border border-claude-border hover:border-blue-500/40 text-left text-xs text-claude-secondary hover:text-claude-text transition flex items-start justify-between gap-3 group">
+                  class="p-2.5 sm:p-3.5 rounded-xl bg-claude-surface hover:bg-claude-elevated border border-claude-border hover:border-blue-500/40 text-left text-xs text-claude-secondary hover:text-claude-text transition flex items-start justify-between gap-3 group">
                   <span class="leading-relaxed">{{ q }}</span>
                   <i data-lucide="arrow-up-right" class="w-4 h-4 text-claude-muted group-hover:text-blue-400 flex-shrink-0 mt-0.5 transition"></i>
                 </button>
@@ -587,21 +632,21 @@
           </div>
 
           <!-- Bottom Chat Input Dock (Claude Style) -->
-          <div class="pt-3 flex-shrink-0">
-            <div class="flex items-center gap-2">
+          <div class="pt-2 sm:pt-3 pb-[env(safe-area-inset-bottom)] flex-shrink-0">
+            <div class="flex items-center gap-2 min-w-0">
               <!-- Clear Chat Button (Di Luar Typing Box - Sebelah Kiri) -->
               <button v-if="chatMessages.length > 0 && !isRecording" @click="clearChat"
-                class="p-3 rounded-2xl bg-claude-surface border border-claude-border text-claude-muted hover:text-rose-400 hover:border-rose-500/30 hover:bg-rose-500/10 transition flex items-center justify-center flex-shrink-0 shadow-md"
+                class="p-2.5 sm:p-3 rounded-2xl bg-claude-surface border border-claude-border text-claude-muted hover:text-rose-400 hover:border-rose-500/30 hover:bg-rose-500/10 transition flex items-center justify-center flex-shrink-0 shadow-md"
                 title="Bersihkan Percakapan">
                 <i data-lucide="trash-2" class="w-4 h-4"></i>
               </button>
 
               <!-- Typing Box Container -->
-              <div class="flex-1 bg-claude-surface border border-claude-border focus-within:border-blue-500/60 rounded-2xl p-2 flex items-center gap-2 shadow-lg transition">
+              <div class="flex-1 min-w-0 bg-claude-surface border border-claude-border focus-within:border-blue-500/60 rounded-2xl p-1.5 sm:p-2 flex items-center gap-1.5 sm:gap-2 shadow-lg transition">
                 <!-- Voice STT Button -->
                 <button @click="toggleVoiceRecording"
                   :class="[
-                    'p-2.5 rounded-xl transition flex items-center justify-center flex-shrink-0',
+                    'p-2 sm:p-2.5 rounded-xl transition flex items-center justify-center flex-shrink-0',
                     isRecording ? 'bg-rose-600 text-white animate-pulse' : 'text-claude-muted hover:text-claude-text hover:bg-claude-elevated'
                   ]"
                   :title="isRecording ? 'Hentikan Rekaman' : 'Input Suara'">
@@ -609,9 +654,9 @@
                 </button>
 
                 <!-- Recording Visualizer -->
-                <div v-if="isRecording" class="flex-1 flex items-center gap-2 px-2 text-xs text-rose-400 font-medium">
-                  <span>Mendengarkan... Klik tombol merah untuk selesai</span>
-                  <div class="flex items-end gap-1 h-4 ml-2">
+                <div v-if="isRecording" class="flex-1 min-w-0 flex items-center gap-2 px-2 text-xs text-rose-400 font-medium">
+                  <span class="truncate">Mendengarkan... Klik merah untuk selesai</span>
+                  <div class="flex items-end gap-1 h-4 ml-1 flex-shrink-0">
                     <span class="w-1 bg-rose-500 rounded-full h-4 voice-bar"></span>
                     <span class="w-1 bg-rose-500 rounded-full h-3 voice-bar"></span>
                     <span class="w-1 bg-rose-500 rounded-full h-4 voice-bar"></span>
@@ -622,11 +667,11 @@
                 <!-- Prompt Input -->
                 <input v-else v-model="userInputText" @keydown.enter.prevent="sendChatMessage"
                   placeholder="Tanyakan kebijakan HR, sisa saldo, atau ajukan cuti..."
-                  class="flex-1 bg-transparent text-xs text-claude-text placeholder-claude-muted focus:outline-none px-2 py-1.5">
+                  class="flex-1 min-w-0 bg-transparent text-base sm:text-xs text-claude-text placeholder-claude-muted focus:outline-none px-2 py-1.5">
 
                 <!-- Send Button -->
                 <button @click="sendChatMessage" :disabled="!userInputText.trim() || isGenerating"
-                  class="p-2.5 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white transition disabled:opacity-30 disabled:pointer-events-none flex-shrink-0">
+                  class="p-2 sm:p-2.5 rounded-xl bg-claude-blue hover:bg-claude-blue-hover text-white transition disabled:opacity-30 disabled:pointer-events-none flex-shrink-0">
                   <i data-lucide="arrow-up" class="w-4 h-4"></i>
                 </button>
               </div>
@@ -922,7 +967,7 @@
         <!-- =================================================================
              TAB: TICKETS (EMAIL INBOX CONCEPT FOR EMPLOYEE REQUESTS)
              ================================================================= -->
-        <div v-show="activeTab === 'tickets'" class="flex-1 flex flex-col h-full overflow-hidden max-w-6xl w-full mx-auto px-4 sm:px-6 py-4">
+        <div v-show="activeTab === 'tickets'" class="flex-1 min-h-0 flex flex-col h-full overflow-hidden max-w-6xl w-full mx-auto px-4 sm:px-6 py-4">
           <!-- Top Inbox Bar: Header, Search & Filter Controls -->
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-claude-border flex-shrink-0">
             <div>
@@ -1552,6 +1597,6 @@
 
   </div>
 
-  <script src="./app.js?v=3.0"></script>
+  <script src="./app.js?v=3.1"></script>
 </body>
 </html>

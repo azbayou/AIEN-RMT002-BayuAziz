@@ -112,7 +112,25 @@ createApp({
     // --- APP & NAVIGATION STATE ---
     const isAuthenticated = ref(false);
     const isSidebarCollapsed = ref(false);
+    const isMobileSidebarOpen = ref(false);
+    const showSidebarExpanded = computed(() => isMobileSidebarOpen.value || !isSidebarCollapsed.value);
     const activeTab = ref('chat'); // 'chat' | 'my_requests' | 'approvals' | 'calendar' | 'monitoring'
+
+    function openMobileSidebar() {
+      isMobileSidebarOpen.value = true;
+      refreshIcons();
+    }
+
+    function closeMobileSidebar() {
+      isMobileSidebarOpen.value = false;
+      refreshIcons();
+    }
+
+    function selectTab(tabId) {
+      activeTab.value = tabId;
+      isMobileSidebarOpen.value = false;
+      refreshIcons();
+    }
     const isBackendReady = ref(false);
     const isDarkMode = ref(true);
     const showDevAudit = ref(localStorage.getItem('miyo_dev_audit') === 'true');
@@ -250,6 +268,7 @@ createApp({
       activePersona.value = persona;
       selectedPersonaId.value = persona.employee_id;
       isAuthenticated.value = true;
+      isMobileSidebarOpen.value = false;
       sessionStorage.setItem('miyo_active_session', JSON.stringify(persona));
 
       chatMessages.value = [];
@@ -263,6 +282,7 @@ createApp({
 
     function logoutSession() {
       isAuthenticated.value = false;
+      isMobileSidebarOpen.value = false;
       activePersona.value = null;
       selectedPersonaId.value = '';
       chatMessages.value = [];
@@ -1325,6 +1345,11 @@ createApp({
     return {
       isAuthenticated,
       isSidebarCollapsed,
+      isMobileSidebarOpen,
+      showSidebarExpanded,
+      openMobileSidebar,
+      closeMobileSidebar,
+      selectTab,
       activeTab,
       isBackendReady,
       isDarkMode,
