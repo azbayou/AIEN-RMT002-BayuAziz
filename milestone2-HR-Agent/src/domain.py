@@ -85,22 +85,6 @@ def get_sick_leave_doc_threshold(policy_text: str | None = None) -> int:
     return 2
 
 
-def earliest_annual_leave_start_date(
-    today: date, policy_text: str | None = None
-) -> tuple[date, int]:
-    """Hitung tanggal mulai cuti tahunan paling awal yang memenuhi lead time hari kerja."""
-    lead_days = get_annual_leave_lead_days(policy_text)
-    candidate = today + timedelta(days=1)
-    while True:
-        lead_time_days = sum(
-            (today + timedelta(days=offset)).weekday() < 5
-            for offset in range(1, (candidate - today).days)
-        )
-        if candidate.weekday() < 5 and lead_time_days >= lead_days:
-            return candidate, lead_days
-        candidate += timedelta(days=1)
-
-
 def business_days(start: date, end: date) -> int:
     if start > end:
         raise DomainError("tanggal mulai tidak boleh sebelum tanggal selesai")

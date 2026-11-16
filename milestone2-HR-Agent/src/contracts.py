@@ -152,6 +152,12 @@ class SearchPolicyArgs(BaseModel):
     top_k: int = Field(default=3, ge=1, le=5)
 
 
+class CalendarArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    days: int = Field(default=14, ge=1, le=30)
+
+
 class TicketArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

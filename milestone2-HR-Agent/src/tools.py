@@ -10,12 +10,12 @@ from .contracts import (
     ActionProposal,
     AnalyticsQueryArgs,
     AuthContext,
+    CalendarArgs,
     PrepareLeaveArgs,
     SearchPolicyArgs,
     TicketArgs,
 )
 from .domain import (
-    get_annual_leave_lead_days,
     get_sick_leave_doc_threshold,
     validate_leave_request,
 )
@@ -86,6 +86,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "additionalProperties": False,
         },
     },
+    {
+        "type": "function",
+        "name": "get_calendar",
+        "description": "Ambil daftar tanggal kalender, nama hari, dan status hari kerja atau akhir pekan mulai dari hari ini.",
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "days": {"type": "integer", "minimum": 1, "maximum": 30},
+            },
+            "required": ["days"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 
@@ -126,6 +140,51 @@ class ToolExecutor:
         self.settings = settings
         self.today_factory = today_factory
 
+    def _resolve_today(self) -> date:
+        """Resolve effective system date for validation and calendar lookups."""
+        return self.today_factory() if self.today_factory else (self.settings.reference_date or date.today())
+
+    def _lookup_leave_policy_text(self, leave_type: str) -> str | None:
+        """Retrieve relevant policy text for dynamic leave validation rules."""
+        queries = {
+            "sick": "cuti sakit dokumen pendukung surat dokter",
+            "annual": "pengajuan cuti tahunan paling lambat hari kerja",
+        }
+        query = queries.get(leave_type)
+        if not query:
+            return None
+        try:
+            chunks = self.retrieval.search(query, top_k=2)
+            return "\n".join(c.content for c in chunks) if chunks else None
+        except Exception:
+            return None
+
+    def _build_leave_proposal(self, args: PrepareLeaveArgs, auth: AuthContext) -> ActionProposal:
+        """Run deterministic domain validation and construct an unconfirmed leave proposal."""
+        today = self._resolve_today()
+        policy_text = self._lookup_leave_policy_text(args.leave_type)
+        days, summary = validate_leave_request(
+            args,
+            self.repository.get_balances(auth.employee_id),
+            self.repository.has_overlap(auth.employee_id, args.start_date, args.end_date),
+            today,
+            policy_text=policy_text,
+        )
+        threshold = get_sick_leave_doc_threshold(policy_text)
+        requires_att = (args.leave_type == "sick" and days > threshold)
+        return ActionProposal(
+            proposal_id=f"AP-{uuid4().hex[:12]}",
+            leave_type=args.leave_type,
+            start_date=args.start_date,
+            end_date=args.end_date,
+            business_days=days,
+            reason=args.reason,
+            validation_summary=summary,
+            expires_at=datetime.now(timezone.utc)
+            + timedelta(minutes=self.settings.proposal_ttl_minutes),
+            requires_attachment=requires_att,
+        )
+
     def execute(self, name: str, arguments: dict[str, Any], auth: AuthContext) -> tuple[Any, ActionProposal | None]:
         if name == "search_hr_policy":
             args = SearchPolicyArgs.model_validate(arguments)
@@ -134,48 +193,28 @@ class ToolExecutor:
             if arguments:
                 raise ValueError("get_my_leave_balance tidak menerima argumen")
             return self.repository.get_balances(auth.employee_id), None
+        if name == "get_calendar":
+            args = CalendarArgs.model_validate(arguments)
+            today = self._resolve_today()
+            day_names = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
+            items = []
+            for offset in range(args.days + 1):
+                current = today + timedelta(days=offset)
+                items.append(
+                    {
+                        "date": current.isoformat(),
+                        "day_name": day_names[current.weekday()],
+                        "is_business_day": current.weekday() < 5,
+                    }
+                )
+            return {
+                "today": today.isoformat(),
+                "today_day_name": day_names[today.weekday()],
+                "calendar": items,
+            }, None
         if name == "prepare_leave_request":
             args = PrepareLeaveArgs.model_validate(arguments)
-            today = self.today_factory() if self.today_factory else (self.settings.reference_date or date.today())
-            policy_text = None
-            if args.leave_type == "sick":
-                try:
-                    # Query PostgreSQL vector & lexical index via RAG
-                    chunks = self.retrieval.search("cuti sakit dokumen pendukung surat dokter", top_k=2)
-                    if chunks:
-                        policy_text = "\n".join(c.content for c in chunks)
-                except Exception:
-                    policy_text = None
-            elif args.leave_type == "annual":
-                try:
-                    # Query PostgreSQL vector & lexical index via RAG
-                    chunks = self.retrieval.search("pengajuan cuti tahunan paling lambat hari kerja", top_k=2)
-                    if chunks:
-                        policy_text = "\n".join(c.content for c in chunks)
-                except Exception:
-                    policy_text = None
-
-            days, summary = validate_leave_request(
-                args,
-                self.repository.get_balances(auth.employee_id),
-                self.repository.has_overlap(auth.employee_id, args.start_date, args.end_date),
-                today,
-                policy_text=policy_text,
-            )
-            threshold = get_sick_leave_doc_threshold(policy_text)
-            requires_att = (args.leave_type == "sick" and days > threshold)
-            proposal = ActionProposal(
-                proposal_id=f"AP-{uuid4().hex[:12]}",
-                leave_type=args.leave_type,
-                start_date=args.start_date,
-                end_date=args.end_date,
-                business_days=days,
-                reason=args.reason,
-                validation_summary=summary,
-                expires_at=datetime.now(timezone.utc)
-                + timedelta(minutes=self.settings.proposal_ttl_minutes),
-                requires_attachment=requires_att,
-            )
+            proposal = self._build_leave_proposal(args, auth)
             self.repository.save_proposal(auth.employee_id, proposal)
             return proposal, proposal
         if name == "create_hr_ticket":
