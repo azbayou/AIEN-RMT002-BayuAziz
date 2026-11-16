@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from functools import lru_cache
 from typing import Literal
 
@@ -36,6 +37,7 @@ class Settings(BaseSettings):
     opik_workspace: str | None = None
     opik_project_name: str = "Milestone 2 - HR Agent"
     opik_enabled: bool = True
+    reference_date: date | None = None
 
     @field_validator(
         "openai_api_key",
@@ -46,6 +48,7 @@ class Settings(BaseSettings):
         "input_cost_per_1m",
         "output_cost_per_1m",
         "redis_url",
+        "reference_date",
         mode="before",
     )
     @classmethod

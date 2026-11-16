@@ -4,12 +4,14 @@ from __future__ import annotations
 import base64
 from copy import deepcopy
 from datetime import date, datetime, timezone
+from functools import lru_cache
 from math import sqrt
 import re
 from threading import RLock
 from typing import Any, Protocol
 from uuid import uuid4
 
+import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 from psycopg.types.json import Jsonb
@@ -77,6 +79,71 @@ class ConflictError(RuntimeError):
     pass
 
 
+@lru_cache(maxsize=1)
+def _load_seed_from_db() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Load employees, leave balances, and monitoring rules from the database."""
+    from .config import get_settings
+
+    settings = get_settings()
+    with psycopg.connect(settings.database_url, row_factory=dict_row) as connection:
+        emp_rows = connection.execute(
+            """
+            SELECT e.employee_id, e.username, e.password_hash, e.display_name, e.role,
+                   e.department, e.manager_id, e.token_hash, pt.demo_token
+            FROM employees e
+            LEFT JOIN persona_tokens pt ON e.employee_id = pt.employee_id
+            ORDER BY e.employee_id
+            """
+        ).fetchall()
+        bal_rows = connection.execute(
+            """
+            SELECT employee_id, leave_type, available_days
+            FROM leave_balances
+            ORDER BY employee_id, leave_type
+            """
+        ).fetchall()
+        rule_rows = connection.execute(
+            """
+            SELECT rule_id, metric, operator, threshold, minimum_samples, owner, response
+            FROM monitoring_rules
+            ORDER BY rule_id
+            """
+        ).fetchall()
+
+    bal_map: dict[str, dict[str, int]] = {}
+    for row in bal_rows:
+        bal_map.setdefault(row["employee_id"], {})[row["leave_type"]] = int(row["available_days"])
+
+    employee_rows: list[dict[str, Any]] = [
+        {
+            "employee_id": row["employee_id"],
+            "username": row.get("username"),
+            "password_hash": row.get("password_hash"),
+            "display_name": row["display_name"],
+            "role": row.get("role") or "employee",
+            "department": row.get("department"),
+            "manager_id": row.get("manager_id"),
+            "token_hash": row.get("token_hash"),
+            "token": row.get("demo_token") or "",
+            "balances": bal_map.get(row["employee_id"], {}),
+        }
+        for row in emp_rows
+    ]
+    monitoring_rules: list[dict[str, Any]] = [
+        {
+            "rule_id": row["rule_id"],
+            "metric": row["metric"],
+            "operator": row["operator"],
+            "threshold": float(row["threshold"]),
+            "minimum_samples": int(row["minimum_samples"]),
+            "owner": row["owner"],
+            "response": row["response"],
+        }
+        for row in rule_rows
+    ]
+    return employee_rows, monitoring_rules
+
+
 class MemoryRepository:
     def __init__(self, employees: list[dict[str, Any]] | None = None) -> None:
         self.chunks: list[PolicyChunk] = []
@@ -84,7 +151,10 @@ class MemoryRepository:
         self.credentials: dict[str, dict[str, Any]] = {}
         self.balances: dict[str, list[LeaveBalance]] = {}
         today = date.today()
-        employee_rows = employees or []
+        if employees is None:
+            employee_rows, db_rules = _load_seed_from_db()
+        else:
+            employee_rows, db_rules = employees, []
         for emp in employee_rows:
             emp_id = emp["employee_id"]
             auth_ctx = AuthContext(
@@ -94,16 +164,19 @@ class MemoryRepository:
                 department=emp.get("department"),
                 manager_id=emp.get("manager_id"),
             )
+            raw_token = emp.get("token") or ""
             self.identities[emp_id] = (
                 auth_ctx,
-                token_hash(emp["token"]),
+                emp.get("token_hash") or token_hash(raw_token),
             )
             username = (emp.get("username") or emp_id).casefold()
-            pwd_hash = hash_password(emp.get("password", "Password#123"), salt="mem-salt")
+            pwd_hash = emp.get("password_hash") or hash_password(
+                emp.get("password", "Password#123"), salt="mem-salt"
+            )
             self.credentials[emp_id] = {
                 "username": username,
                 "password_hash": pwd_hash,
-                "token": emp["token"],
+                "token": raw_token,
                 "context": auth_ctx,
             }
             self.balances[emp_id] = [
@@ -117,26 +190,7 @@ class MemoryRepository:
         self.attachments: dict[str, dict[str, Any]] = {}
         self.approval_audits: list[dict[str, Any]] = []
         self.tickets: dict[str, dict[str, str]] = {}
-        self.monitoring_rules: list[dict[str, Any]] = [
-            {
-                "rule_id": "agent-error-spike",
-                "metric": "error_rate",
-                "operator": "gt",
-                "threshold": 0.2,
-                "minimum_samples": 5,
-                "owner": "AI Platform",
-                "response": "Inspect redacted traces and provider health; disable mutating tools if errors persist.",
-            },
-            {
-                "rule_id": "agent-latency-p95",
-                "metric": "p95_latency_ms",
-                "operator": "gt",
-                "threshold": 8000.0,
-                "minimum_samples": 5,
-                "owner": "AI Platform",
-                "response": "Inspect provider latency, retrieval cache, and database query timing.",
-            },
-        ]
+        self.monitoring_rules: list[dict[str, Any]] = deepcopy(db_rules)
         self.traces: dict[str, dict[str, Any]] = {}
         self._lock = RLock()
 

@@ -201,58 +201,60 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
 
     @app.get("/api/v1/policies/rules")
     def policy_rules() -> dict[str, Any]:
-        annual_policy_text = None
-        sick_policy_text = None
+        doc_map = {
+            "HR-LEAVE-001": "annual",
+            "HR-LEAVE-002": "sick",
+            "HR-LEAVE-003": "parental",
+        }
+        chunks_by_doc: dict[str, list[str]] = {doc_id: [] for doc_id in doc_map}
 
         if hasattr(repository, "pool"):
             try:
                 with repository.pool.connection() as connection:
                     rows = connection.execute(
-                        "SELECT document_id, content FROM policy_chunks WHERE document_id IN ('HR-LEAVE-001', 'HR-LEAVE-002') ORDER BY chunk_id"
+                        "SELECT document_id, content FROM policy_chunks "
+                        "WHERE document_id = ANY(%s::text[]) ORDER BY chunk_id",
+                        (list(doc_map),),
                     ).fetchall()
-                    annual_chunks = []
-                    sick_chunks = []
                     for r in rows:
                         doc_id = r["document_id"] if isinstance(r, dict) or (hasattr(r, "__getitem__") and "document_id" in r) else r[0]
                         content = r["content"] if isinstance(r, dict) or (hasattr(r, "__getitem__") and "content" in r) else r[1]
-                        if doc_id == "HR-LEAVE-001":
-                            annual_chunks.append(content)
-                        elif doc_id == "HR-LEAVE-002":
-                            sick_chunks.append(content)
-                    if annual_chunks:
-                        annual_policy_text = "\n\n".join(annual_chunks)
-                    if sick_chunks:
-                        sick_policy_text = "\n\n".join(sick_chunks)
+                        if doc_id in chunks_by_doc and content:
+                            text = str(content).strip()
+                            if text:
+                                chunks_by_doc[doc_id].append(text)
             except Exception:
                 pass
         elif hasattr(repository, "chunks"):
-            annual_chunks = [c.content for c in repository.chunks if getattr(c, "document_id", None) == "HR-LEAVE-001"]
-            sick_chunks = [c.content for c in repository.chunks if getattr(c, "document_id", None) == "HR-LEAVE-002"]
-            if annual_chunks:
-                annual_policy_text = "\n\n".join(annual_chunks)
-            if sick_chunks:
-                sick_policy_text = "\n\n".join(sick_chunks)
+            for chunk in repository.chunks:
+                doc_id = getattr(chunk, "document_id", None)
+                content = getattr(chunk, "content", None)
+                if doc_id in chunks_by_doc and content:
+                    text = str(content).strip()
+                    if text:
+                        chunks_by_doc[doc_id].append(text)
 
+        annual_policy_text = "\n\n".join(chunks_by_doc["HR-LEAVE-001"]) or None
+        sick_policy_text = "\n\n".join(chunks_by_doc["HR-LEAVE-002"]) or None
         lead_days = get_annual_leave_lead_days(annual_policy_text)
         sick_thresh = get_sick_leave_doc_threshold(sick_policy_text)
+        today = settings.reference_date or date.today()
+        policy_summaries = {
+            leave_key: {
+                "citation": f"[{doc_id}]",
+                "summary": (
+                    f"[{doc_id}] {' '.join(chunks_by_doc[doc_id])}"
+                    if chunks_by_doc[doc_id]
+                    else f"[{doc_id}]"
+                ),
+            }
+            for doc_id, leave_key in doc_map.items()
+        }
         return {
-            "server_date": date.today().isoformat(),
+            "server_date": today.isoformat(),
             "annual_lead_days": lead_days,
             "sick_doc_threshold": sick_thresh,
-            "policy_summaries": {
-                "annual": {
-                    "citation": "[HR-LEAVE-001]",
-                    "summary": f"Berdasarkan kebijakan [HR-LEAVE-001], cuti tahunan wajib diajukan paling lambat {lead_days} hari kerja sebelum tanggal mulai cuti dan tidak bertumpang tindih dengan permohonan lain.",
-                },
-                "sick": {
-                    "citation": "[HR-LEAVE-002]",
-                    "summary": f"Berdasarkan kebijakan [HR-LEAVE-002], cuti sakit lebih dari {sick_thresh} hari kerja berturut-turut wajib melampirkan surat keterangan dokter.",
-                },
-                "parental": {
-                    "citation": "[HR-LEAVE-003]",
-                    "summary": "Berdasarkan kebijakan [HR-LEAVE-003], cuti orang tua mengikuti hak cuti melahirkan / hak ayah sesuai undang-undang dan kebijakan perusahaan.",
-                },
-            },
+            "policy_summaries": policy_summaries,
         }
 
     @app.post("/api/v1/auth/login", response_model=LoginResponse)

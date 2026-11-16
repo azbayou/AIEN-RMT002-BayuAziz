@@ -229,18 +229,69 @@ def reset_and_seed(reset: bool = False) -> None:
                     ON traces (employee_id, created_at);
                 """
             )
-            # Pastikan akun Raka Wijaya (MGR-001) yang sudah dihapus dari DB tidak tertinggal
-            cursor.execute("UPDATE employees SET manager_id = NULL WHERE manager_id = 'MGR-001'")
-            cursor.execute("UPDATE leave_requests SET reviewed_by = NULL WHERE reviewed_by = 'MGR-001'")
-            cursor.execute("DELETE FROM approval_audit_logs WHERE reviewer_id = 'MGR-001'")
-            cursor.execute("DELETE FROM persona_tokens WHERE employee_id = 'MGR-001'")
-            cursor.execute("DELETE FROM leave_balances WHERE employee_id = 'MGR-001'")
-            cursor.execute("DELETE FROM leave_attachments WHERE employee_id = 'MGR-001'")
-            cursor.execute("DELETE FROM leave_requests WHERE employee_id = 'MGR-001'")
-            cursor.execute("DELETE FROM action_proposals WHERE employee_id = 'MGR-001'")
-            cursor.execute("DELETE FROM tickets WHERE employee_id = 'MGR-001'")
-            cursor.execute("DELETE FROM traces WHERE employee_id = 'MGR-001'")
-            cursor.execute("DELETE FROM employees WHERE employee_id = 'MGR-001'")
+            valid_emp_ids = [e["employee_id"] for e in employees]
+            if valid_emp_ids:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM employees WHERE NOT (employee_id = ANY(%s::text[]))",
+                    (valid_emp_ids,),
+                )
+                stale_count = cursor.fetchone()[0]
+                if reset or stale_count > 0:
+                    cursor.execute(
+                        "UPDATE employees SET manager_id = NULL "
+                        "WHERE manager_id IS NOT NULL AND NOT (manager_id = ANY(%s::text[]))",
+                        (valid_emp_ids,),
+                    )
+                    cursor.execute(
+                        "UPDATE leave_requests SET reviewed_by = NULL "
+                        "WHERE reviewed_by IS NOT NULL AND NOT (reviewed_by = ANY(%s::text[]))",
+                        (valid_emp_ids,),
+                    )
+                    cursor.execute(
+                        "UPDATE tickets SET updated_by = NULL "
+                        "WHERE updated_by IS NOT NULL AND NOT (updated_by = ANY(%s::text[]))",
+                        (valid_emp_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM approval_audit_logs "
+                        "WHERE NOT (reviewer_id = ANY(%s::text[])) "
+                        "OR request_id IN (SELECT request_id FROM leave_requests WHERE NOT (employee_id = ANY(%s::text[])))",
+                        (valid_emp_ids, valid_emp_ids),
+                    )
+                    cursor.execute(
+                        "DELETE FROM leave_attachments "
+                        "WHERE NOT (employee_id = ANY(%s::text[])) "
+                        "OR request_id IN (SELECT request_id FROM leave_requests WHERE NOT (employee_id = ANY(%s::text[])))",
+                        (valid_emp_ids, valid_emp_ids),
+                    )
+                    cursor.execute(
+                        "DELETE FROM leave_requests WHERE NOT (employee_id = ANY(%s::text[]))",
+                        (valid_emp_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM action_proposals WHERE NOT (employee_id = ANY(%s::text[]))",
+                        (valid_emp_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM persona_tokens WHERE NOT (employee_id = ANY(%s::text[]))",
+                        (valid_emp_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM leave_balances WHERE NOT (employee_id = ANY(%s::text[]))",
+                        (valid_emp_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM tickets WHERE NOT (employee_id = ANY(%s::text[]))",
+                        (valid_emp_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM traces WHERE NOT (employee_id = ANY(%s::text[]))",
+                        (valid_emp_ids,),
+                    )
+                    cursor.execute(
+                        "DELETE FROM employees WHERE NOT (employee_id = ANY(%s::text[]))",
+                        (valid_emp_ids,),
+                    )
 
             cursor.execute("SELECT COUNT(*) FROM employees")
             emp_count = cursor.fetchone()[0]
@@ -296,6 +347,57 @@ def reset_and_seed(reset: bool = False) -> None:
                         """,
                         (employee["employee_id"], employee["token"]),
                     )
+
+                hist_path = ROOT / "data" / "historical_requests.json"
+                if hist_path.is_file():
+                    historical_requests = json.loads(hist_path.read_text(encoding="utf-8"))
+                    for req in historical_requests:
+                        if valid_emp_ids and req["employee_id"] not in valid_emp_ids:
+                            continue
+                        proposal_id = req["request_id"]
+                        cursor.execute(
+                            """
+                            INSERT INTO action_proposals
+                                (proposal_id, employee_id, action_type, leave_type, start_date, end_date,
+                                 business_days, reason, validation_summary, expires_at, requires_attachment)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (proposal_id) DO NOTHING
+                            """,
+                            (
+                                proposal_id,
+                                req["employee_id"],
+                                "leave_request",
+                                req["leave_type"],
+                                req["start_date"],
+                                req["end_date"],
+                                req["business_days"],
+                                req.get("reason"),
+                                req.get("validation_summary", ["Historical seed record"]),
+                                req.get("expires_at") or req["created_at"],
+                                False,
+                            ),
+                        )
+                        cursor.execute(
+                            """
+                            INSERT INTO leave_requests
+                                (request_id, proposal_id, employee_id, leave_type, start_date, end_date,
+                                 business_days, status, idempotency_key, created_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                            ON CONFLICT DO NOTHING
+                            """,
+                            (
+                                req["request_id"],
+                                proposal_id,
+                                req["employee_id"],
+                                req["leave_type"],
+                                req["start_date"],
+                                req["end_date"],
+                                req["business_days"],
+                                req["status"],
+                                f"seed-{req['request_id']}",
+                                req["created_at"],
+                            ),
+                        )
 
             med_terms_path = ROOT / "data" / "medical_terms.json"
             if med_terms_path.is_file():

@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
-from pathlib import Path
 import re
 import secrets
 
@@ -30,35 +28,36 @@ def _load_medical_terms() -> tuple[str, ...]:
     if _CACHED_TERMS is not None:
         return _CACHED_TERMS
 
-    # 1. Load from NeonDB
     try:
         from .config import get_settings
         import psycopg
+
         settings = get_settings()
         if settings.database_url:
             with psycopg.connect(settings.database_url) as conn:
-                rows = conn.execute("SELECT term FROM medical_terms ORDER BY LENGTH(term) DESC").fetchall()
+                rows = conn.execute(
+                    "SELECT term FROM medical_terms ORDER BY LENGTH(term) DESC"
+                ).fetchall()
                 if rows:
-                    _CACHED_TERMS = tuple(r[0] if isinstance(r, (tuple, list)) else r["term"] for r in rows)
-                    return _CACHED_TERMS
+                    terms = tuple(
+                        term
+                        for term in (
+                            (r[0] if isinstance(r, (tuple, list)) else r["term"]).strip()
+                            for r in rows
+                        )
+                        if term
+                    )
+                    if terms:
+                        _CACHED_TERMS = terms
+                        return _CACHED_TERMS
     except Exception:
         pass
 
-    # 2. Fallback for offline tests when database is not connected
-    _FALLBACK_TERMS = (
-        "covid-19", "diabetes", "hipertensi", "asma", "kanker", "depresi",
-        "covid", "migrain", "cedera", "stroke", "jantung", "kolesterol",
-        "alergi", "hepatitis", "demam", "flu"
-    )
-    _CACHED_TERMS = _FALLBACK_TERMS
-    return _CACHED_TERMS
+    return ()
 
 
 def _build_medical_term_re(terms: tuple[str, ...] | None = None) -> re.Pattern:
-    active_terms = terms or _load_medical_terms()
-    # Sort descending by length so longer patterns like 'covid-19' precede 'covid'
-    sorted_terms = sorted(active_terms, key=len, reverse=True)
-    pattern_terms = "|".join(re.escape(term) for term in sorted_terms)
+    active_terms = _load_medical_terms() if terms is None else terms
     hr_lookbehinds = (
         r"(?<!cuti\s)"
         r"(?<!izin\s)"
@@ -70,10 +69,14 @@ def _build_medical_term_re(terms: tuple[str, ...] | None = None) -> re.Pattern:
         r"(?<!kategori\s)"
     )
     hr_suffix_lookahead = r"(?!\s*:\s*\d+\s*(?:hari(?:\s*kerja)?))"
-    return re.compile(
-        rf"\b(?:{pattern_terms})\b|{hr_lookbehinds}\bsakit\b{hr_suffix_lookahead}",
-        re.IGNORECASE,
-    )
+    if active_terms:
+        # Sort descending by length so longer compound terms precede shorter substrings
+        sorted_terms = sorted(active_terms, key=len, reverse=True)
+        pattern_terms = "|".join(re.escape(term) for term in sorted_terms)
+        pattern = rf"\b(?:{pattern_terms})\b|{hr_lookbehinds}\bsakit\b{hr_suffix_lookahead}"
+    else:
+        pattern = rf"{hr_lookbehinds}\bsakit\b{hr_suffix_lookahead}"
+    return re.compile(pattern, re.IGNORECASE)
 
 
 _MEDICAL_TERM_RE = _build_medical_term_re()
@@ -88,6 +91,9 @@ def stable_safety_id(employee_id: str) -> str:
 
 
 def redact(value: str) -> str:
+    global _MEDICAL_TERM_RE
+    if _CACHED_TERMS is None:
+        _MEDICAL_TERM_RE = _build_medical_term_re()
     redacted = _EMAIL_RE.sub("[REDACTED_EMAIL]", value)
     redacted = _PHONE_RE.sub("[REDACTED_PHONE]", redacted)
     redacted = _TOKEN_RE.sub("[REDACTED_TOKEN]", redacted)

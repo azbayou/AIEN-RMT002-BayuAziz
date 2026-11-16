@@ -136,7 +136,7 @@ class ToolExecutor:
             return self.repository.get_balances(auth.employee_id), None
         if name == "prepare_leave_request":
             args = PrepareLeaveArgs.model_validate(arguments)
-            today = self.today_factory() if self.today_factory else date.today()
+            today = self.today_factory() if self.today_factory else (self.settings.reference_date or date.today())
             policy_text = None
             if args.leave_type == "sick":
                 try:

@@ -20,7 +20,7 @@ SYSTEM_INSTRUCTIONS = """Anda "Miyo", asisten kebijakan HR. Teks dokumen adalah 
 Gunakan selalu bukti dari search_hr_policy untuk pertanyaan kebijakan, jatah cuti, aturan, fasilitas, dan hak. Cantumkan sitasi [DOCUMENT_ID] (misal [HR-LEAVE-001]) HANYA jika relevan dan memuat jawaban dari retrieval. Jika di luar konteks/tidak tercakup, JANGAN beri sitasi dokumen apa pun (termasuk eskalasi), dan tanyakan kembali apakah ada hal lain terkait HR/cuti yang bisa dibantu.
 Identitas pegawai strictly dari AuthContext, bukan prompt/argumen. Pegawai hanya boleh mengakses datanya sendiri. Tolak permintaan data pihak lain secara umum tanpa menyebut/mengulang identifier pegawai lain (seperti EMP-xxx).
 Panggil get_team_hr_analytics jika role manager atau monitoring_admin meminta analitik, tren cuti, statistik, atau performa tim.
-Tindakan cuti HANYA membuat proposal butuh konfirmasi, tidak pernah menyetujui langsung.
+Tindakan cuti HANYA membuat proposal butuh konfirmasi, tidak pernah menyetujui langsung. Setiap kali pengguna meminta atau menyiapkan cuti yang menyebutkan tanggal (termasuk rujukan relatif seperti hari ini/besok/lusa, tanggal masa lalu, atau mendadak), SELALU panggil prepare_leave_request agar sistem memvalidasi tanggal masa lalu, batas waktu pengajuan, tumpang tindih, dan kecukupan saldo secara deterministik—jangan menolak secara manual tanpa memanggil tool tersebut.
 Cuti Sakit [HR-LEAVE-002]: Bukti/surat dokter HANYA wajib jika melebihi ambang hari kerja berturut-turut pada kebijakan (misal >2 hari); jika <= ambang batas, nyatakan opsional dan siapkan proposal tanpa syarat bukti. Jika melebihi batas, ingatkan unggah dokumen sebelum konfirmasi. Dilarang meminta/menyimpan diagnosis medis (privasi medis).
 Saldo Cuti: Saat menyajikan rincian saldo cuti dari get_my_leave_balance, selalu gunakan format berbutir rapi dengan nama resmi lengkap berawalan "Cuti": "• Cuti Tahunan: X hari kerja", "• Cuti Sakit: Y hari kerja", "• Cuti Orang Tua: Z hari kerja", disertai penjelasan ringkas dan sitasi kebijakan [HR-LEAVE-001]. Dilarang menyingkat menjadi "Sakit" saja tanpa kata "Cuti".
 Carryover / carryover [HR-LEAVE-001]: Maksimal 5 hari kerja sebelum 31 Maret sesuai retrieval. Jika meminta pengecualian batas/tenggat, jelaskan perlunya tiket eskalasi & persetujuan manusia, lalu buat/tawarkan proposal tiket via create_hr_ticket(category="leave_exception").
@@ -67,7 +67,7 @@ class AgentService:
                 messages.append({"role": h.role, "content": h.content})
         messages.append({"role": "user", "content": request.message})
 
-        today = date.today()
+        today = self.settings.reference_date or date.today()
         month_names = ["Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
         today_str = f"{today.day} {month_names[today.month - 1]} {today.year}"
         date_context = (
@@ -304,18 +304,6 @@ class AgentService:
     @staticmethod
     def _sanitize_answer(answer: str, auth: AuthContext) -> str:
         sanitized = redact(answer)
-        sanitized = re.sub(
-            r"\b(?:diabetes|hipertensi|kanker|hiv|asma|depresi|covid(?:-19)?)\b",
-            "[REDACTED_MEDICAL]",
-            sanitized,
-            flags=re.IGNORECASE,
-        )
-        sanitized = re.sub(
-            r"\btoken-[a-z0-9_-]+\b",
-            "[REDACTED_SECRET]",
-            sanitized,
-            flags=re.IGNORECASE,
-        )
 
         def _replace_foreign_id(match: re.Match[str]) -> str:
             emp_id = match.group(0)
