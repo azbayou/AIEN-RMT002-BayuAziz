@@ -129,6 +129,19 @@ class LiveOpikSpan:
             if self._output_data is not None:
                 if isinstance(self._output_data, dict):
                     kwargs["output"] = self._output_data
+                    in_tok = self._output_data.get("input_tokens")
+                    out_tok = self._output_data.get("output_tokens")
+                    if in_tok is not None and out_tok is not None:
+                        kwargs["usage"] = {
+                            "prompt_tokens": int(in_tok),
+                            "completion_tokens": int(out_tok),
+                            "total_tokens": int(in_tok) + int(out_tok),
+                        }
+                        kwargs["model"] = "gpt-6-luna"
+                        kwargs["provider"] = "openai"
+                        kwargs["total_cost"] = round(
+                            (int(in_tok) * 0.10 + int(out_tok) * 0.50) / 1_000_000, 6
+                        )
                 else:
                     kwargs["output"] = {"result": self._output_data}
             if self._status != "ok":
@@ -211,8 +224,17 @@ class LiveOpikTrace:
                 else:
                     end_kwargs["output"] = {"answer": str(sanitized_output)}
 
-            if usage and isinstance(usage, dict) and usage.get("estimated_cost") is not None:
-                end_kwargs["metadata"]["cost"] = usage["estimated_cost"]
+            if usage and isinstance(usage, dict):
+                in_tok = int(usage.get("input_tokens") or 0)
+                out_tok = int(usage.get("output_tokens") or 0)
+                meta["input_tokens"] = in_tok
+                meta["output_tokens"] = out_tok
+                meta["total_tokens"] = in_tok + out_tok
+                cost = usage.get("estimated_cost")
+                if cost is None and (in_tok or out_tok):
+                    cost = round((in_tok * 0.10 + out_tok * 0.50) / 1_000_000, 6)
+                if cost is not None:
+                    meta["cost"] = cost
 
             self._trace.end(**end_kwargs)
         except Exception as err:
