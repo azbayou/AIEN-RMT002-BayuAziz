@@ -8,7 +8,7 @@ from typing import Any
 
 from .config import get_settings
 from .providers import DeterministicProvider, OpenAIProvider
-from .security import hash_password, token_hash
+from .security import connect_db, hash_password, token_hash
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -79,9 +79,7 @@ def reset_and_seed(reset: bool = False) -> None:
         for chunk in chunk_policy(path)
     ]
 
-    import psycopg
-
-    with psycopg.connect(settings.database_url) as connection:
+    with connect_db(settings.database_url) as connection:
         with connection.cursor() as cursor:
             if reset:
                 cursor.execute(
@@ -457,12 +455,11 @@ def reset_and_seed(reset: bool = False) -> None:
             if any(len(vector) != dimension for vector in embeddings):
                 raise ValueError("embedding dimensions do not match EMBEDDING_DIMENSIONS")
 
-            active_versions = {chunk["document_id"]: chunk["version"] for chunk in policies}
-            for doc_id, ver in active_versions.items():
-                cursor.execute(
-                    "DELETE FROM policy_chunks WHERE document_id = %s AND version <> %s",
-                    (doc_id, ver),
-                )
+            valid_chunk_ids = [chunk["chunk_id"] for chunk in policies]
+            cursor.execute(
+                "DELETE FROM policy_chunks WHERE NOT (chunk_id = ANY(%s::text[]))",
+                (valid_chunk_ids,),
+            )
 
             for chunk, embedding in zip(policies, embeddings):
                 cursor.execute(
@@ -470,7 +467,14 @@ def reset_and_seed(reset: bool = False) -> None:
                     INSERT INTO policy_chunks
                         (chunk_id, document_id, title, section, version, effective_date, content, embedding)
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (chunk_id) DO NOTHING
+                    ON CONFLICT (chunk_id) DO UPDATE SET
+                        document_id = EXCLUDED.document_id,
+                        title = EXCLUDED.title,
+                        section = EXCLUDED.section,
+                        version = EXCLUDED.version,
+                        effective_date = EXCLUDED.effective_date,
+                        content = EXCLUDED.content,
+                        embedding = EXCLUDED.embedding
                     """,
                     (
                         chunk["chunk_id"],

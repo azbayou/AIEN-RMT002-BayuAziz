@@ -111,7 +111,7 @@ Tambahkan satu regression case baru untuk permintaan cuti overlap, lalu jalankan
   - *Expected Behavior*: Sistem mendeteksi tumpang tindih (`has_overlap = True`), melempar `DomainError("tanggal cuti bertumpang tindih dengan permintaan aktif")`, dan mengembalikan `Outcome.abstained` tanpa membuat proposal/request baru.
   - *Actual Outcome*: HTTP 200, `outcome: "abstained"`, tool `prepare_leave_request` tercatat dengan status `blocked`.
   - *Trace ID*: `trace-reg-overlap-001`
-  - *Keputusan*: **LULUS (PASS)** (`tests/test_actions.py::test_overlap_is_rejected_before_a_second_request_is_saved`).
+  - *Keputusan*: **LULUS (PASS)** (`tests/test_domain.py::test_insufficient_balance_and_overlap_are_blocked`).
 
 - **Batasan Sistem Pendidikan Sebelum Digunakan pada Data HR Nyata:**
   Sistem ini merupakan purwarupa edukasi dengan batasan operasional yang belum siap untuk produksi skala enterprise: (1) Perhitungan hari kerja saat ini hanya mengabaikan akhir pekan dan belum terintegrasi dengan kalender Libur Nasional & Cuti Bersama resmi (SKB 3 Menteri); (2) Belum ada mekanisme reservasi saldo (*locked/reserved balance*) saat permohonan masih berstatus `pending_manager_review`, sehingga berisiko terjadi pengajuan paralel yang melebihi kuota saldo sebelum persetujuan manajer; (3) Pengecekan overlap saat ini hanya memvalidasi terhadap permohonan pending dan belum mencakup rekam cuti yang telah berstatus *approved* di masa lampau; dan (4) Penyaringan data medis masih menggunakan daftar statis kata kunci lokal (`data/medical_terms.json`), belum terhubung dengan ontologi medis terenkripsi standar industri (seperti ICD-10 atau SNOMED-CT) untuk kepatuhan ketat UU PDP dan HIPAA.

@@ -15,10 +15,9 @@ Sistem **Miyo HR Assistant** dirancang sebagai asisten kebijakan HR enterprise y
 ### 1.2 User Personas
 | Persona | Role | Identitas & Token | Wewenang & Batasan |
 |---|---|---|---|
-| **Alya Pratama** | Regular Employee | `EMP-001` (`token-alya`) | Membaca kebijakan HR, melihat saldo cuti sendiri, membuat proposal cuti sendiri, membuat tiket HR. |
-| **Bima Satria** | Regular Employee | `EMP-002` (`token-bima`) | Membaca kebijakan HR, melihat saldo cuti sendiri, terisolasi penuh dari data Alya & Citra. |
-| **Citra Dewi** | Regular Employee | `EMP-003` (`token-citra`) | Membaca kebijakan HR, melihat saldo cuti sendiri, terisolasi penuh dari data pegawai lain. |
-| **HR Operations / Manager** | System Administrator | `token-admin` | Mengakses ringkasan metrik monitoring operasional (`/api/v1/monitoring/summary`), review trace tersanitasi. Tidak dapat melihat data medis sensitif mentah. |
+| **Alya Pratama** | Regular Employee (`employee`) | `EMP-001` (`token-alya`) | Membaca kebijakan HR, melihat saldo cuti sendiri, membuat proposal cuti sendiri, membuat tiket HR. |
+| **Bima Santoso** | Regular Employee (`employee`) | `EMP-002` (`token-bima`) | Membaca kebijakan HR, melihat saldo cuti sendiri, terisolasi penuh dari data Alya. |
+| **Monitoring Admin** | System Administrator (`monitoring_admin`) | `ADM-001` (`token-admin`) | Mengakses ringkasan metrik monitoring operasional (`/api/v1/monitoring/summary`), review trace tersanitasi. Tidak dapat melihat data medis sensitif mentah. |
 
 ### 1.3 Scope & Non-Scope
 - **In Scope:**
@@ -91,7 +90,7 @@ flowchart TD
     subgraph TB1["Trust Boundary 1: Authentication Gateway"]
         direction TB
         BEARER["Bearer Header Validation"]
-        HASH_AUTH["SHA-256 Token Matching (SSOT: data/employees.json)"]
+        HASH_AUTH["SHA-256 Token Matching (PostgreSQL employees, seeded from data/employees.json)"]
         CTX["Immutable AuthContext (employee_id, display_name, roles)"]
         BEARER --> HASH_AUTH --> CTX
     end
@@ -191,7 +190,7 @@ sequenceDiagram
     Agent-->>Employee: Respon Outcome: action_proposed + Detail Proposal
 
     Note over Employee,DB: Fase 2: Konfirmasi Eksplisit & Idempotensi
-    Employee->>Agent: POST /api/v1/actions/confirm {proposal_id, idempotency_key}
+    Employee->>Agent: POST /api/v1/action-proposals/{proposal_id}/confirm {idempotency_key}
     Agent->>DB: Begin DB Transaction (FOR UPDATE lock on employee balance)
     alt Proposal Valid & Not Expired & Key Baru
         DB->>DB: Insert leave_requests (status='pending_manager_review')
@@ -281,7 +280,7 @@ Sistem mengevaluasi telemetry secara dinamis dari `data/monitoring_rules.json`:
 
 ### ADR-002: Pending-Only Actions dengan Two-Phase Confirmation & Idempotency Key
 - **Context:** LLM tidak boleh memiliki otoritas untuk mengubah status saldo atau menyetujui permohonan cuti secara langsung tanpa verifikasi manusia.
-- **Decision:** Menerapkan siklus 2 fase: Fase 1 hanya menghasilkan objek `ActionProposal` ber-TTL 15 menit. Fase 2 menerima endpoint eksplisit `/api/v1/actions/confirm` dengan `idempotency_key`. Status akhir cuti di database terkunci pada `pending_manager_review`.
+- **Decision:** Menerapkan siklus 2 fase: Fase 1 hanya menghasilkan objek `ActionProposal` ber-TTL 15 menit. Fase 2 menerima endpoint eksplisit `/api/v1/action-proposals/{proposal_id}/confirm` dengan `idempotency_key`. Status akhir cuti di database terkunci pada `pending_manager_review`.
 - **Alternatives Considered:** Eksekusi langsung via tool agent (berisiko tinggi); persetujuan otomatis jika saldo cukup (melanggar aturan kepatuhan).
 - **Trade-offs:** Pengguna harus melakukan satu langkah tambahan (klik konfirmasi), namun menjamin 100% kepatuhan audit HR dan ketiadaan efek samping liar.
 - **Production Follow-up:** Integrasi webhook notifikasi Slack/Email ke manajer divisi yang bersangkutan.

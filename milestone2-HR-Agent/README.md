@@ -52,29 +52,21 @@ Lihat [brief.md](brief.md) untuk kontrak endpoint dan kategori kasus, dan [lab.m
 
 ## 🧪 Menjalankan Pengujian (Testing Suite)
 
+Suite `tests/` terdiri atas 8 file (`conftest.py`, `test_actions.py`, `test_agent_reliability.py`, `test_api.py`, `test_domain.py`, `test_live_api.py`, `test_retrieval_security.py`, dan `test_supplied_ui.py`) dengan 21 deterministic tests (`-m "not live"`) dan 1 live test (`-m live`).
+
 ### A. Pengujian Deterministik Non-Live (Dalam Container)
-Semua 38 unit & contract tests berjalan 100% tanpa akses jaringan luar:
+Semua 21 unit & contract tests berjalan 100% tanpa akses jaringan luar:
 ```bash
-docker compose exec -T api pytest -m "not live"
+docker compose exec -T api python -m pytest -m "not live"
 ```
 
-### B. Pengujian Integrasi PostgreSQL & pgvector
+### B. Pengujian Live API (1 Live Test)
+Menjalankan 1 pengujian live (`tests/test_live_api.py::test_live_policy_question`) terhadap API yang sedang berjalan:
 ```bash
-docker compose exec -T -e RUN_POSTGRES_TESTS=1 api pytest tests/test_repository_postgres.py
+docker compose exec -T -e RUN_LIVE_TESTS=1 -e API_URL=http://localhost:8000 api python -m pytest -m live -o addopts=""
 ```
 
-### C. Pengujian Live API
-```bash
-docker compose exec -T -e RUN_LIVE_TESTS=1 api pytest tests/test_live_api.py
-```
-
-### D. Pengujian WBS Self-Tests
-Verifikasi kepatuhan seluruh acceptance criteria WBS:
-```bash
-docker compose exec -T api pytest tests/self_test_*.py
-```
-
-### E. Menjalankan Evaluator Komprehensif (15 Skenario)
+### C. Menjalankan Evaluator Komprehensif (15 Skenario)
 Runner mengevaluasi seluruh skenario pengujian enterprise (grounded policy, cross-employee security, prompt injection, invalid past-date rejection, confirmation hard-gates):
 ```bash
 docker compose exec -T api python -m src.run_evaluation --base-url http://localhost:8000 --token token-alya

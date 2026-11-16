@@ -4,7 +4,6 @@ from __future__ import annotations
 import base64
 from copy import deepcopy
 from datetime import date, datetime, timezone
-from functools import lru_cache
 from math import sqrt
 import re
 from threading import RLock
@@ -27,7 +26,7 @@ from .contracts import (
     ManagerReviewResult,
     PolicyChunk,
 )
-from .security import hash_password, redact, token_hash, verify_password
+from .security import connect_db, hash_password, redact, token_hash, verify_password
 
 
 class Repository(Protocol):
@@ -79,13 +78,18 @@ class ConflictError(RuntimeError):
     pass
 
 
-@lru_cache(maxsize=1)
-def _load_seed_from_db() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Load employees, leave balances, and monitoring rules from the database."""
-    from .config import get_settings
+_SEED_CACHE: tuple[list[dict[str, Any]], list[dict[str, Any]]] | None = None
+_SEED_LOCK = RLock()
 
-    settings = get_settings()
-    with psycopg.connect(settings.database_url, row_factory=dict_row) as connection:
+
+def _connect_db(database_url: str) -> psycopg.Connection:
+    """Connect to PostgreSQL using dict_row, retrying localhost for Docker host `postgres`."""
+    return connect_db(database_url, row_factory=dict_row, connector=psycopg.connect)
+
+
+def _query_seed_rows(database_url: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Query employees, leave balances, and monitoring rules from PostgreSQL."""
+    with _connect_db(database_url) as connection:
         emp_rows = connection.execute(
             """
             SELECT e.employee_id, e.username, e.password_hash, e.display_name, e.role,
@@ -142,6 +146,41 @@ def _load_seed_from_db() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         for row in rule_rows
     ]
     return employee_rows, monitoring_rules
+
+
+def _load_seed_from_db() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Load employees, leave balances, and monitoring rules from the database."""
+    global _SEED_CACHE
+    with _SEED_LOCK:
+        if _SEED_CACHE is not None:
+            return deepcopy(_SEED_CACHE)
+
+        from .config import get_settings
+
+        settings = get_settings()
+        if not settings.database_url:
+            return [], []
+
+        employee_rows: list[dict[str, Any]] = []
+        monitoring_rules: list[dict[str, Any]] = []
+        needs_seed = False
+
+        try:
+            employee_rows, monitoring_rules = _query_seed_rows(settings.database_url)
+            if not employee_rows:
+                needs_seed = True
+        except psycopg.errors.UndefinedTable:
+            needs_seed = True
+
+        if needs_seed:
+            from .setup_lab import reset_and_seed
+
+            reset_and_seed(reset=False)
+            employee_rows, monitoring_rules = _query_seed_rows(settings.database_url)
+
+        if employee_rows:
+            _SEED_CACHE = (employee_rows, monitoring_rules)
+        return deepcopy((employee_rows, monitoring_rules))
 
 
 class MemoryRepository:

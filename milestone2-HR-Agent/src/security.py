@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import re
 import secrets
+from typing import Any
 
 
 _EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
@@ -22,6 +23,26 @@ _MEDICAL_LABEL_RE = re.compile(
 _CACHED_TERMS: tuple[str, ...] | None = None
 
 
+def connect_db(
+    database_url: str,
+    *,
+    row_factory: Any = None,
+    connector: Any = None,
+) -> Any:
+    """Connect to PostgreSQL, retrying localhost if Docker host `postgres` is unreachable."""
+    if connector is None:
+        import psycopg
+
+        connector = psycopg.connect
+    kwargs = {"row_factory": row_factory} if row_factory is not None else {}
+    try:
+        return connector(database_url, **kwargs)
+    except Exception:
+        if "@postgres:" in database_url:
+            return connector(database_url.replace("@postgres:", "@localhost:"), **kwargs)
+        raise
+
+
 def _load_medical_terms() -> tuple[str, ...]:
     """Load reviewable medical terms from database table medical_terms as single source of truth."""
     global _CACHED_TERMS
@@ -30,11 +51,10 @@ def _load_medical_terms() -> tuple[str, ...]:
 
     try:
         from .config import get_settings
-        import psycopg
 
         settings = get_settings()
         if settings.database_url:
-            with psycopg.connect(settings.database_url) as conn:
+            with connect_db(settings.database_url) as conn:
                 rows = conn.execute(
                     "SELECT term FROM medical_terms ORDER BY LENGTH(term) DESC"
                 ).fetchall()
