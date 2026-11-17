@@ -390,7 +390,7 @@ createApp({
 
     const visibleTabs = computed(() => {
       const list = [
-        { id: 'chat', label: 'Asisten Kebijakan', icon: 'message-square' },
+        { id: 'chat', label: 'Tanya Miyo', icon: 'message-square' },
         { id: 'my_requests', label: 'Permohonan Cuti', icon: 'file-text' },
         { id: 'calendar', label: 'Kalender Cuti', icon: 'calendar' }
       ];
