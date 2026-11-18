@@ -10,13 +10,8 @@ API_PATHS = {
     "chat": "/api/v1/chat",
     "confirm": "/api/v1/action-proposals/{proposal_id}/confirm",
     "my_requests": "/api/v1/leave-requests/me",
-    "leave_balances": "/api/v1/leave-balances/me",
     "monitoring_summary": "/api/v1/monitoring/summary",
     "monitoring_alerts": "/api/v1/monitoring/alerts",
-    "personas": "/api/v1/auth/personas",
-    "policy_rules": "/api/v1/policies/rules",
-    "tickets": "/api/v1/tickets",
-    "ticket_status": "/api/v1/tickets/{ticket_id}/status",
 }
 
 

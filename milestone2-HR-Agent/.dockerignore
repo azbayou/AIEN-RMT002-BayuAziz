@@ -3,8 +3,8 @@
 .venv/
 venv/
 .git/
-__pycache__/
-*.py[cod]
+**/__pycache__/
+**/*.py[cod]
 .pytest_cache/
 .ruff_cache/
 outputs/
@@ -15,3 +15,4 @@ outputs/
 WBS/
 docs/
 scripts/benchmark_results.json
+exploration.ipynb

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -13,7 +12,7 @@ try:
     from src.api import create_app
 
     app = create_app()
-except Exception as exc:
+except Exception:
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import JSONResponse
@@ -34,7 +33,7 @@ except Exception as exc:
             content={
                 "status": "error",
                 "error": "Backend Startup Configuration Required",
-                "detail": str(exc),
+                "detail": "Backend startup configuration is incomplete or unavailable. Check deployment environment variables.",
                 "hint": "Pastikan Environment Variables (terutama DATABASE_URL) sudah diset di Vercel Dashboard: Project Settings > Environment Variables.",
                 "path": f"/{path}",
             },

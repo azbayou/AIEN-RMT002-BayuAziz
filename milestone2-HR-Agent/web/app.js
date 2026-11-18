@@ -164,10 +164,20 @@ createApp({
       refreshIcons();
     }
 
-    // --- POLICY & SERVER DATE STATE (DYNAMIC FROM BACKEND) ---
+    // --- LOCAL DATE FORMATTER (NO UTC SHIFT) ---
+    function formatLocalDate(dateObj) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    // --- POLICY & SERVER DATE STATE (DYNAMIC FROM AUTHENTICATED BACKEND) ---
+    let hasInitializedCalDate = false;
     const policyRules = ref({
-      server_date: new Date().toISOString().split('T')[0],
+      server_date: formatLocalDate(new Date()),
       annual_lead_days: 3,
+      earliest_annual_start_date: '',
       sick_doc_threshold: 2
     });
 
@@ -195,37 +205,74 @@ createApp({
     const loginError = ref('');
     const isLoggingIn = ref(false);
 
+    async function refreshPolicyRules() {
+      if (!activePersona.value?.demo_token) return null;
+      try {
+        const rulesRes = await apiCall('/api/v1/policies/rules');
+        if (rulesRes) {
+          policyRules.value = {
+            ...policyRules.value,
+            ...rulesRes
+          };
+          warmPolicyCacheFromRules(rulesRes);
+          if (!hasInitializedCalDate && rulesRes.server_date) {
+            const d = new Date(`${rulesRes.server_date}T00:00:00`);
+            if (!Number.isNaN(d.getTime())) {
+              calYear.value = d.getFullYear();
+              calMonth.value = d.getMonth() + 1;
+              hasInitializedCalDate = true;
+            }
+          }
+          if (isLeaveModalOpen.value) {
+            const minDate = calculateMinStartDate(formLeaveType.value);
+            formMinStartDate.value = minDate;
+            if (formStartDate.value < minDate) {
+              formStartDate.value = minDate;
+            }
+            recalculateDuration();
+          }
+        }
+        return rulesRes;
+      } catch (err) {
+        console.error('Fetch policy rules error:', err);
+        return null;
+      }
+    }
+
     async function fetchSystemInit() {
       isLoadingPersonas.value = true;
       try {
-        const [personasRes, rulesRes] = await Promise.all([
-          fetch(`${getApiBase()}/api/v1/auth/personas`).then(r => (r.ok ? r.json() : [])),
-          fetch(`${getApiBase()}/api/v1/policies/rules`).then(r => (r.ok ? r.json() : null))
-        ]);
-
-        if (rulesRes) {
-          policyRules.value = rulesRes;
-          warmPolicyCacheFromRules(rulesRes);
-          const d = new Date(`${rulesRes.server_date}T00:00:00`);
-          calYear.value = d.getFullYear();
-          calMonth.value = d.getMonth() + 1;
-        }
+        const personasRes = await fetch(`${getApiBase()}/auth/personas`)
+          .then(r => (r.ok ? r.json() : []))
+          .catch(() => []);
 
         personasCatalog.value = (personasRes || []).map(p => ({
           ...p,
           label: `${p.display_name} — ${p.department || p.role}`
         }));
 
-        // Restore previous session if valid
+        // Validate and restore previous session token against authenticated endpoint
         const savedSession = sessionStorage.getItem('miyo_active_session');
         if (savedSession) {
           try {
             const parsed = JSON.parse(savedSession);
             if (parsed && parsed.demo_token) {
-              activePersona.value = parsed;
-              selectedPersonaId.value = parsed.employee_id;
-              isAuthenticated.value = true;
-              await loadAuthenticatedWorkspace();
+              const validateRes = await fetch(`${getApiBase()}/api/v1/leave-balances/me`, {
+                headers: { 'Authorization': `Bearer ${parsed.demo_token}` }
+              });
+              if (validateRes.ok) {
+                const balancesData = await validateRes.json().catch(() => []);
+                activePersona.value = parsed;
+                selectedPersonaId.value = parsed.employee_id;
+                myBalances.value = Array.isArray(balancesData) ? balancesData : [];
+                isAuthenticated.value = true;
+                hasInitializedCalDate = false;
+                await loadAuthenticatedWorkspace();
+              } else {
+                sessionStorage.removeItem('miyo_active_session');
+              }
+            } else {
+              sessionStorage.removeItem('miyo_active_session');
             }
           } catch {
             sessionStorage.removeItem('miyo_active_session');
@@ -239,8 +286,8 @@ createApp({
       }
     }
 
-    function selectSsoPersona(persona) {
-      if (persona.requires_password && !persona.demo_token) {
+    async function selectSsoPersona(persona) {
+      if (persona.requires_password) {
         pendingStepUpPersona.value = persona;
         loginUsername.value = persona.username || persona.employee_id;
         loginPassword.value = '';
@@ -249,19 +296,38 @@ createApp({
         refreshIcons();
         return;
       }
-      activateSession(persona);
+      try {
+        const res = await fetch(`${getApiBase()}/auth/demo-session`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ employee_id: persona.employee_id })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: 'Gagal memulai sesi demo' }));
+          throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        const profile = data.profile || {};
+        const sessionPersona = {
+          ...persona,
+          ...profile,
+          demo_token: data.access_token,
+          label: persona.label || `${profile.display_name || persona.employee_id} — ${profile.department || profile.role || ''}`
+        };
+        await activateSession(sessionPersona);
+        notify(`Sesi ${sessionPersona.display_name || sessionPersona.employee_id} aktif`, 'success');
+      } catch (err) {
+        notify(`Gagal masuk sesi SSO: ${err.message}`, 'error');
+      }
     }
 
-    function onSidebarPersonaSwitch() {
+    async function onSidebarPersonaSwitch() {
       const target = personasCatalog.value.find(p => p.employee_id === selectedPersonaId.value);
       if (!target) return;
-      if (target.requires_password && !target.demo_token) {
-        // Revert dropdown until password is verified
+      if (target.requires_password && activePersona.value?.employee_id !== target.employee_id) {
         selectedPersonaId.value = activePersona.value ? activePersona.value.employee_id : '';
-        selectSsoPersona(target);
-        return;
       }
-      activateSession(target);
+      await selectSsoPersona(target);
     }
 
     async function activateSession(persona) {
@@ -269,11 +335,18 @@ createApp({
       selectedPersonaId.value = persona.employee_id;
       isAuthenticated.value = true;
       isMobileSidebarOpen.value = false;
+      hasInitializedCalDate = false;
       sessionStorage.setItem('miyo_active_session', JSON.stringify(persona));
 
       chatMessages.value = [];
       confirmedProposals.value = new Set();
       proposalAttachments.value = {};
+      myBalances.value = [];
+      myRequests.value = [];
+      teamRequests.value = [];
+      teamAnalytics.value = null;
+      ticketsList.value = [];
+      policyCache.value = {};
       activeTab.value = 'chat';
 
       await loadAuthenticatedWorkspace();
@@ -287,6 +360,14 @@ createApp({
       selectedPersonaId.value = '';
       chatMessages.value = [];
       confirmedProposals.value = new Set();
+      proposalAttachments.value = {};
+      myBalances.value = [];
+      myRequests.value = [];
+      teamRequests.value = [];
+      teamAnalytics.value = null;
+      ticketsList.value = [];
+      policyCache.value = {};
+      hasInitializedCalDate = false;
       sessionStorage.removeItem('miyo_active_session');
       fetchSystemInit();
       refreshIcons();
@@ -305,7 +386,7 @@ createApp({
       isLoggingIn.value = true;
       loginError.value = '';
       try {
-        const res = await fetch(`${getApiBase()}/api/v1/auth/login`, {
+        const res = await fetch(`${getApiBase()}/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -321,29 +402,35 @@ createApp({
         const token = data.access_token;
         const profile = data.profile;
 
-        let existing = personasCatalog.value.find(p => p.employee_id === profile.employee_id);
+        const existing = personasCatalog.value.find(p => p.employee_id === profile.employee_id);
+        const sessionPersona = {
+          ...(existing || {}),
+          employee_id: profile.employee_id,
+          username: existing?.username || loginUsername.value.trim(),
+          display_name: profile.display_name,
+          role: profile.role,
+          department: profile.department || existing?.department || '',
+          label: `${profile.display_name} — ${profile.department || profile.role}`,
+          requires_password: true,
+          demo_token: token
+        };
         if (!existing) {
-          existing = {
+          personasCatalog.value.push({
             employee_id: profile.employee_id,
-            username: loginUsername.value.trim(),
+            username: sessionPersona.username,
             display_name: profile.display_name,
             role: profile.role,
-            department: profile.department || 'Engineering',
-            label: `${profile.display_name} — ${profile.department || profile.role}`,
-            requires_password: true,
-            demo_token: token,
-            balances: {}
-          };
-          personasCatalog.value.push(existing);
-        } else {
-          existing.demo_token = token;
+            department: sessionPersona.department,
+            label: sessionPersona.label,
+            requires_password: true
+          });
         }
 
         isLoginModalOpen.value = false;
         pendingStepUpPersona.value = null;
         loginUsername.value = '';
         loginPassword.value = '';
-        await activateSession(existing);
+        await activateSession(sessionPersona);
         notify(`Sesi ${profile.display_name} aktif`, 'success');
       } catch (err) {
         loginError.value = err.message;
@@ -398,7 +485,7 @@ createApp({
         const pendingCount = teamRequests.value.filter(r => r.status === 'pending_manager_review').length;
         list.push({
           id: 'approvals',
-          label: 'Persetujuan Tim',
+          label: 'Antrean Tinjauan HRIS',
           icon: 'users',
           badge: pendingCount > 0 ? pendingCount : null
         });
@@ -467,6 +554,13 @@ createApp({
       };
       const url = endpoint.startsWith('http') ? endpoint : `${getApiBase()}${endpoint}`;
       const resp = await fetch(url, { ...options, headers });
+      if (resp.status === 401) {
+        sessionStorage.removeItem('miyo_active_session');
+        isAuthenticated.value = false;
+        activePersona.value = null;
+        selectedPersonaId.value = '';
+        throw new Error('Sesi telah berakhir atau tidak valid. Silakan masuk kembali.');
+      }
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ detail: resp.statusText }));
         throw new Error(err.detail || `HTTP Error ${resp.status}`);
@@ -491,6 +585,7 @@ createApp({
     async function loadAuthenticatedWorkspace() {
       if (!isAuthenticated.value) return;
       await Promise.all([
+        refreshPolicyRules(),
         fetchMyBalances(),
         fetchMyRequests(),
         fetchTickets(),
@@ -530,7 +625,13 @@ createApp({
 
     function renderMarkdown(content) {
       if (!content) return '';
-      return marked.parse(content);
+      const rawHtml = marked.parse(content);
+      if (typeof DOMPurify !== 'undefined') {
+        return DOMPurify.sanitize(rawHtml);
+      }
+      const div = document.createElement('div');
+      div.textContent = content;
+      return div.innerHTML;
     }
 
     function getProposals(msg) {
@@ -552,9 +653,10 @@ createApp({
       });
     }
 
-    async function sendChatMessage() {
+    async function sendChatMessage(options = {}) {
       const text = userInputText.value.trim();
       if (!text || isGenerating.value) return;
+      const modalAtt = options && options.modalAttachment ? options.modalAttachment : null;
 
       chatMessages.value.push({ role: 'user', content: text });
       userInputText.value = '';
@@ -572,6 +674,17 @@ createApp({
           body: JSON.stringify({ message: text, history: historyPayload })
         });
 
+        const returnedProposals = (result.action_proposals && result.action_proposals.length > 0)
+          ? result.action_proposals
+          : (result.action_proposal ? [result.action_proposal] : []);
+
+        if (modalAtt) {
+          const sickProp = returnedProposals.find(p => p.leave_type === 'sick');
+          if (sickProp) {
+            proposalAttachments.value[sickProp.proposal_id] = modalAtt;
+          }
+        }
+
         chatMessages.value.push({
           role: 'assistant',
           content: result.answer,
@@ -584,6 +697,8 @@ createApp({
           trace_id: result.trace_id,
           usage: result.usage || {}
         });
+
+        await refreshPolicyRules();
       } catch (err) {
         chatMessages.value.push({
           role: 'assistant',
@@ -635,38 +750,39 @@ createApp({
       const proposalId = typeof proposal === 'string' ? proposal : proposal.proposal_id;
       const propObj = typeof proposal === 'object' ? proposal : null;
 
-      const att = proposalAttachments.value[proposalId] || formAttachment.value;
+      const att = proposalAttachments.value[proposalId] || null;
+      const sickThreshold = Number(policyRules.value.sick_doc_threshold ?? 2);
+      const isSick = propObj ? propObj.leave_type === 'sick' : false;
       const reqAtt = propObj
-        ? (propObj.requires_attachment || (propObj.leave_type === 'sick' && propObj.business_days > policyRules.value.sick_doc_threshold))
+        ? (propObj.requires_attachment || (isSick && propObj.business_days > sickThreshold))
         : false;
 
       if (reqAtt && !att) {
-        notify(`Sesuai kebijakan HR-LEAVE-002, cuti sakit > ${policyRules.value.sick_doc_threshold} hari wajib melampirkan surat dokter.`, 'error');
+        notify(`Sesuai kebijakan HR-LEAVE-002, cuti sakit > ${sickThreshold} hari wajib melampirkan surat dokter.`, 'error');
         return;
       }
 
       isConfirming.value = true;
       const idempotencyKey = `idem_${proposalId}`;
       try {
+        if (att && isSick) {
+          await apiCall(`/api/v1/action-proposals/${proposalId}/attachment`, {
+            method: 'POST',
+            body: JSON.stringify(att)
+          });
+        }
+
         const res = await apiCall(`/api/v1/action-proposals/${proposalId}/confirm`, {
           method: 'POST',
           body: JSON.stringify({ idempotency_key: idempotencyKey })
         });
 
         confirmedProposals.value.add(proposalId);
-
-        if (att && res.request_id) {
-          await apiCall(`/api/v1/leave-requests/${res.request_id}/attachment`, {
-            method: 'POST',
-            body: JSON.stringify(att)
-          });
-          delete proposalAttachments.value[proposalId];
-          formAttachment.value = null;
-        }
+        delete proposalAttachments.value[proposalId];
 
         chatMessages.value.push({
           role: 'assistant',
-          content: `Permohonan cuti **#${res.request_id}** telah berhasil diajukan dengan status \`${res.status}\` (Audit Ref: \`${res.audit_reference}\`). Manajer Anda akan meninjau permohonan ini.`
+          content: `Permohonan cuti **#${res.request_id}** telah berhasil diajukan dengan status \`${res.status}\` (Audit Ref: \`${res.audit_reference}\`). Pengajuan masuk ke antrean tinjauan HRIS manajer.`
         });
 
         notify(`Permohonan cuti #${res.request_id} berhasil dikonfirmasi`, 'success');
@@ -712,23 +828,32 @@ createApp({
     }
 
     function calculateMinStartDate(leaveType) {
-      const today = new Date(`${policyRules.value.server_date}T00:00:00`);
+      const serverDate = policyRules.value.server_date || formatLocalDate(new Date());
       if (leaveType !== 'annual') {
-        return policyRules.value.server_date;
+        return serverDate;
       }
-      const requiredLead = policyRules.value.annual_lead_days || 3;
+      if (policyRules.value.earliest_annual_start_date) {
+        return policyRules.value.earliest_annual_start_date;
+      }
+      const today = new Date(`${serverDate}T00:00:00`);
+      const requiredLead = Number(policyRules.value.annual_lead_days ?? 3);
       const candidate = new Date(today);
-      candidate.setDate(candidate.getDate() + 1);
+      if (requiredLead > 0) {
+        candidate.setDate(candidate.getDate() + 1);
+      }
       while (true) {
         let leadWorkdays = 0;
-        const c = new Date(today);
-        c.setDate(c.getDate() + 1);
-        while (c < candidate) {
-          if (c.getDay() !== 0 && c.getDay() !== 6) leadWorkdays++;
+        if (requiredLead > 0) {
+          const c = new Date(today);
           c.setDate(c.getDate() + 1);
+          while (c <= candidate) {
+            if (c.getDay() !== 0 && c.getDay() !== 6) leadWorkdays++;
+            c.setDate(c.getDate() + 1);
+          }
         }
-        if (leadWorkdays >= requiredLead && candidate.getDay() !== 0 && candidate.getDay() !== 6) {
-          return candidate.toISOString().split('T')[0];
+        const isWeekday = candidate.getDay() !== 0 && candidate.getDay() !== 6;
+        if (isWeekday && (requiredLead <= 0 || leadWorkdays >= requiredLead)) {
+          return formatLocalDate(candidate);
         }
         candidate.setDate(candidate.getDate() + 1);
       }
@@ -745,8 +870,8 @@ createApp({
       if (rules.policy_summaries) {
         policyCache.value = { ...rules.policy_summaries };
       } else {
-        const lead = rules.annual_lead_days || 3;
-        const thresh = rules.sick_doc_threshold || 2;
+        const lead = rules.annual_lead_days ?? 3;
+        const thresh = rules.sick_doc_threshold ?? 2;
         policyCache.value = {
           annual: {
             citation: '[HR-LEAVE-001]',
@@ -858,21 +983,36 @@ createApp({
       }
     }
 
-    function openLeaveModal() {
+    async function openLeaveModal() {
       formLeaveType.value = 'annual';
-      const minDate = calculateMinStartDate('annual');
-      formMinStartDate.value = minDate;
-      formStartDate.value = minDate;
-      formEndDate.value = minDate;
-      formWorkingDays.value = calculateWorkingDays(minDate, minDate);
       formReason.value = '';
       formAttachment.value = null;
+      const initialMin = calculateMinStartDate('annual');
+      formMinStartDate.value = initialMin;
+      formStartDate.value = initialMin;
+      formEndDate.value = initialMin;
+      formWorkingDays.value = calculateWorkingDays(initialMin, initialMin);
       isLeaveModalOpen.value = true;
-      fetchAgentPolicyGuardrail('annual');
+      refreshIcons();
+
+      await refreshPolicyRules();
+      const minDate = calculateMinStartDate(formLeaveType.value);
+      formMinStartDate.value = minDate;
+      if (formStartDate.value === initialMin || formStartDate.value < minDate) {
+        formStartDate.value = minDate;
+      }
+      if (formEndDate.value === initialMin || formEndDate.value < formStartDate.value) {
+        formEndDate.value = formStartDate.value;
+      }
+      formWorkingDays.value = calculateWorkingDays(formStartDate.value, formEndDate.value);
+      fetchAgentPolicyGuardrail(formLeaveType.value);
       refreshIcons();
     }
 
     function onLeaveTypeChange() {
+      if (formLeaveType.value !== 'sick') {
+        formAttachment.value = null;
+      }
       const minDate = calculateMinStartDate(formLeaveType.value);
       formMinStartDate.value = minDate;
       if (formStartDate.value < minDate) {
@@ -912,12 +1052,13 @@ createApp({
 
     function submitLeaveForm() {
       if (formWorkingDays.value === 0) return;
+      const sickThreshold = Number(policyRules.value.sick_doc_threshold ?? 2);
       if (
         formLeaveType.value === 'sick' &&
-        formWorkingDays.value > policyRules.value.sick_doc_threshold &&
+        formWorkingDays.value > sickThreshold &&
         !formAttachment.value
       ) {
-        notify(`Cuti sakit > ${policyRules.value.sick_doc_threshold} hari kerja wajib melampirkan dokumen surat dokter.`, 'error');
+        notify(`Cuti sakit > ${sickThreshold} hari kerja wajib melampirkan dokumen surat dokter.`, 'error');
         return;
       }
 
@@ -925,11 +1066,13 @@ createApp({
       const label = typeLabels[formLeaveType.value] || formLeaveType.value;
       const reasonPart = formReason.value.trim() ? ` dengan alasan: ${formReason.value.trim()}` : '';
       const prompt = `Siapkan ${label.toLowerCase()} (${formLeaveType.value}) dari ${formStartDate.value} sampai ${formEndDate.value}${reasonPart}`;
+      const attToForward = formLeaveType.value === 'sick' ? formAttachment.value : null;
 
+      formAttachment.value = null;
       isLeaveModalOpen.value = false;
       activeTab.value = 'chat';
       userInputText.value = prompt;
-      sendChatMessage();
+      sendChatMessage({ modalAttachment: attToForward });
     }
 
     // --- VOICE RECORDING ---
@@ -1094,21 +1237,23 @@ createApp({
       }
     }
 
-    // --- MANAGER APPROVALS & ANALYTICS ---
+    // --- MANAGER HRIS QUEUE (READ-ONLY) & ANALYTICS ---
     const teamRequests = ref([]);
     const teamAnalytics = ref(null);
-    const reviewNotes = ref({});
+
+    const pendingTeamRequests = computed(() =>
+      teamRequests.value.filter(r => r.status === 'pending_manager_review')
+    );
+
+    const historicalTeamRequests = computed(() =>
+      teamRequests.value.filter(r => r.status !== 'pending_manager_review')
+    );
 
     async function fetchTeamRequests() {
       if (!isManager.value) return;
       try {
         const res = await apiCall('/api/v1/manager/leave-requests');
         teamRequests.value = res || [];
-        teamRequests.value.forEach(r => {
-          if (!reviewNotes.value[r.request_id]) {
-            reviewNotes.value[r.request_id] = 'Reviewed by manager';
-          }
-        });
       } catch (err) {
         console.error('Fetch team requests error:', err);
       }
@@ -1121,23 +1266,6 @@ createApp({
         teamAnalytics.value = res || null;
       } catch (err) {
         console.error('Fetch analytics error:', err);
-      }
-    }
-
-    async function reviewRequest(requestId, decision) {
-      const note = (reviewNotes.value[requestId] || '').trim() || (decision === 'approved' ? 'Approved by manager' : 'Rejected by manager');
-      try {
-        const res = await apiCall(`/api/v1/manager/leave-requests/${requestId}/review`, {
-          method: 'POST',
-          body: JSON.stringify({
-            decision,
-            review_note: note
-          })
-        });
-        notify(`Permohonan #${requestId} telah ${decision === 'approved' ? 'disetujui' : 'ditolak'} (${res.audit_reference})`, 'success');
-        await Promise.all([fetchTeamRequests(), fetchAnalyticsOverview(), fetchMyRequests(), fetchMyBalances()]);
-      } catch (err) {
-        notify(`Gagal memproses review: ${err.message}`, 'error');
       }
     }
 
@@ -1187,6 +1315,8 @@ createApp({
       });
     });
 
+    const earliestAnnualStartDate = computed(() => calculateMinStartDate('annual'));
+
     const calendarDays = computed(() => {
       const y = calYear.value;
       const m = calMonth.value;
@@ -1194,10 +1324,20 @@ createApp({
       const totalDays = new Date(y, m, 0).getDate();
       const startWeekday = firstDay.getDay(); // 0=Sun, 1=Mon...
       const offset = startWeekday === 0 ? 6 : startWeekday - 1;
+      const serverDate = policyRules.value.server_date || formatLocalDate(new Date());
+      const earliestAnnual = earliestAnnualStartDate.value;
 
       const days = [];
       for (let i = 0; i < offset; i++) {
-        days.push({ dayNum: '', dateStr: `pad-${i}`, isToday: false, isWeekend: false, events: [] });
+        days.push({
+          dayNum: '',
+          dateStr: `pad-${i}`,
+          isToday: false,
+          isWeekend: false,
+          isLeadLocked: false,
+          isBookable: false,
+          events: []
+        });
       }
 
       for (let d = 1; d <= totalDays; d++) {
@@ -1205,7 +1345,9 @@ createApp({
         const dateObj = new Date(`${dStr}T00:00:00`);
         const dow = dateObj.getDay();
         const isWeekend = dow === 0 || dow === 6;
-        const isToday = dStr === policyRules.value.server_date;
+        const isToday = dStr === serverDate;
+        const isLeadLocked = !isWeekend && dStr >= serverDate && dStr < earliestAnnual;
+        const isBookable = !isWeekend && dStr >= earliestAnnual;
 
         const events = [];
         for (const req of calendarActiveRequests.value) {
@@ -1230,7 +1372,7 @@ createApp({
           }
         }
 
-        days.push({ dayNum: d, dateStr: dStr, isToday, isWeekend, events });
+        days.push({ dayNum: d, dateStr: dStr, isToday, isWeekend, isLeadLocked, isBookable, events });
       }
       return days;
     });
@@ -1346,9 +1488,11 @@ createApp({
       }
     }
 
-    watch(activeTab, (newTab) => {
+    watch(activeTab, async (newTab) => {
       if (newTab === 'tickets') {
         fetchTickets();
+      } else if (newTab === 'calendar') {
+        await refreshPolicyRules();
       }
       refreshIcons();
     });
@@ -1411,7 +1555,9 @@ createApp({
       toggleDevAudit,
       toast,
       notify,
+      formatLocalDate,
       policyRules,
+      refreshPolicyRules,
       currentDateFormatted,
       personasCatalog,
       isLoadingPersonas,
@@ -1484,11 +1630,11 @@ createApp({
       attachmentViewerModal,
       viewAttachment,
       teamRequests,
+      pendingTeamRequests,
+      historicalTeamRequests,
       teamAnalytics,
-      reviewNotes,
       fetchTeamRequests,
       fetchAnalyticsOverview,
-      reviewRequest,
       calYear,
       calMonth,
       calScope,
@@ -1498,6 +1644,7 @@ createApp({
       prevCalMonth,
       nextCalMonth,
       resetCalToday,
+      earliestAnnualStartDate,
       calendarActiveRequests,
       calendarDays,
       monitoringSummary,

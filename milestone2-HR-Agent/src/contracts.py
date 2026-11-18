@@ -206,6 +206,19 @@ class LoginResponse(BaseModel):
     profile: AuthContext
 
 
+class DemoSessionRequest(BaseModel):
+    employee_id: str = Field(min_length=3, max_length=50)
+
+
+class ProposalAttachmentView(BaseModel):
+    proposal_id: str
+    employee_id: str
+    filename: str
+    content_type: str
+    file_size_bytes: int
+    uploaded_at: datetime
+
+
 class ManagerReviewRequest(BaseModel):
     decision: Literal["approved", "rejected"]
     review_note: str = Field(default="Reviewed by manager", min_length=3, max_length=300)

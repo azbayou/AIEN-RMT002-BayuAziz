@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 from src.agent import AgentService
 from src.cache import NullCache
@@ -8,7 +9,7 @@ from src.config import Settings
 from src.contracts import AuthContext, ChatRequest, ModelToolCall, ModelTurn
 from src.repository import MemoryRepository
 from src.retrieval import RetrievalService
-from src.setup_lab import ROOT, chunk_policy
+from src.setup_lab import chunk_policy
 from src.tools import ToolExecutor
 
 
@@ -42,7 +43,7 @@ class BadCitationProvider:
 
 
 def service(repository: MemoryRepository, provider) -> AgentService:
-    settings = Settings(model_mode="fake")
+    settings = Settings(_env_file=None, model_mode="fake", opik_enabled=False)
     retrieval = RetrievalService(repository, provider, NullCache(), 0)
     tools = ToolExecutor(repository, retrieval, settings, today_factory=lambda: date(2026, 9, 23))
     return AgentService(repository, provider, tools, settings)
@@ -68,8 +69,19 @@ def test_invalid_citation_forces_abstention(repository: MemoryRepository) -> Non
     assert response.citations == []
 
 
-def test_policy_chunk_ids_and_metadata_are_stable() -> None:
-    path = ROOT / "data" / "policies" / "annual-leave.md"
+def test_policy_chunk_ids_and_metadata_are_stable(tmp_path: Path) -> None:
+    path = tmp_path / "annual-leave.md"
+    path.write_text(
+        "---\n"
+        "document_id: HR-LEAVE-001\n"
+        "title: Kebijakan Cuti Tahunan\n"
+        "version: 2.1\n"
+        "effective_date: 2026-01-01\n"
+        "---\n"
+        "## Hak dan saldo\n\n"
+        "Pegawai tetap memperoleh 12 hari kerja cuti tahunan per tahun kalender.\n",
+        encoding="utf-8",
+    )
     first = chunk_policy(path)
     second = chunk_policy(path)
     assert first == second

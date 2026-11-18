@@ -19,7 +19,9 @@ from src.tools import ToolExecutor
 @pytest.fixture
 def settings() -> Settings:
     return Settings(
+        _env_file=None,
         model_mode="fake",
+        opik_enabled=False,
         proposal_ttl_minutes=15,
         max_agent_turns=4,
         max_tool_calls=6,

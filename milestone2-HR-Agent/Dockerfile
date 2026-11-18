@@ -13,7 +13,6 @@ COPY data/ ./data/
 COPY tests/ ./tests/
 COPY scripts/ ./scripts/
 COPY app.py ui_contract.py demo_personas.json pyproject.toml README.md ./
-COPY Dockerfile /app/Dockerfile
 COPY web/ ./web/
 
 RUN chmod +x ./scripts/*.sh \

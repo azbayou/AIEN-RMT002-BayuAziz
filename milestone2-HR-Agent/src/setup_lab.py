@@ -4,7 +4,8 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+
+from psycopg.types.json import Jsonb
 
 from .config import get_settings
 from .providers import DeterministicProvider, OpenAIProvider
@@ -83,9 +84,11 @@ def reset_and_seed(reset: bool = False) -> None:
         with connection.cursor() as cursor:
             if reset:
                 cursor.execute(
-                    "DROP TABLE IF EXISTS leave_attachments, approval_audit_logs, traces, tickets, leave_requests, action_proposals, "
+                    "DROP TABLE IF EXISTS proposal_attachments, auth_sessions, evaluation_cases, "
+                    "leave_attachments, approval_audit_logs, traces, tickets, leave_requests, action_proposals, "
                     "policy_chunks, leave_balances, persona_tokens, medical_terms, monitoring_rules, employees CASCADE"
                 )
+            cursor.execute("DROP TABLE IF EXISTS persona_tokens CASCADE")
             dimension = settings.embedding_dimensions
             cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cursor.execute(
@@ -107,16 +110,20 @@ def reset_and_seed(reset: bool = False) -> None:
                 ALTER TABLE employees DROP CONSTRAINT IF EXISTS employees_role_check;
                 ALTER TABLE employees ADD CONSTRAINT employees_role_check
                     CHECK (role IN ('employee', 'manager', 'monitoring_admin'));
+                CREATE TABLE IF NOT EXISTS auth_sessions (
+                    session_token_hash TEXT PRIMARY KEY,
+                    employee_id TEXT NOT NULL REFERENCES employees(employee_id) ON DELETE CASCADE,
+                    expires_at TIMESTAMPTZ NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE INDEX IF NOT EXISTS auth_sessions_employee_idx
+                    ON auth_sessions (employee_id, expires_at);
                 CREATE TABLE IF NOT EXISTS leave_balances (
                     employee_id TEXT NOT NULL REFERENCES employees(employee_id),
                     leave_type TEXT NOT NULL,
                     available_days INTEGER NOT NULL CHECK (available_days >= 0),
                     as_of_date DATE NOT NULL,
                     PRIMARY KEY (employee_id, leave_type)
-                );
-                CREATE TABLE IF NOT EXISTS persona_tokens (
-                    employee_id TEXT PRIMARY KEY REFERENCES employees(employee_id),
-                    demo_token TEXT NOT NULL
                 );
                 CREATE TABLE IF NOT EXISTS medical_terms (
                     term TEXT PRIMARY KEY
@@ -130,6 +137,11 @@ def reset_and_seed(reset: bool = False) -> None:
                     owner TEXT NOT NULL,
                     response TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS evaluation_cases (
+                    case_id TEXT PRIMARY KEY,
+                    sort_order INTEGER NOT NULL,
+                    payload JSONB NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS policy_chunks (
                     chunk_id TEXT PRIMARY KEY,
                     document_id TEXT NOT NULL,
@@ -142,6 +154,8 @@ def reset_and_seed(reset: bool = False) -> None:
                 );
                 CREATE INDEX IF NOT EXISTS policy_chunks_document_idx
                     ON policy_chunks (document_id, version);
+                CREATE INDEX IF NOT EXISTS policy_chunks_fts_idx
+                    ON policy_chunks USING GIN (to_tsvector('simple', title || ' ' || section || ' ' || content));
                 CREATE TABLE IF NOT EXISTS action_proposals (
                     proposal_id TEXT PRIMARY KEY,
                     employee_id TEXT NOT NULL REFERENCES employees(employee_id),
@@ -158,6 +172,15 @@ def reset_and_seed(reset: bool = False) -> None:
                 ALTER TABLE action_proposals ADD COLUMN IF NOT EXISTS requires_attachment BOOLEAN DEFAULT FALSE;
                 CREATE INDEX IF NOT EXISTS action_proposals_employee_idx
                     ON action_proposals (employee_id, expires_at);
+                CREATE TABLE IF NOT EXISTS proposal_attachments (
+                    proposal_id TEXT PRIMARY KEY REFERENCES action_proposals(proposal_id) ON DELETE CASCADE,
+                    employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+                    filename TEXT NOT NULL,
+                    content_type TEXT NOT NULL CHECK (content_type IN ('application/pdf', 'image/png', 'image/jpeg')),
+                    file_size_bytes INTEGER NOT NULL CHECK (file_size_bytes > 0 AND file_size_bytes <= 5242880),
+                    file_bytes BYTEA NOT NULL,
+                    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
                 CREATE TABLE IF NOT EXISTS leave_requests (
                     request_id TEXT PRIMARY KEY,
                     proposal_id TEXT NOT NULL UNIQUE REFERENCES action_proposals(proposal_id),
@@ -227,6 +250,11 @@ def reset_and_seed(reset: bool = False) -> None:
                     ON traces (employee_id, created_at);
                 """
             )
+            if dimension <= 2000:
+                cursor.execute(
+                    "CREATE INDEX IF NOT EXISTS policy_chunks_embedding_hnsw_idx "
+                    "ON policy_chunks USING hnsw (embedding vector_cosine_ops)"
+                )
             valid_emp_ids = [e["employee_id"] for e in employees]
             if valid_emp_ids:
                 cursor.execute(
@@ -263,6 +291,12 @@ def reset_and_seed(reset: bool = False) -> None:
                         (valid_emp_ids, valid_emp_ids),
                     )
                     cursor.execute(
+                        "DELETE FROM proposal_attachments "
+                        "WHERE NOT (employee_id = ANY(%s::text[])) "
+                        "OR proposal_id IN (SELECT proposal_id FROM action_proposals WHERE NOT (employee_id = ANY(%s::text[])))",
+                        (valid_emp_ids, valid_emp_ids),
+                    )
+                    cursor.execute(
                         "DELETE FROM leave_requests WHERE NOT (employee_id = ANY(%s::text[]))",
                         (valid_emp_ids,),
                     )
@@ -271,7 +305,7 @@ def reset_and_seed(reset: bool = False) -> None:
                         (valid_emp_ids,),
                     )
                     cursor.execute(
-                        "DELETE FROM persona_tokens WHERE NOT (employee_id = ANY(%s::text[]))",
+                        "DELETE FROM auth_sessions WHERE NOT (employee_id = ANY(%s::text[]))",
                         (valid_emp_ids,),
                     )
                     cursor.execute(
@@ -297,9 +331,7 @@ def reset_and_seed(reset: bool = False) -> None:
                 for employee in employees:
                     username = employee.get("username") or employee["employee_id"].lower()
                     raw_password = employee.get("password", "Password#123")
-                    # Gunakan salt deterministik berbasis employee_id saat seed agar idempotent
-                    pwd_salt = hashlib.sha256(f"salt:{employee['employee_id']}".encode()).hexdigest()[:16]
-                    pwd_hash = hash_password(raw_password, salt=pwd_salt)
+                    pwd_hash = hash_password(raw_password)
                     cursor.execute(
                         """
                         INSERT INTO employees
@@ -336,15 +368,6 @@ def reset_and_seed(reset: bool = False) -> None:
                             """,
                             (employee["employee_id"], leave_type, available_days),
                         )
-                    cursor.execute(
-                        """
-                        INSERT INTO persona_tokens (employee_id, demo_token)
-                        VALUES (%s, %s)
-                        ON CONFLICT (employee_id) DO UPDATE SET
-                            demo_token = EXCLUDED.demo_token
-                        """,
-                        (employee["employee_id"], employee["token"]),
-                    )
 
                 hist_path = ROOT / "data" / "historical_requests.json"
                 if hist_path.is_file():
@@ -437,6 +460,27 @@ def reset_and_seed(reset: bool = False) -> None:
                         )
                 except Exception:
                     pass
+
+            eval_cases_path = ROOT / "data" / "evaluation_cases.json"
+            if eval_cases_path.is_file():
+                eval_cases = json.loads(eval_cases_path.read_text(encoding="utf-8"))
+                valid_case_ids = [item["case_id"] for item in eval_cases if item.get("case_id")]
+                if valid_case_ids:
+                    cursor.execute(
+                        "DELETE FROM evaluation_cases WHERE NOT (case_id = ANY(%s::text[]))",
+                        (valid_case_ids,),
+                    )
+                for idx, item in enumerate(eval_cases):
+                    cursor.execute(
+                        """
+                        INSERT INTO evaluation_cases (case_id, sort_order, payload)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (case_id) DO UPDATE SET
+                            sort_order = EXCLUDED.sort_order,
+                            payload = EXCLUDED.payload
+                        """,
+                        (item["case_id"], idx, Jsonb(item)),
+                    )
 
             provider = (
                 OpenAIProvider(

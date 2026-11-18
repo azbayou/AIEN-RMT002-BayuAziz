@@ -16,11 +16,14 @@ from .contracts import (
     TicketArgs,
 )
 from .domain import (
+    compute_earliest_annual_leave_date,
+    get_annual_leave_lead_days,
     get_sick_leave_doc_threshold,
     validate_leave_request,
 )
 from .repository import Repository
 from .retrieval import RetrievalService
+from .security import redact
 
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -144,11 +147,27 @@ class ToolExecutor:
         """Resolve effective system date for validation and calendar lookups."""
         return self.today_factory() if self.today_factory else (self.settings.reference_date or date.today())
 
-    def _lookup_leave_policy_text(self, leave_type: str) -> str | None:
+    def _lookup_leave_policy_text(self, leave_type: str, today: date | None = None) -> str | None:
         """Retrieve relevant policy text for dynamic leave validation rules."""
+        active_today = today or self._resolve_today()
+        doc_map = {
+            "annual": "HR-LEAVE-001",
+            "sick": "HR-LEAVE-002",
+            "parental": "HR-LEAVE-003",
+        }
+        doc_id = doc_map.get(leave_type)
+        if doc_id and hasattr(self.repository, "get_policy_document_text"):
+            try:
+                text = self.repository.get_policy_document_text(doc_id, as_of=active_today)
+                if text:
+                    return text
+            except Exception:
+                pass
+
         queries = {
             "sick": "cuti sakit dokumen pendukung surat dokter",
             "annual": "pengajuan cuti tahunan paling lambat hari kerja",
+            "parental": "cuti orang tua kelayakan proses",
         }
         query = queries.get(leave_type)
         if not query:
@@ -162,7 +181,7 @@ class ToolExecutor:
     def _build_leave_proposal(self, args: PrepareLeaveArgs, auth: AuthContext) -> ActionProposal:
         """Run deterministic domain validation and construct an unconfirmed leave proposal."""
         today = self._resolve_today()
-        policy_text = self._lookup_leave_policy_text(args.leave_type)
+        policy_text = self._lookup_leave_policy_text(args.leave_type, today=today)
         days, summary = validate_leave_request(
             args,
             self.repository.get_balances(auth.employee_id),
@@ -185,7 +204,13 @@ class ToolExecutor:
             requires_attachment=requires_att,
         )
 
-    def execute(self, name: str, arguments: dict[str, Any], auth: AuthContext) -> tuple[Any, ActionProposal | None]:
+    def execute(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        auth: AuthContext,
+        defer_tickets: bool = False,
+    ) -> tuple[Any, ActionProposal | None]:
         if name == "search_hr_policy":
             args = SearchPolicyArgs.model_validate(arguments)
             return self.retrieval.search(args.query, args.top_k), None
@@ -196,6 +221,19 @@ class ToolExecutor:
         if name == "get_calendar":
             args = CalendarArgs.model_validate(arguments)
             today = self._resolve_today()
+            annual_text = (
+                self.repository.get_policy_document_text("HR-LEAVE-001", as_of=today)
+                if hasattr(self.repository, "get_policy_document_text")
+                else None
+            )
+            sick_text = (
+                self.repository.get_policy_document_text("HR-LEAVE-002", as_of=today)
+                if hasattr(self.repository, "get_policy_document_text")
+                else None
+            )
+            lead_days = get_annual_leave_lead_days(annual_text)
+            earliest_annual = compute_earliest_annual_leave_date(today, lead_days)
+            sick_threshold = get_sick_leave_doc_threshold(sick_text)
             day_names = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
             items = []
             for offset in range(args.days + 1):
@@ -205,11 +243,15 @@ class ToolExecutor:
                         "date": current.isoformat(),
                         "day_name": day_names[current.weekday()],
                         "is_business_day": current.weekday() < 5,
+                        "can_book_annual_leave": current.weekday() < 5 and current >= earliest_annual,
                     }
                 )
             return {
                 "today": today.isoformat(),
                 "today_day_name": day_names[today.weekday()],
+                "annual_lead_days": lead_days,
+                "earliest_annual_leave_date": earliest_annual.isoformat(),
+                "sick_doc_threshold": sick_threshold,
                 "calendar": items,
             }, None
         if name == "prepare_leave_request":
@@ -219,7 +261,29 @@ class ToolExecutor:
             return proposal, proposal
         if name == "create_hr_ticket":
             args = TicketArgs.model_validate(arguments)
-            return self.repository.create_ticket(auth.employee_id, args.category, args.summary), None
+            if not defer_tickets:
+                return self.repository.create_ticket(auth.employee_id, args.category, args.summary), None
+            clean_summary = redact(args.summary)
+            ticket_id: str | None = None
+            if hasattr(self.repository, "list_tickets"):
+                try:
+                    for existing in self.repository.list_tickets(auth.employee_id):
+                        if (
+                            existing.get("category") == args.category
+                            and existing.get("summary") == clean_summary
+                            and existing.get("status") != "done"
+                        ):
+                            ticket_id = str(existing["ticket_id"])
+                            break
+                except Exception:
+                    ticket_id = None
+            return {
+                "ticket_id": ticket_id or f"T-{uuid4().hex[:12]}",
+                "category": args.category,
+                "summary": clean_summary,
+                "status": "pending",
+                "staged": True,
+            }, None
         if name == "get_team_hr_analytics":
             if auth.role not in ("manager", "monitoring_admin"):
                 from .domain import DomainError

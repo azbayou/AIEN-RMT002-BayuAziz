@@ -5,7 +5,7 @@ services:
     dockerfilePath: Dockerfile
     plan: free
     region: singapore
-    healthCheckPath: /readyz
+    healthCheckPath: /healthz
     envVars:
       - key: DATABASE_URL
         sync: false
@@ -28,11 +28,11 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_STT_MODEL
-        value: gemini-3.5-flash
+        value: gemini-2.5-flash
       - key: OPIK_API_KEY
         sync: false
       - key: OPIK_WORKSPACE
-        value: azbayou
+        sync: false
       - key: OPIK_PROJECT_NAME
         value: Milestone 2 - HR Agent
       - key: OPIK_ENABLED

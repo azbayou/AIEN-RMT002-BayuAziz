@@ -30,7 +30,12 @@ class RetrievalService:
         if not normalized or top_k < 1:
             return []
         key_digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-        cache_key = f"retrieval:{self.policy_index_version}:{top_k}:{key_digest}"
+        fp = (
+            self.repository.policy_fingerprint()
+            if hasattr(self.repository, "policy_fingerprint")
+            else "static"
+        )
+        cache_key = f"retrieval:{self.policy_index_version}:{fp}:{top_k}:{key_digest}"
         cached = self.cache.get(cache_key)
         if isinstance(cached, list):
             try:
@@ -43,8 +48,10 @@ class RetrievalService:
         embedding_degraded = False
         try:
             embeddings = self.provider.embed([normalized])
-            if embeddings:
+            if embeddings and embeddings[0]:
                 semantic = self.repository.vector_search(embeddings[0], max(top_k * 3, 5))
+            else:
+                embedding_degraded = True
         except Exception:
             semantic = []
             embedding_degraded = True
@@ -79,8 +86,8 @@ class RetrievalService:
             )
             overlap = len(terms & content_terms) + len(terms & title_terms)
             keyword_hits[chunk_id] = overlap
-            # Gabungkan RRF score dengan bobot keyword reranking (0.001 per kata kunci yang cocok)
-            combined_scores[chunk_id] = rrf_scores[chunk_id] + (0.001 * overlap)
+            # Gabungkan RRF score dengan bobot keyword tie-breaker (0.0002 per kata kunci yang cocok)
+            combined_scores[chunk_id] = rrf_scores[chunk_id] + (0.0002 * overlap)
 
         def rank_key(chunk: PolicyChunk) -> tuple[float, int, str]:
             return (-combined_scores[chunk.chunk_id], -keyword_hits[chunk.chunk_id], chunk.chunk_id)

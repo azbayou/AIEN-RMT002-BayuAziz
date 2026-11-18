@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import re
 import secrets
+import time
 from typing import Any
 
 
@@ -12,7 +13,10 @@ _EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECA
 _PHONE_RE = re.compile(r"(?<!\w)(?:\+?62[\s.-]?|0)8[1-9](?:[\s.-]?\d){7,11}(?!\w)")
 _TOKEN_RE = re.compile(
     r"(?<![\w-])(?:bearer\s+)?(?:token[-_][A-Z0-9._-]+|sk-[A-Z0-9._-]{8,}|"
-    r"secret[-_][A-Z0-9._-]+|api[-_]?key[-_][A-Z0-9._-]+)(?![\w-])",
+    r"secret[-_][A-Z0-9._-]+|api[-_]?key[-_][A-Z0-9._-]+|"
+    r"AIza[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|"
+    r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|"
+    r"postgres(?:ql)?://[^\s\"']+)(?![\w-])",
     re.IGNORECASE,
 )
 _MEDICAL_LABEL_RE = re.compile(
@@ -20,7 +24,34 @@ _MEDICAL_LABEL_RE = re.compile(
     r"kondisi\s+kesehatan)\s*:\s*[^.;,\n]+"
 )
 
+_BASELINE_MEDICAL_TERMS: tuple[str, ...] = (
+    "diabetes",
+    "hipertensi",
+    "darah tinggi",
+    "asma",
+    "kanker",
+    "depresi",
+    "covid-19",
+    "covid",
+    "flu",
+    "demam berdarah",
+    "demam",
+    "migrain",
+    "cedera",
+    "stroke",
+    "jantung",
+    "kolesterol",
+    "alergi",
+    "hepatitis",
+    "tipes",
+    "tifus",
+    "dbd",
+    "tbc",
+    "tuberkulosis",
+)
 _CACHED_TERMS: tuple[str, ...] | None = None
+_LAST_DB_ATTEMPT: float = 0.0
+_DB_COOLDOWN_SECONDS: float = 60.0
 
 
 def connect_db(
@@ -44,11 +75,17 @@ def connect_db(
 
 
 def _load_medical_terms() -> tuple[str, ...]:
-    """Load reviewable medical terms from database table medical_terms as single source of truth."""
-    global _CACHED_TERMS
+    """Load reviewable medical terms from database table medical_terms, falling back to baseline."""
+    global _CACHED_TERMS, _LAST_DB_ATTEMPT
     if _CACHED_TERMS is not None:
         return _CACHED_TERMS
 
+    now = time.monotonic()
+    if _LAST_DB_ATTEMPT and (now - _LAST_DB_ATTEMPT) < _DB_COOLDOWN_SECONDS:
+        return _BASELINE_MEDICAL_TERMS
+
+    _LAST_DB_ATTEMPT = now
+    db_terms: list[str] = []
     try:
         from .config import get_settings
 
@@ -59,21 +96,27 @@ def _load_medical_terms() -> tuple[str, ...]:
                     "SELECT term FROM medical_terms ORDER BY LENGTH(term) DESC"
                 ).fetchall()
                 if rows:
-                    terms = tuple(
+                    db_terms = [
                         term
                         for term in (
                             (r[0] if isinstance(r, (tuple, list)) else r["term"]).strip()
                             for r in rows
                         )
                         if term
-                    )
-                    if terms:
-                        _CACHED_TERMS = terms
-                        return _CACHED_TERMS
+                    ]
     except Exception:
-        pass
+        db_terms = []
 
-    return ()
+    if db_terms:
+        combined: dict[str, str] = {}
+        for term in (*_BASELINE_MEDICAL_TERMS, *db_terms):
+            cleaned = term.strip()
+            if cleaned:
+                combined.setdefault(cleaned.casefold(), cleaned)
+        _CACHED_TERMS = tuple(sorted(combined.values(), key=len, reverse=True))
+        return _CACHED_TERMS
+
+    return _BASELINE_MEDICAL_TERMS
 
 
 def _build_medical_term_re(terms: tuple[str, ...] | None = None) -> re.Pattern:
@@ -99,7 +142,8 @@ def _build_medical_term_re(terms: tuple[str, ...] | None = None) -> re.Pattern:
     return re.compile(pattern, re.IGNORECASE)
 
 
-_MEDICAL_TERM_RE = _build_medical_term_re()
+_COMPILED_TERMS: tuple[str, ...] = _load_medical_terms()
+_MEDICAL_TERM_RE = _build_medical_term_re(_COMPILED_TERMS)
 
 
 def token_hash(token: str) -> str:
@@ -111,9 +155,11 @@ def stable_safety_id(employee_id: str) -> str:
 
 
 def redact(value: str) -> str:
-    global _MEDICAL_TERM_RE
-    if _CACHED_TERMS is None:
-        _MEDICAL_TERM_RE = _build_medical_term_re()
+    global _MEDICAL_TERM_RE, _COMPILED_TERMS
+    terms = _load_medical_terms()
+    if terms != _COMPILED_TERMS:
+        _MEDICAL_TERM_RE = _build_medical_term_re(terms)
+        _COMPILED_TERMS = terms
     redacted = _EMAIL_RE.sub("[REDACTED_EMAIL]", value)
     redacted = _PHONE_RE.sub("[REDACTED_PHONE]", redacted)
     redacted = _TOKEN_RE.sub("[REDACTED_TOKEN]", redacted)

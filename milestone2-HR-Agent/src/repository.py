@@ -3,17 +3,21 @@ from __future__ import annotations
 
 import base64
 from copy import deepcopy
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+import hashlib
+import math
 from math import sqrt
 import re
+import secrets
 from threading import RLock
 from typing import Any, Protocol
 from uuid import uuid4
 
 import psycopg
 from psycopg.rows import dict_row
-from psycopg_pool import ConnectionPool
 from psycopg.types.json import Jsonb
+from psycopg_pool import ConnectionPool
+from pydantic import BaseModel
 
 from .contracts import (
     ActionProposal,
@@ -25,22 +29,41 @@ from .contracts import (
     LoginResponse,
     ManagerReviewResult,
     PolicyChunk,
+    ProposalAttachmentView,
 )
-from .security import connect_db, hash_password, redact, token_hash, verify_password
+from .security import hash_password, redact, token_hash, verify_password
 
 
 class Repository(Protocol):
     def health(self) -> bool: ...
     def authenticate(self, token: str) -> AuthContext | None: ...
     def authenticate_password(self, username: str, password: str) -> LoginResponse | None: ...
+    def create_demo_session(self, employee_id: str, ttl_hours: int = 8) -> LoginResponse: ...
     def list_personas(self) -> list[dict[str, Any]]: ...
-    def lexical_search(self, query: str, limit: int) -> list[PolicyChunk]: ...
-    def vector_search(self, embedding: list[float], limit: int) -> list[PolicyChunk]: ...
+    def lexical_search(self, query: str, limit: int, as_of: date | None = None) -> list[PolicyChunk]: ...
+    def vector_search(self, embedding: list[float], limit: int, as_of: date | None = None) -> list[PolicyChunk]: ...
+    def get_policy_document_text(self, document_id: str, as_of: date | None = None) -> str | None: ...
+    def policy_fingerprint(self, as_of: date | None = None) -> str: ...
+    def list_evaluation_cases(self) -> list[dict[str, Any]]: ...
     def get_balances(self, employee_id: str) -> list[LeaveBalance]: ...
     def has_overlap(self, employee_id: str, start: date, end: date) -> bool: ...
     def save_proposal(self, employee_id: str, proposal: ActionProposal) -> None: ...
     def get_proposal(self, proposal_id: str) -> tuple[str, ActionProposal] | None: ...
-    def confirm_proposal(self, employee_id: str, proposal_id: str, idempotency_key: str) -> ActionResult: ...
+    def save_proposal_attachment(
+        self,
+        employee_id: str,
+        proposal_id: str,
+        filename: str,
+        content_type: str,
+        file_bytes: bytes,
+    ) -> ProposalAttachmentView: ...
+    def confirm_proposal(
+        self,
+        employee_id: str,
+        proposal_id: str,
+        idempotency_key: str,
+        today: date | None = None,
+    ) -> ActionResult: ...
     def list_leave_requests(self, employee_id: str) -> list[LeaveRequestView]: ...
     def list_team_leave_requests(self, manager_id: str, include_all_departments: bool = False) -> list[LeaveRequestView]: ...
     def review_leave_request(
@@ -64,9 +87,25 @@ class Repository(Protocol):
         requester: AuthContext,
         request_id: str,
     ) -> LeaveAttachmentView: ...
-    def create_ticket(self, employee_id: str, category: str, summary: str) -> str: ...
-    def list_tickets(self, employee_id: str | None = None) -> list[dict[str, Any]]: ...
-    def update_ticket_status(self, ticket_id: str, status: str, admin_id: str) -> dict[str, Any]: ...
+    def create_ticket(
+        self,
+        employee_id: str,
+        category: str,
+        summary: str,
+        ticket_id: str | None = None,
+    ) -> str: ...
+    def list_tickets(
+        self,
+        employee_id: str | None = None,
+        manager_id: str | None = None,
+    ) -> list[dict[str, Any]]: ...
+    def update_ticket_status(
+        self,
+        ticket_id: str,
+        status: str,
+        admin_id: str,
+        allowed_manager_id: str | None = None,
+    ) -> dict[str, Any]: ...
     def save_trace(self, trace: dict[str, Any]) -> None: ...
     def get_trace(self, trace_id: str) -> dict[str, Any] | None: ...
     def monitoring_summary(self) -> dict[str, Any]: ...
@@ -78,122 +117,109 @@ class ConflictError(RuntimeError):
     pass
 
 
-_SEED_CACHE: tuple[list[dict[str, Any]], list[dict[str, Any]]] | None = None
-_SEED_LOCK = RLock()
+def _version_key(version: str) -> tuple[tuple[int, int | str], ...]:
+    parts: list[tuple[int, int | str]] = []
+    for token in re.findall(r"\d+|[a-zA-Z]+", str(version)):
+        if token.isdigit():
+            parts.append((1, int(token)))
+        else:
+            parts.append((0, token.casefold()))
+    return tuple(parts)
 
 
-def _connect_db(database_url: str) -> psycopg.Connection:
-    """Connect to PostgreSQL using dict_row, retrying localhost for Docker host `postgres`."""
-    return connect_db(database_url, row_factory=dict_row, connector=psycopg.connect)
-
-
-def _query_seed_rows(database_url: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Query employees, leave balances, and monitoring rules from PostgreSQL."""
-    with _connect_db(database_url) as connection:
-        emp_rows = connection.execute(
-            """
-            SELECT e.employee_id, e.username, e.password_hash, e.display_name, e.role,
-                   e.department, e.manager_id, e.token_hash, pt.demo_token
-            FROM employees e
-            LEFT JOIN persona_tokens pt ON e.employee_id = pt.employee_id
-            ORDER BY e.employee_id
-            """
-        ).fetchall()
-        bal_rows = connection.execute(
-            """
-            SELECT employee_id, leave_type, available_days
-            FROM leave_balances
-            ORDER BY employee_id, leave_type
-            """
-        ).fetchall()
-        rule_rows = connection.execute(
-            """
-            SELECT rule_id, metric, operator, threshold, minimum_samples, owner, response
-            FROM monitoring_rules
-            ORDER BY rule_id
-            """
-        ).fetchall()
-
-    bal_map: dict[str, dict[str, int]] = {}
-    for row in bal_rows:
-        bal_map.setdefault(row["employee_id"], {})[row["leave_type"]] = int(row["available_days"])
-
-    employee_rows: list[dict[str, Any]] = [
-        {
-            "employee_id": row["employee_id"],
-            "username": row.get("username"),
-            "password_hash": row.get("password_hash"),
-            "display_name": row["display_name"],
-            "role": row.get("role") or "employee",
-            "department": row.get("department"),
-            "manager_id": row.get("manager_id"),
-            "token_hash": row.get("token_hash"),
-            "token": row.get("demo_token") or "",
-            "balances": bal_map.get(row["employee_id"], {}),
-        }
-        for row in emp_rows
+def _active_latest_chunks(chunks: list[PolicyChunk], active_today: date) -> list[PolicyChunk]:
+    active = [chunk for chunk in chunks if chunk.effective_date <= active_today]
+    if not active:
+        return []
+    latest_versions: dict[str, tuple[tuple[tuple[int, int | str], ...], date, str]] = {}
+    for chunk in active:
+        key = (_version_key(chunk.version), chunk.effective_date, chunk.version)
+        current = latest_versions.get(chunk.document_id)
+        if current is None or key > current:
+            latest_versions[chunk.document_id] = key
+    return [
+        chunk
+        for chunk in active
+        if chunk.version == latest_versions[chunk.document_id][2]
     ]
-    monitoring_rules: list[dict[str, Any]] = [
+
+
+def _default_memory_employees() -> list[dict[str, Any]]:
+    return [
         {
-            "rule_id": row["rule_id"],
-            "metric": row["metric"],
-            "operator": row["operator"],
-            "threshold": float(row["threshold"]),
-            "minimum_samples": int(row["minimum_samples"]),
-            "owner": row["owner"],
-            "response": row["response"],
-        }
-        for row in rule_rows
+            "employee_id": "EMP-001",
+            "username": "alya",
+            "password": "Password#123",
+            "display_name": "Alya Pratama",
+            "role": "employee",
+            "department": "Engineering",
+            "manager_id": None,
+            "token_hash": token_hash("token-alya"),
+            "balances": {"annual": 8, "sick": 10, "parental": 60},
+        },
+        {
+            "employee_id": "EMP-002",
+            "username": "bima",
+            "password": "Password#123",
+            "display_name": "Bima Santoso",
+            "role": "employee",
+            "department": "Engineering",
+            "manager_id": None,
+            "token_hash": token_hash("token-bima"),
+            "balances": {"annual": 3, "sick": 10, "parental": 60},
+        },
+        {
+            "employee_id": "ADM-001",
+            "username": "admin",
+            "password": "Password#123",
+            "display_name": "Monitoring Admin",
+            "role": "monitoring_admin",
+            "department": "HR & People Ops",
+            "manager_id": None,
+            "token_hash": token_hash("token-admin"),
+            "balances": {},
+        },
     ]
-    return employee_rows, monitoring_rules
 
 
-def _load_seed_from_db() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Load employees, leave balances, and monitoring rules from the database."""
-    global _SEED_CACHE
-    with _SEED_LOCK:
-        if _SEED_CACHE is not None:
-            return deepcopy(_SEED_CACHE)
-
-        from .config import get_settings
-
-        settings = get_settings()
-        if not settings.database_url:
-            return [], []
-
-        employee_rows: list[dict[str, Any]] = []
-        monitoring_rules: list[dict[str, Any]] = []
-        needs_seed = False
-
-        try:
-            employee_rows, monitoring_rules = _query_seed_rows(settings.database_url)
-            if not employee_rows:
-                needs_seed = True
-        except psycopg.errors.UndefinedTable:
-            needs_seed = True
-
-        if needs_seed:
-            from .setup_lab import reset_and_seed
-
-            reset_and_seed(reset=False)
-            employee_rows, monitoring_rules = _query_seed_rows(settings.database_url)
-
-        if employee_rows:
-            _SEED_CACHE = (employee_rows, monitoring_rules)
-        return deepcopy((employee_rows, monitoring_rules))
+def _default_monitoring_rules() -> list[dict[str, Any]]:
+    return [
+        {
+            "rule_id": "agent-error-spike",
+            "metric": "error_rate",
+            "operator": "gt",
+            "threshold": 0.2,
+            "minimum_samples": 5,
+            "owner": "AI Platform",
+            "response": "Inspect redacted traces and provider health; disable mutating tools if errors persist.",
+        },
+        {
+            "rule_id": "agent-latency-p95",
+            "metric": "p95_latency_ms",
+            "operator": "gt",
+            "threshold": 8000.0,
+            "minimum_samples": 5,
+            "owner": "AI Platform",
+            "response": "Inspect provider latency, retrieval cache, and database query timing.",
+        },
+    ]
 
 
 class MemoryRepository:
     def __init__(self, employees: list[dict[str, Any]] | None = None) -> None:
+        self._lock = RLock()
         self.chunks: list[PolicyChunk] = []
         self.identities: dict[str, tuple[AuthContext, str]] = {}
         self.credentials: dict[str, dict[str, Any]] = {}
+        self.sessions: dict[str, tuple[str, datetime]] = {}
         self.balances: dict[str, list[LeaveBalance]] = {}
         today = date.today()
         if employees is None:
-            employee_rows, db_rules = _load_seed_from_db()
+            employee_rows = _default_memory_employees()
+            db_rules = _default_monitoring_rules()
         else:
-            employee_rows, db_rules = employees, []
+            employee_rows = employees
+            db_rules = _default_monitoring_rules()
         for emp in employee_rows:
             emp_id = emp["employee_id"]
             auth_ctx = AuthContext(
@@ -203,19 +229,18 @@ class MemoryRepository:
                 department=emp.get("department"),
                 manager_id=emp.get("manager_id"),
             )
-            raw_token = emp.get("token") or ""
-            self.identities[emp_id] = (
-                auth_ctx,
-                emp.get("token_hash") or token_hash(raw_token),
-            )
+            stored_hash = emp.get("token_hash")
+            if not stored_hash:
+                raw_token = emp.get("token") or secrets.token_hex(16)
+                stored_hash = token_hash(raw_token)
+            self.identities[emp_id] = (auth_ctx, stored_hash)
             username = (emp.get("username") or emp_id).casefold()
             pwd_hash = emp.get("password_hash") or hash_password(
-                emp.get("password", "Password#123"), salt="mem-salt"
+                emp.get("password", "Password#123")
             )
             self.credentials[emp_id] = {
                 "username": username,
                 "password_hash": pwd_hash,
-                "token": raw_token,
                 "context": auth_ctx,
             }
             self.balances[emp_id] = [
@@ -223,127 +248,237 @@ class MemoryRepository:
                 for leave_type, days in emp.get("balances", {}).items()
             ]
         self.proposals: dict[str, tuple[str, ActionProposal]] = {}
+        self.proposal_attachments: dict[str, dict[str, Any]] = {}
         self.idempotency_keys: dict[str, str] = {}
         self.embeddings: dict[str, list[float]] = {}
         self.requests: dict[str, list[LeaveRequestView]] = {}
         self.attachments: dict[str, dict[str, Any]] = {}
         self.approval_audits: list[dict[str, Any]] = []
-        self.tickets: dict[str, dict[str, str]] = {}
+        self.tickets: dict[str, dict[str, str | None]] = {}
         self.monitoring_rules: list[dict[str, Any]] = deepcopy(db_rules)
+        self.evaluation_cases: list[dict[str, Any]] = []
         self.traces: dict[str, dict[str, Any]] = {}
-        self._lock = RLock()
 
     def health(self) -> bool:
         return True
 
     def authenticate(self, token: str) -> AuthContext | None:
+        if not token:
+            return None
         hashed = token_hash(token)
-        for context, stored_hash in self.identities.values():
-            if stored_hash == hashed:
-                return context.model_copy(deep=True)
+        with self._lock:
+            for context, stored_hash in self.identities.values():
+                if stored_hash == hashed:
+                    return context.model_copy(deep=True)
+            session = self.sessions.get(hashed)
+            if session is not None:
+                emp_id, expires_at = session
+                if expires_at > datetime.now(timezone.utc):
+                    identity = self.identities.get(emp_id)
+                    if identity is not None:
+                        return identity[0].model_copy(deep=True)
+                else:
+                    self.sessions.pop(hashed, None)
         return None
 
-    def authenticate_password(self, username: str, password: str) -> LoginResponse | None:
+    def authenticate_password(self, username: str, password: str, ttl_hours: int = 8) -> LoginResponse | None:
         ident = username.strip().casefold()
-        for emp_id, rec in self.credentials.items():
-            valid_idents = {emp_id.casefold(), rec["username"]}
-            if ident in valid_idents:
-                if verify_password(password, rec["password_hash"]):
-                    return LoginResponse(
-                        access_token=rec["token"],
-                        profile=rec["context"].model_copy(deep=True),
-                    )
-                return None
+        with self._lock:
+            for emp_id, rec in self.credentials.items():
+                valid_idents = {emp_id.casefold(), rec["username"]}
+                if ident in valid_idents:
+                    if verify_password(password, rec["password_hash"]):
+                        token = f"sess_{secrets.token_hex(24)}"
+                        expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+                        self.sessions[token_hash(token)] = (emp_id, expires_at)
+                        return LoginResponse(
+                            access_token=token,
+                            profile=rec["context"].model_copy(deep=True),
+                        )
+                    return None
         return None
+
+    def create_demo_session(self, employee_id: str, ttl_hours: int = 8) -> LoginResponse:
+        with self._lock:
+            identity = self.identities.get(employee_id)
+            if identity is None:
+                raise KeyError("employee not found")
+            ctx, _ = identity
+            if ctx.role != "employee":
+                raise PermissionError("demo session is only allowed for employee role")
+            token = f"sess_{secrets.token_hex(24)}"
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+            self.sessions[token_hash(token)] = (ctx.employee_id, expires_at)
+            return LoginResponse(
+                access_token=token,
+                profile=ctx.model_copy(deep=True),
+            )
 
     def list_personas(self) -> list[dict[str, Any]]:
-        result: list[dict[str, Any]] = []
-        for emp_id, rec in self.credentials.items():
-            ctx: AuthContext = rec["context"]
-            is_privileged = ctx.role in ("manager", "monitoring_admin")
-            bals = {b.leave_type: b.available_days for b in self.get_balances(emp_id)}
-            result.append({
-                "employee_id": ctx.employee_id,
-                "username": rec["username"],
-                "display_name": ctx.display_name,
-                "role": ctx.role,
-                "department": ctx.department or "Engineering",
-                "manager_id": ctx.manager_id,
-                "requires_password": is_privileged,
-                "demo_token": None if is_privileged else rec["token"],
-                "balances": bals,
-            })
-        return result
+        with self._lock:
+            result: list[dict[str, Any]] = []
+            for emp_id in sorted(self.credentials):
+                rec = self.credentials[emp_id]
+                ctx: AuthContext = rec["context"]
+                result.append({
+                    "employee_id": ctx.employee_id,
+                    "username": rec["username"],
+                    "display_name": ctx.display_name,
+                    "role": ctx.role,
+                    "department": ctx.department or "Engineering",
+                    "requires_password": ctx.role != "employee",
+                })
+            return result
 
-    def lexical_search(self, query: str, limit: int) -> list[PolicyChunk]:
+    def lexical_search(self, query: str, limit: int, as_of: date | None = None) -> list[PolicyChunk]:
         stopwords = {"berapa", "apakah", "bagaimana", "kapan", "siapa", "yang", "dan", "di", "ke", "dari", "untuk", "pada", "saya", "aku", "bisa", "boleh", "per"}
         raw_terms = [t for t in re.findall(r"[a-z0-9]+", query.casefold()) if len(t) >= 2]
         terms = set(t for t in raw_terms if t not in stopwords) or set(raw_terms)
         if not terms:
             return []
-        ranked: list[tuple[int, PolicyChunk]] = []
-        for chunk in self.chunks:
-            haystack_text = f"{chunk.title} {chunk.section} {chunk.content}".casefold()
-            haystack_tokens = set(re.findall(r"[a-z0-9]+", haystack_text))
-            title_tokens = set(re.findall(r"[a-z0-9]+", f"{chunk.title} {chunk.section}".casefold()))
-            score = sum(
-                (
-                    3
-                    if term in title_tokens
-                    else (2 if term in haystack_tokens else (1 if len(term) >= 4 and term in haystack_text else 0))
+        active_today = as_of or date.today()
+        with self._lock:
+            active_chunks = _active_latest_chunks(self.chunks, active_today)
+            ranked: list[tuple[int, PolicyChunk]] = []
+            for chunk in active_chunks:
+                haystack_text = f"{chunk.title} {chunk.section} {chunk.content}".casefold()
+                haystack_tokens = set(re.findall(r"[a-z0-9]+", haystack_text))
+                title_tokens = set(re.findall(r"[a-z0-9]+", f"{chunk.title} {chunk.section}".casefold()))
+                score = sum(
+                    (
+                        3
+                        if term in title_tokens
+                        else (2 if term in haystack_tokens else (1 if len(term) >= 4 and term in haystack_text else 0))
+                    )
+                    for term in terms
                 )
-                for term in terms
-            )
-            if score:
-                ranked.append((score, chunk))
-        ranked.sort(key=lambda item: (-item[0], item[1].chunk_id))
-        return [chunk.model_copy(update={"score": float(score)}) for score, chunk in ranked[:limit]]
+                if score:
+                    ranked.append((score, chunk))
+            ranked.sort(key=lambda item: (-item[0], item[1].chunk_id))
+            return [chunk.model_copy(update={"score": float(score)}) for score, chunk in ranked[:limit]]
 
-    def vector_search(self, embedding: list[float], limit: int) -> list[PolicyChunk]:
+    def vector_search(self, embedding: list[float], limit: int, as_of: date | None = None) -> list[PolicyChunk]:
         if not embedding:
             return []
-        ranked: list[tuple[float, PolicyChunk]] = []
-        for chunk in self.chunks:
-            vector = self.embeddings.get(chunk.chunk_id)
-            if not isinstance(vector, list) or len(vector) != len(embedding):
-                continue
-            norm = sqrt(sum(value * value for value in embedding) * sum(value * value for value in vector))
-            similarity = sum(left * right for left, right in zip(embedding, vector)) / norm if norm else 0.0
-            ranked.append((similarity, chunk))
-        ranked.sort(key=lambda item: (-item[0], item[1].chunk_id))
-        return [chunk.model_copy(update={"score": score}) for score, chunk in ranked[:limit]]
+        active_today = as_of or date.today()
+        with self._lock:
+            active_chunks = _active_latest_chunks(self.chunks, active_today)
+            ranked: list[tuple[float, PolicyChunk]] = []
+            for chunk in active_chunks:
+                vector = self.embeddings.get(chunk.chunk_id)
+                if not isinstance(vector, list) or len(vector) != len(embedding):
+                    continue
+                norm = sqrt(sum(value * value for value in embedding) * sum(value * value for value in vector))
+                similarity = sum(left * right for left, right in zip(embedding, vector)) / norm if norm else 0.0
+                ranked.append((similarity, chunk))
+            ranked.sort(key=lambda item: (-item[0], item[1].chunk_id))
+            return [chunk.model_copy(update={"score": score}) for score, chunk in ranked[:limit]]
+
+    def get_policy_document_text(self, document_id: str, as_of: date | None = None) -> str | None:
+        active_today = as_of or date.today()
+        with self._lock:
+            doc_chunks = [c for c in self.chunks if c.document_id == document_id]
+            active_chunks = _active_latest_chunks(doc_chunks, active_today)
+            if not active_chunks:
+                return None
+            active_chunks.sort(key=lambda c: c.chunk_id)
+            parts = [c.content.strip() for c in active_chunks if c.content and c.content.strip()]
+            return "\n\n".join(parts) if parts else None
+
+    def policy_fingerprint(self, as_of: date | None = None) -> str:
+        active_today = as_of or date.today()
+        with self._lock:
+            active_chunks = _active_latest_chunks(self.chunks, active_today)
+            items = sorted((c.chunk_id, c.version, c.content) for c in active_chunks)
+        digest = hashlib.sha256()
+        for chunk_id, version, content in items:
+            digest.update(f"{chunk_id}\0{version}\0{content}\n".encode("utf-8"))
+        return digest.hexdigest()[:12]
+
+    def list_evaluation_cases(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return deepcopy(self.evaluation_cases)
 
     def get_balances(self, employee_id: str) -> list[LeaveBalance]:
-        pending_by_type: dict[str, int] = {}
-        for req in self.requests.get(employee_id, []):
-            if req.status == "pending_manager_review":
-                pending_by_type[req.leave_type] = pending_by_type.get(req.leave_type, 0) + req.business_days
-        result: list[LeaveBalance] = []
-        for balance in self.balances.get(employee_id, []):
-            reserved = pending_by_type.get(balance.leave_type, 0)
-            effective = max(0, balance.available_days - reserved)
-            result.append(balance.model_copy(update={"available_days": effective, "as_of_date": date.today()}, deep=True))
-        return result
+        with self._lock:
+            pending_by_type: dict[str, int] = {}
+            for req in self.requests.get(employee_id, []):
+                if req.status == "pending_manager_review":
+                    pending_by_type[req.leave_type] = pending_by_type.get(req.leave_type, 0) + req.business_days
+            result: list[LeaveBalance] = []
+            for balance in self.balances.get(employee_id, []):
+                reserved = pending_by_type.get(balance.leave_type, 0)
+                effective = max(0, balance.available_days - reserved)
+                result.append(balance.model_copy(update={"available_days": effective, "as_of_date": date.today()}, deep=True))
+            return result
 
     def has_overlap(self, employee_id: str, start: date, end: date) -> bool:
-        return any(
-            request.start_date <= end and request.end_date >= start
-            for request in self.requests.get(employee_id, [])
-            if request.status in ("pending_manager_review", "approved")
-        )
+        with self._lock:
+            return any(
+                request.start_date <= end and request.end_date >= start
+                for request in self.requests.get(employee_id, [])
+                if request.status in ("pending_manager_review", "approved")
+            )
 
     def save_proposal(self, employee_id: str, proposal: ActionProposal) -> None:
         with self._lock:
             self.proposals[proposal.proposal_id] = (employee_id, proposal.model_copy(deep=True))
 
     def get_proposal(self, proposal_id: str) -> tuple[str, ActionProposal] | None:
-        item = self.proposals.get(proposal_id)
-        if item is None:
-            return None
-        owner, proposal = item
-        return owner, proposal.model_copy(deep=True)
+        with self._lock:
+            item = self.proposals.get(proposal_id)
+            if item is None:
+                return None
+            owner, proposal = item
+            return owner, proposal.model_copy(deep=True)
 
-    def confirm_proposal(self, employee_id: str, proposal_id: str, idempotency_key: str) -> ActionResult:
+    def save_proposal_attachment(
+        self,
+        employee_id: str,
+        proposal_id: str,
+        filename: str,
+        content_type: str,
+        file_bytes: bytes,
+    ) -> ProposalAttachmentView:
+        with self._lock:
+            item = self.proposals.get(proposal_id)
+            if item is None or item[0] != employee_id:
+                raise KeyError("proposal not found")
+            _, proposal = item
+            already_confirmed = any(
+                req.request_id == proposal_id for req in self.requests.get(employee_id, [])
+            )
+            if already_confirmed:
+                raise ConflictError("proposal already confirmed")
+            if proposal.leave_type != "sick":
+                raise ConflictError("attachment is only supported for sick leave proposals")
+
+            uploaded_at = datetime.now(timezone.utc)
+            self.proposal_attachments[proposal_id] = {
+                "proposal_id": proposal_id,
+                "employee_id": employee_id,
+                "filename": filename,
+                "content_type": content_type,
+                "file_size_bytes": len(file_bytes),
+                "file_bytes": file_bytes,
+                "uploaded_at": uploaded_at,
+            }
+            return ProposalAttachmentView(
+                proposal_id=proposal_id,
+                employee_id=employee_id,
+                filename=filename,
+                content_type=content_type,
+                file_size_bytes=len(file_bytes),
+                uploaded_at=uploaded_at,
+            )
+
+    def confirm_proposal(
+        self,
+        employee_id: str,
+        proposal_id: str,
+        idempotency_key: str,
+        today: date | None = None,
+    ) -> ActionResult:
         with self._lock:
             item = self.proposals.get(proposal_id)
             if item is None or item[0] != employee_id:
@@ -381,11 +516,23 @@ class MemoryRepository:
             if expiry <= datetime.now(timezone.utc):
                 raise ConflictError("proposal expired")
 
-            # 4. Re-validasi overlap terhadap request aktif
+            # 4. Re-validasi tanggal masa lalu
+            if today is not None and proposal.start_date < today:
+                raise ConflictError("proposal dates are in the past")
+
+            # 5. Re-validasi lampiran wajib untuk cuti sakit melebihi ambang batas
+            if (
+                proposal.requires_attachment
+                and proposal_id not in self.proposal_attachments
+                and proposal_id not in self.attachments
+            ):
+                raise ConflictError("dokumen pendukung surat dokter wajib diunggah sebelum konfirmasi")
+
+            # 6. Re-validasi overlap terhadap request aktif
             if self.has_overlap(owner, proposal.start_date, proposal.end_date):
                 raise ConflictError("leave dates overlap with an existing request")
 
-            # 5. Re-validasi saldo efektif
+            # 7. Re-validasi saldo efektif
             balances = self.get_balances(owner)
             balance = next((b for b in balances if b.leave_type == proposal.leave_type), None)
             if balance is None or balance.available_days < proposal.business_days:
@@ -406,6 +553,19 @@ class MemoryRepository:
             )
             self.idempotency_keys[proposal_id] = idempotency_key
             self.requests.setdefault(owner, []).append(request)
+
+            staged_att = self.proposal_attachments.pop(proposal_id, None)
+            if staged_att is not None and proposal_id not in self.attachments:
+                self.attachments[proposal_id] = {
+                    "request_id": request.request_id,
+                    "employee_id": staged_att["employee_id"],
+                    "filename": staged_att["filename"],
+                    "content_type": staged_att["content_type"],
+                    "file_size_bytes": staged_att["file_size_bytes"],
+                    "file_bytes": staged_att["file_bytes"],
+                    "uploaded_at": staged_att["uploaded_at"],
+                }
+
             return ActionResult(
                 request_id=request.request_id,
                 idempotent_replay=False,
@@ -428,29 +588,31 @@ class MemoryRepository:
         return req
 
     def list_leave_requests(self, employee_id: str) -> list[LeaveRequestView]:
-        return [
-            self._enrich_with_attachment_meta(request.model_copy(deep=True))
-            for request in self.requests.get(employee_id, [])
-        ]
+        with self._lock:
+            return [
+                self._enrich_with_attachment_meta(request.model_copy(deep=True))
+                for request in self.requests.get(employee_id, [])
+            ]
 
     def list_team_leave_requests(self, manager_id: str, include_all_departments: bool = False) -> list[LeaveRequestView]:
-        items: list[LeaveRequestView] = []
-        for emp_id, req_list in self.requests.items():
-            ctx = self.identities.get(emp_id, (None, None))[0]
-            if ctx is None:
-                continue
-            if include_all_departments or ctx.manager_id == manager_id:
-                for req in req_list:
-                    items.append(
-                        self._enrich_with_attachment_meta(
-                            req.model_copy(
-                                update={"employee_id": emp_id, "employee_name": ctx.display_name},
-                                deep=True,
+        with self._lock:
+            items: list[LeaveRequestView] = []
+            for emp_id, req_list in self.requests.items():
+                ctx = self.identities.get(emp_id, (None, None))[0]
+                if ctx is None:
+                    continue
+                if include_all_departments or ctx.manager_id == manager_id:
+                    for req in req_list:
+                        items.append(
+                            self._enrich_with_attachment_meta(
+                                req.model_copy(
+                                    update={"employee_id": emp_id, "employee_name": ctx.display_name},
+                                    deep=True,
+                                )
                             )
                         )
-                    )
-        items.sort(key=lambda r: (r.created_at, r.request_id), reverse=True)
-        return items
+            items.sort(key=lambda r: (r.created_at, r.request_id), reverse=True)
+            return items
 
     def review_leave_request(
         self,
@@ -460,77 +622,7 @@ class MemoryRepository:
         review_note: str,
         is_admin: bool = False,
     ) -> ManagerReviewResult:
-        with self._lock:
-            target_req: LeaveRequestView | None = None
-            owner_id: str | None = None
-            for emp_id, req_list in self.requests.items():
-                for req in req_list:
-                    if req.request_id == request_id:
-                        target_req = req
-                        owner_id = emp_id
-                        break
-                if target_req is not None:
-                    break
-
-            if target_req is None or owner_id is None:
-                raise KeyError("leave request not found")
-
-            # Guardrail 1 (No Self-Approval)
-            if owner_id == reviewer_id:
-                raise ConflictError("manager cannot review own leave request")
-
-            # Guardrail 2 (Subordinate Isolation)
-            owner_ctx = self.identities.get(owner_id, (None, None))[0]
-            if not is_admin and (owner_ctx is None or owner_ctx.manager_id != reviewer_id):
-                raise KeyError("leave request not found in manager team")
-
-            # Guardrail 3 (State Transition)
-            if target_req.status != "pending_manager_review":
-                raise ConflictError(f"leave request already finalized as {target_req.status}")
-
-            # Guardrail 4 (Balance Deduction saat approved)
-            if decision == "approved":
-                emp_balances = self.balances.get(owner_id, [])
-                bal = next((b for b in emp_balances if b.leave_type == target_req.leave_type), None)
-                if bal is None or bal.available_days < target_req.business_days:
-                    raise ConflictError("insufficient balance")
-                bal.available_days -= target_req.business_days
-
-            clean_note = redact(review_note)
-            now_dt = datetime.now(timezone.utc)
-            updated_req = target_req.model_copy(
-                update={
-                    "status": decision,
-                    "reviewed_by": reviewer_id,
-                    "review_note": clean_note,
-                    "reviewed_at": now_dt,
-                    "employee_id": owner_id,
-                    "employee_name": owner_ctx.display_name if owner_ctx else None,
-                },
-                deep=True,
-            )
-            idx = self.requests[owner_id].index(target_req)
-            self.requests[owner_id][idx] = updated_req
-
-            audit_ref = f"audit-review-{target_req.request_id}-{uuid4().hex[:8]}"
-            self.approval_audits.append({
-                "audit_id": audit_ref,
-                "request_id": target_req.request_id,
-                "reviewer_id": reviewer_id,
-                "previous_status": "pending_manager_review",
-                "new_status": decision,
-                "review_note": clean_note,
-                "created_at": now_dt,
-            })
-            return ManagerReviewResult(
-                request_id=target_req.request_id,
-                employee_id=owner_id,
-                status=decision,
-                reviewed_by=reviewer_id,
-                review_note=clean_note,
-                reviewed_at=now_dt,
-                audit_reference=audit_ref,
-            )
+        raise PermissionError("persetujuan akhir hanya dilakukan manusia di sistem HRIS")
 
     def save_leave_attachment(
         self,
@@ -584,13 +676,12 @@ class MemoryRepository:
             owner_ctx = self.identities.get(owner_id, (None, None))[0]
 
             is_owner = requester.employee_id == owner_id
-            is_admin = requester.role == "monitoring_admin"
             is_manager = (
                 requester.role == "manager"
                 and owner_ctx is not None
                 and owner_ctx.manager_id == requester.employee_id
             )
-            if not (is_owner or is_admin or is_manager):
+            if not (is_owner or is_manager):
                 raise PermissionError("not authorized to view this attachment")
 
             file_bytes = att["file_bytes"]
@@ -604,7 +695,13 @@ class MemoryRepository:
                 uploaded_at=att["uploaded_at"],
             )
 
-    def create_ticket(self, employee_id: str, category: str, summary: str) -> str:
+    def create_ticket(
+        self,
+        employee_id: str,
+        category: str,
+        summary: str,
+        ticket_id: str | None = None,
+    ) -> str:
         clean_summary = redact(summary)
         with self._lock:
             for existing_id, item in self.tickets.items():
@@ -612,11 +709,12 @@ class MemoryRepository:
                     item.get("employee_id") == employee_id
                     and item.get("category") == category
                     and item.get("summary") == clean_summary
+                    and item.get("status") != "done"
                 ):
                     return existing_id
-            ticket_id = f"T-{uuid4().hex[:12]}"
-            self.tickets[ticket_id] = {
-                "ticket_id": ticket_id,
+            active_ticket_id = ticket_id or f"T-{uuid4().hex[:12]}"
+            self.tickets[active_ticket_id] = {
+                "ticket_id": active_ticket_id,
                 "employee_id": employee_id,
                 "category": category,
                 "summary": clean_summary,
@@ -625,15 +723,23 @@ class MemoryRepository:
                 "updated_at": None,
                 "updated_by": None,
             }
-            return ticket_id
+            return active_ticket_id
 
-    def list_tickets(self, employee_id: str | None = None) -> list[dict[str, Any]]:
+    def list_tickets(
+        self,
+        employee_id: str | None = None,
+        manager_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         with self._lock:
             results = []
             for t_id, t in self.tickets.items():
-                if employee_id and t.get("employee_id") != employee_id:
+                emp_id = t.get("employee_id") or ""
+                if employee_id and emp_id != employee_id:
                     continue
-                emp_id = t.get("employee_id", "")
+                if manager_id is not None:
+                    owner_ctx = self.identities.get(emp_id, (None, None))[0]
+                    if emp_id != manager_id and (owner_ctx is None or owner_ctx.manager_id != manager_id):
+                        continue
                 emp_name = None
                 emp_dept = None
                 if emp_id in self.credentials:
@@ -644,27 +750,37 @@ class MemoryRepository:
                     "employee_id": emp_id,
                     "employee_name": emp_name or emp_id,
                     "department": emp_dept or "General",
-                    "category": t.get("category", "policy_question"),
-                    "summary": t.get("summary", ""),
-                    "status": t.get("status", "pending"),
-                    "created_at": t.get("created_at", datetime.now(timezone.utc).isoformat()),
+                    "category": t.get("category") or "policy_question",
+                    "summary": t.get("summary") or "",
+                    "status": t.get("status") or "pending",
+                    "created_at": t.get("created_at") or datetime.now(timezone.utc).isoformat(),
                     "updated_at": t.get("updated_at"),
                     "updated_by": t.get("updated_by"),
                 })
             results.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
             return results
 
-    def update_ticket_status(self, ticket_id: str, status: str, admin_id: str) -> dict[str, Any]:
+    def update_ticket_status(
+        self,
+        ticket_id: str,
+        status: str,
+        admin_id: str,
+        allowed_manager_id: str | None = None,
+    ) -> dict[str, Any]:
         if status not in ("pending", "on progress", "done"):
             raise ValueError(f"Status tidak valid: {status}")
         with self._lock:
             if ticket_id not in self.tickets:
-                raise ValueError(f"Tiket {ticket_id} tidak ditemukan")
+                raise KeyError(f"Tiket {ticket_id} tidak ditemukan")
             t = self.tickets[ticket_id]
+            emp_id = t.get("employee_id") or ""
+            if allowed_manager_id is not None:
+                owner_ctx = self.identities.get(emp_id, (None, None))[0]
+                if owner_ctx is None or owner_ctx.manager_id != allowed_manager_id:
+                    raise PermissionError("not authorized to update ticket outside your team")
             t["status"] = status
             t["updated_at"] = datetime.now(timezone.utc).isoformat()
             t["updated_by"] = admin_id
-            emp_id = t.get("employee_id", "")
             emp_name = None
             emp_dept = None
             if emp_id in self.credentials:
@@ -675,25 +791,27 @@ class MemoryRepository:
                 "employee_id": emp_id,
                 "employee_name": emp_name or emp_id,
                 "department": emp_dept or "General",
-                "category": t.get("category", "policy_question"),
-                "summary": t.get("summary", ""),
-                "status": t.get("status", "pending"),
-                "created_at": t.get("created_at", datetime.now(timezone.utc).isoformat()),
+                "category": t.get("category") or "policy_question",
+                "summary": t.get("summary") or "",
+                "status": t.get("status") or "pending",
+                "created_at": t.get("created_at") or datetime.now(timezone.utc).isoformat(),
                 "updated_at": t.get("updated_at"),
                 "updated_by": t.get("updated_by"),
             }
 
-
     def save_trace(self, trace: dict[str, Any]) -> None:
-        trace_id = str(trace["trace_id"])
-        self.traces[trace_id] = redact_trace(trace)
+        with self._lock:
+            trace_id = str(trace["trace_id"])
+            self.traces[trace_id] = redact_trace(trace)
 
     def get_trace(self, trace_id: str) -> dict[str, Any] | None:
-        trace = self.traces.get(trace_id)
-        return deepcopy(trace) if trace is not None else None
+        with self._lock:
+            trace = self.traces.get(trace_id)
+            return deepcopy(trace) if trace is not None else None
 
     def monitoring_summary(self) -> dict[str, Any]:
-        traces = list(self.traces.values())
+        with self._lock:
+            traces = list(self.traces.values())
         total = len(traces)
         errors = sum(bool(trace.get("error")) for trace in traces)
         abstains = sum(trace.get("outcome") == "abstained" for trace in traces)
@@ -727,7 +845,8 @@ class MemoryRepository:
 
     def list_monitoring_rules(self) -> list[dict[str, Any]]:
         # In-memory evaluation rules for offline tests
-        return deepcopy(self.monitoring_rules)
+        with self._lock:
+            return deepcopy(self.monitoring_rules)
 
     def get_hr_analytics(self, auth: AuthContext, metric_focus: str = "overview", low_balance_threshold: int = 3) -> dict[str, Any]:
         if auth.role not in ("manager", "monitoring_admin"):
@@ -736,102 +855,123 @@ class MemoryRepository:
         is_admin = auth.role == "monitoring_admin"
         scope = "organization" if is_admin else "team"
 
-        if is_admin:
-            scoped_employees = [
-                ctx for ctx, _ in self.identities.values() if ctx.role != "monitoring_admin"
-            ]
-        else:
-            scoped_employees = [
-                ctx for ctx, _ in self.identities.values() if ctx.manager_id == auth.employee_id
-            ]
+        with self._lock:
+            if is_admin:
+                scoped_employees = [
+                    ctx for ctx, _ in self.identities.values() if ctx.role != "monitoring_admin"
+                ]
+            else:
+                scoped_employees = [
+                    ctx for ctx, _ in self.identities.values() if ctx.manager_id == auth.employee_id
+                ]
 
-        scoped_emp_ids = [ctx.employee_id for ctx in scoped_employees]
-        team_size = len(scoped_emp_ids)
+            scoped_emp_ids = [ctx.employee_id for ctx in scoped_employees]
+            team_size = len(scoped_emp_ids)
 
-        requests_by_status = {
-            "pending_manager_review": 0,
-            "approved": 0,
-            "rejected": 0,
-            "cancelled": 0,
-        }
-        days_by_leave_type = {
-            "annual": 0,
-            "sick": 0,
-            "parental": 0,
-        }
-        department_breakdown: dict[str, dict[str, int]] = {}
-        for ctx in scoped_employees:
-            dept = ctx.department or "Unknown"
-            if dept not in department_breakdown:
-                department_breakdown[dept] = {"employee_count": 0, "active_leave_days": 0}
-            department_breakdown[dept]["employee_count"] += 1
+            requests_by_status = {
+                "pending_manager_review": 0,
+                "approved": 0,
+                "rejected": 0,
+                "cancelled": 0,
+            }
+            days_by_leave_type = {
+                "annual": 0,
+                "sick": 0,
+                "parental": 0,
+            }
+            department_breakdown: dict[str, dict[str, int]] = {}
+            for ctx in scoped_employees:
+                dept = ctx.department or "Unknown"
+                if dept not in department_breakdown:
+                    department_breakdown[dept] = {"employee_count": 0, "active_leave_days": 0}
+                department_breakdown[dept]["employee_count"] += 1
 
-        for emp_id in scoped_emp_ids:
-            ctx = self.identities.get(emp_id, (None, None))[0]
-            dept = (ctx.department if ctx else None) or "Unknown"
-            for req in self.requests.get(emp_id, []):
-                if req.status in requests_by_status:
-                    requests_by_status[req.status] += 1
-                else:
-                    requests_by_status[req.status] = 1
+            for emp_id in scoped_emp_ids:
+                ctx = self.identities.get(emp_id, (None, None))[0]
+                dept = (ctx.department if ctx else None) or "Unknown"
+                for req in self.requests.get(emp_id, []):
+                    if req.status in requests_by_status:
+                        requests_by_status[req.status] += 1
+                    else:
+                        requests_by_status[req.status] = 1
 
-                if req.status in ("pending_manager_review", "approved"):
-                    days_by_leave_type[req.leave_type] = days_by_leave_type.get(req.leave_type, 0) + req.business_days
-                    if dept in department_breakdown:
-                        department_breakdown[dept]["active_leave_days"] += req.business_days
+                    if req.status in ("pending_manager_review", "approved"):
+                        days_by_leave_type[req.leave_type] = days_by_leave_type.get(req.leave_type, 0) + req.business_days
+                        if dept in department_breakdown:
+                            department_breakdown[dept]["active_leave_days"] += req.business_days
 
-        low_balance_employees = []
-        for ctx in scoped_employees:
-            balances = self.get_balances(ctx.employee_id)
-            annual_bal = next((b.available_days for b in balances if b.leave_type == "annual"), 0)
-            if annual_bal <= low_balance_threshold:
-                low_balance_employees.append({
-                    "employee_id": ctx.employee_id,
-                    "display_name": ctx.display_name,
-                    "annual_remaining": annual_bal,
-                })
-        low_balance_employees.sort(key=lambda x: (x["annual_remaining"], x["employee_id"]))
+            low_balance_employees = []
+            for ctx in scoped_employees:
+                balances = self.get_balances(ctx.employee_id)
+                annual_bal = next((b.available_days for b in balances if b.leave_type == "annual"), 0)
+                if annual_bal <= low_balance_threshold:
+                    low_balance_employees.append({
+                        "employee_id": ctx.employee_id,
+                        "display_name": ctx.display_name,
+                        "annual_remaining": annual_bal,
+                    })
+            low_balance_employees.sort(key=lambda x: (x["annual_remaining"], x["employee_id"]))
 
-        analytics: dict[str, Any] = {
-            "scope": scope,
-            "metric_focus": metric_focus,
-            "low_balance_threshold": low_balance_threshold,
-            "team_size": team_size,
-            "requests_by_status": requests_by_status,
-            "days_by_leave_type": days_by_leave_type,
-            "low_balance_employees": low_balance_employees,
-            "department_breakdown": department_breakdown,
-        }
+            analytics: dict[str, Any] = {
+                "scope": scope,
+                "metric_focus": metric_focus,
+                "low_balance_threshold": low_balance_threshold,
+                "team_size": team_size,
+                "requests_by_status": requests_by_status,
+                "days_by_leave_type": days_by_leave_type,
+                "low_balance_employees": low_balance_employees,
+                "department_breakdown": department_breakdown,
+            }
 
-        if is_admin:
-            tickets_by_category: dict[str, int] = {}
-            for ticket in self.tickets.values():
-                cat = ticket.get("category", "unknown")
-                tickets_by_category[cat] = tickets_by_category.get(cat, 0) + 1
-            analytics["tickets_by_category"] = tickets_by_category
-            analytics["ai_operations"] = self.monitoring_summary()
+            if is_admin:
+                tickets_by_category: dict[str, int] = {}
+                for ticket in self.tickets.values():
+                    cat = ticket.get("category") or "unknown"
+                    tickets_by_category[cat] = tickets_by_category.get(cat, 0) + 1
+                analytics["tickets_by_category"] = tickets_by_category
+                analytics["ai_operations"] = self.monitoring_summary()
 
-        return analytics
+            return analytics
 
 
 def redact_trace(value: Any) -> Any:
     if isinstance(value, str):
         return redact(value)
+    if isinstance(value, (int, float, bool)) or value is None:
+        return value
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, BaseModel):
+        return redact_trace(value.model_dump(mode="json"))
     if isinstance(value, dict):
         return {key: redact_trace(item) for key, item in value.items()}
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple, set)):
         return [redact_trace(item) for item in value]
-    return value
+    return redact(str(value))
 
 
 class PostgresRepository:
     def __init__(self, database_url: str, embedding_dimensions: int) -> None:
         self.embedding_dimensions = embedding_dimensions
+        active_url = database_url
+        if "@postgres:" in database_url:
+            try:
+                with psycopg.connect(database_url, connect_timeout=2):
+                    pass
+            except Exception:
+                local_url = database_url.replace("@postgres:", "@localhost:")
+                try:
+                    with psycopg.connect(local_url, connect_timeout=2):
+                        active_url = local_url
+                except Exception:
+                    active_url = local_url
         self.pool = ConnectionPool(
-            conninfo=database_url,
+            conninfo=active_url,
             min_size=1,
             max_size=8,
-            kwargs={"row_factory": dict_row},
+            timeout=10,
+            kwargs={"row_factory": dict_row, "connect_timeout": 5},
+            check=ConnectionPool.check_connection,
             open=True,
         )
         try:
@@ -839,6 +979,9 @@ class PostgresRepository:
                 conn.execute("ALTER TABLE action_proposals ADD COLUMN IF NOT EXISTS requires_attachment BOOLEAN DEFAULT FALSE;")
         except Exception:
             pass
+
+    def close(self) -> None:
+        self.pool.close()
 
     def health(self) -> bool:
         try:
@@ -851,31 +994,51 @@ class PostgresRepository:
             return False
 
     def authenticate(self, token: str) -> AuthContext | None:
+        if not token:
+            return None
         hashed = token_hash(token)
         with self.pool.connection() as connection:
             row = connection.execute(
-                "SELECT employee_id, display_name, role, department, manager_id FROM employees WHERE token_hash = %s",
-                (hashed,),
+                """
+                SELECT employee_id, display_name, role, department, manager_id
+                FROM employees
+                WHERE token_hash = %s
+                UNION ALL
+                SELECT e.employee_id, e.display_name, e.role, e.department, e.manager_id
+                FROM auth_sessions s
+                JOIN employees e ON e.employee_id = s.employee_id
+                WHERE s.session_token_hash = %s
+                  AND s.expires_at > CURRENT_TIMESTAMP
+                LIMIT 1
+                """,
+                (hashed, hashed),
             ).fetchone()
         return AuthContext(**row) if row else None
 
-    def authenticate_password(self, username: str, password: str) -> LoginResponse | None:
+    def authenticate_password(self, username: str, password: str, ttl_hours: int = 8) -> LoginResponse | None:
         ident = username.strip().casefold()
         with self.pool.connection() as connection:
             row = connection.execute(
                 """
-                SELECT e.employee_id, e.username, e.password_hash, e.display_name, e.role, e.department, e.manager_id, pt.demo_token
-                FROM employees e
-                LEFT JOIN persona_tokens pt ON e.employee_id = pt.employee_id
-                WHERE LOWER(e.username) = %s OR LOWER(e.employee_id) = %s
+                SELECT employee_id, username, password_hash, display_name, role, department, manager_id
+                FROM employees
+                WHERE LOWER(username) = %s OR LOWER(employee_id) = %s
                 """,
                 (ident, ident),
             ).fetchone()
-        if not row or not row.get("password_hash"):
-            return None
-        if not verify_password(password, row["password_hash"]):
-            return None
-        token = row.get("demo_token") or ""
+            if not row or not row.get("password_hash"):
+                return None
+            if not verify_password(password, row["password_hash"]):
+                return None
+            token = f"sess_{secrets.token_hex(24)}"
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+            connection.execute(
+                """
+                INSERT INTO auth_sessions (session_token_hash, employee_id, expires_at)
+                VALUES (%s, %s, %s)
+                """,
+                (token_hash(token), row["employee_id"], expires_at),
+            )
         profile = AuthContext(
             employee_id=row["employee_id"],
             display_name=row["display_name"],
@@ -885,54 +1048,55 @@ class PostgresRepository:
         )
         return LoginResponse(access_token=token, profile=profile)
 
+    def create_demo_session(self, employee_id: str, ttl_hours: int = 8) -> LoginResponse:
+        with self.pool.connection() as connection:
+            row = connection.execute(
+                """
+                SELECT employee_id, display_name, role, department, manager_id
+                FROM employees
+                WHERE employee_id = %s
+                """,
+                (employee_id,),
+            ).fetchone()
+            if not row:
+                raise KeyError("employee not found")
+            if row["role"] != "employee":
+                raise PermissionError("demo session is only allowed for employee role")
+            token = f"sess_{secrets.token_hex(24)}"
+            expires_at = datetime.now(timezone.utc) + timedelta(hours=ttl_hours)
+            connection.execute(
+                """
+                INSERT INTO auth_sessions (session_token_hash, employee_id, expires_at)
+                VALUES (%s, %s, %s)
+                """,
+                (token_hash(token), row["employee_id"], expires_at),
+            )
+        return LoginResponse(
+            access_token=token,
+            profile=AuthContext(**row),
+        )
+
     def list_personas(self) -> list[dict[str, Any]]:
         with self.pool.connection() as connection:
             rows = connection.execute(
                 """
-                SELECT e.employee_id, e.username, e.display_name, e.role, e.department, e.manager_id, pt.demo_token
-                FROM employees e
-                LEFT JOIN persona_tokens pt ON e.employee_id = pt.employee_id
-                ORDER BY e.employee_id
+                SELECT employee_id, username, display_name, role, department
+                FROM employees
+                ORDER BY employee_id
                 """
             ).fetchall()
-            bal_rows = connection.execute(
-                """
-                SELECT
-                    b.employee_id,
-                    b.leave_type,
-                    GREATEST(
-                        0,
-                        b.available_days - COALESCE((
-                            SELECT SUM(r.business_days)::int
-                            FROM leave_requests r
-                            WHERE r.employee_id = b.employee_id
-                              AND r.leave_type = b.leave_type
-                              AND r.status = 'pending_manager_review'
-                        ), 0)
-                    ) AS available_days
-                FROM leave_balances b
-                """
-            ).fetchall()
-
-        bal_map: dict[str, dict[str, int]] = {}
-        for b in bal_rows:
-            bal_map.setdefault(b["employee_id"], {})[b["leave_type"]] = int(b["available_days"])
 
         result: list[dict[str, Any]] = []
         for r in rows:
             emp_id = r["employee_id"]
             role = r["role"]
-            is_privileged = role in ("manager", "monitoring_admin")
             result.append({
                 "employee_id": emp_id,
                 "username": r.get("username") or emp_id.lower(),
                 "display_name": r["display_name"],
                 "role": role,
                 "department": r.get("department") or "Engineering",
-                "manager_id": r.get("manager_id"),
-                "requires_password": is_privileged,
-                "demo_token": None if is_privileged else (r.get("demo_token") or ""),
-                "balances": bal_map.get(emp_id, {}),
+                "requires_password": role != "employee",
             })
         return result
 
@@ -940,8 +1104,23 @@ class PostgresRepository:
     def _chunk(row: dict[str, Any]) -> PolicyChunk:
         return PolicyChunk(**row)
 
-    def lexical_search(self, query: str, limit: int) -> list[PolicyChunk]:
-        stopwords = {"berapa", "apakah", "bagaimana", "kapan", "siapa", "yang", "dan", "di", "ke", "dari", "untuk", "pada", "saya", "aku", "bisa", "boleh"}
+    _LATEST_VERSIONS_CTE = """
+        WITH latest_versions AS (
+            SELECT DISTINCT ON (document_id) document_id, version
+            FROM policy_chunks
+            WHERE effective_date <= COALESCE(%s::date, CURRENT_DATE)
+            ORDER BY
+                document_id,
+                COALESCE(NULLIF(regexp_replace(split_part(version, '.', 1), '[^0-9]', '', 'g'), ''), '0')::bigint DESC,
+                COALESCE(NULLIF(regexp_replace(split_part(version, '.', 2), '[^0-9]', '', 'g'), ''), '0')::bigint DESC,
+                COALESCE(NULLIF(regexp_replace(split_part(version, '.', 3), '[^0-9]', '', 'g'), ''), '0')::bigint DESC,
+                effective_date DESC,
+                version DESC
+        )
+    """
+
+    def lexical_search(self, query: str, limit: int, as_of: date | None = None) -> list[PolicyChunk]:
+        stopwords = {"berapa", "apakah", "bagaimana", "kapan", "siapa", "yang", "dan", "di", "ke", "dari", "untuk", "pada", "saya", "aku", "bisa", "boleh", "per"}
         raw_terms = [t for t in re.findall(r"[a-z0-9]+", query.casefold()) if len(t) >= 2]
         filtered_terms = [t for t in raw_terms if t not in stopwords] or raw_terms
         if not filtered_terms:
@@ -949,40 +1128,108 @@ class PostgresRepository:
         tsquery_str = " | ".join(filtered_terms)
         with self.pool.connection() as connection:
             rows = connection.execute(
-                """
-                SELECT chunk_id, document_id, title, section, version, effective_date, content,
+                self._LATEST_VERSIONS_CTE
+                + """
+                SELECT pc.chunk_id, pc.document_id, pc.title, pc.section, pc.version, pc.effective_date, pc.content,
                        ts_rank(
-                           to_tsvector('simple', title || ' ' || section || ' ' || content),
+                           to_tsvector('simple', pc.title || ' ' || pc.section || ' ' || pc.content),
                            to_tsquery('simple', %s)
                        ) AS score
-                FROM policy_chunks
-                WHERE effective_date <= CURRENT_DATE
-                  AND to_tsvector('simple', title || ' ' || section || ' ' || content)
+                FROM policy_chunks pc
+                JOIN latest_versions lv
+                  ON pc.document_id = lv.document_id AND pc.version = lv.version
+                WHERE pc.effective_date <= COALESCE(%s::date, CURRENT_DATE)
+                  AND to_tsvector('simple', pc.title || ' ' || pc.section || ' ' || pc.content)
                       @@ to_tsquery('simple', %s)
-                ORDER BY score DESC, chunk_id
+                ORDER BY score DESC, pc.chunk_id
                 LIMIT %s
                 """,
-                (tsquery_str, tsquery_str, limit),
+                (as_of, tsquery_str, as_of, tsquery_str, limit),
             ).fetchall()
         return [self._chunk(row) for row in rows]
 
-    def vector_search(self, embedding: list[float], limit: int) -> list[PolicyChunk]:
-        if not embedding:
+    def vector_search(self, embedding: list[float], limit: int, as_of: date | None = None) -> list[PolicyChunk]:
+        if not embedding or len(embedding) != self.embedding_dimensions:
             return []
-        vector = "[" + ",".join(str(float(value)) for value in embedding) + "]"
+        try:
+            floats = [float(value) for value in embedding]
+        except (TypeError, ValueError):
+            return []
+        if any(not math.isfinite(value) for value in floats):
+            return []
+        vector = "[" + ",".join(str(value) for value in floats) + "]"
+        with self.pool.connection() as connection:
+            rows = connection.execute(
+                self._LATEST_VERSIONS_CTE
+                + """
+                SELECT pc.chunk_id, pc.document_id, pc.title, pc.section, pc.version, pc.effective_date, pc.content,
+                       1 - (pc.embedding <=> %s::vector) AS score
+                FROM policy_chunks pc
+                JOIN latest_versions lv
+                  ON pc.document_id = lv.document_id AND pc.version = lv.version
+                WHERE vector_dims(pc.embedding) = %s
+                  AND pc.effective_date <= COALESCE(%s::date, CURRENT_DATE)
+                ORDER BY pc.embedding <=> %s::vector, pc.chunk_id
+                LIMIT %s
+                """,
+                (as_of, vector, self.embedding_dimensions, as_of, vector, limit),
+            ).fetchall()
+        return [self._chunk(row) for row in rows]
+
+    def get_policy_document_text(self, document_id: str, as_of: date | None = None) -> str | None:
         with self.pool.connection() as connection:
             rows = connection.execute(
                 """
-                SELECT chunk_id, document_id, title, section, version, effective_date, content,
-                       1 - (embedding <=> %s::vector) AS score
-                FROM policy_chunks
-                WHERE vector_dims(embedding) = %s AND effective_date <= CURRENT_DATE
-                ORDER BY embedding <=> %s::vector, chunk_id
-                LIMIT %s
+                WITH latest_doc_version AS (
+                    SELECT version
+                    FROM policy_chunks
+                    WHERE document_id = %s
+                      AND effective_date <= COALESCE(%s::date, CURRENT_DATE)
+                    ORDER BY
+                        COALESCE(NULLIF(regexp_replace(split_part(version, '.', 1), '[^0-9]', '', 'g'), ''), '0')::bigint DESC,
+                        COALESCE(NULLIF(regexp_replace(split_part(version, '.', 2), '[^0-9]', '', 'g'), ''), '0')::bigint DESC,
+                        COALESCE(NULLIF(regexp_replace(split_part(version, '.', 3), '[^0-9]', '', 'g'), ''), '0')::bigint DESC,
+                        effective_date DESC,
+                        version DESC
+                    LIMIT 1
+                )
+                SELECT pc.content
+                FROM policy_chunks pc
+                JOIN latest_doc_version lv ON pc.version = lv.version
+                WHERE pc.document_id = %s
+                  AND pc.effective_date <= COALESCE(%s::date, CURRENT_DATE)
+                ORDER BY pc.chunk_id
                 """,
-                (vector, self.embedding_dimensions, vector, limit),
+                (document_id, as_of, document_id, as_of),
             ).fetchall()
-        return [self._chunk(row) for row in rows]
+        parts = [str(row["content"]).strip() for row in rows if row.get("content") and str(row["content"]).strip()]
+        return "\n\n".join(parts) if parts else None
+
+    def policy_fingerprint(self, as_of: date | None = None) -> str:
+        with self.pool.connection() as connection:
+            rows = connection.execute(
+                self._LATEST_VERSIONS_CTE
+                + """
+                SELECT pc.chunk_id, pc.version, pc.content
+                FROM policy_chunks pc
+                JOIN latest_versions lv
+                  ON pc.document_id = lv.document_id AND pc.version = lv.version
+                WHERE pc.effective_date <= COALESCE(%s::date, CURRENT_DATE)
+                ORDER BY pc.chunk_id
+                """,
+                (as_of, as_of),
+            ).fetchall()
+        digest = hashlib.sha256()
+        for row in rows:
+            digest.update(f"{row['chunk_id']}\0{row['version']}\0{row['content']}\n".encode("utf-8"))
+        return digest.hexdigest()[:12]
+
+    def list_evaluation_cases(self) -> list[dict[str, Any]]:
+        with self.pool.connection() as connection:
+            rows = connection.execute(
+                "SELECT payload FROM evaluation_cases ORDER BY sort_order, case_id"
+            ).fetchall()
+        return [deepcopy(row["payload"]) for row in rows if isinstance(row.get("payload"), dict)]
 
     def get_balances(self, employee_id: str) -> list[LeaveBalance]:
         with self.pool.connection() as connection:
@@ -1076,7 +1323,76 @@ class PostgresRepository:
         owner = row.pop("employee_id")
         return owner, ActionProposal(**row)
 
-    def confirm_proposal(self, employee_id: str, proposal_id: str, idempotency_key: str) -> ActionResult:
+    def save_proposal_attachment(
+        self,
+        employee_id: str,
+        proposal_id: str,
+        filename: str,
+        content_type: str,
+        file_bytes: bytes,
+    ) -> ProposalAttachmentView:
+        with self.pool.connection() as connection:
+            with connection.transaction():
+                prop = connection.execute(
+                    """
+                    SELECT leave_type
+                    FROM action_proposals
+                    WHERE proposal_id = %s AND employee_id = %s
+                    FOR UPDATE
+                    """,
+                    (proposal_id, employee_id),
+                ).fetchone()
+                if not prop:
+                    raise KeyError("proposal not found")
+                existing = connection.execute(
+                    "SELECT 1 FROM leave_requests WHERE proposal_id = %s",
+                    (proposal_id,),
+                ).fetchone()
+                if existing:
+                    raise ConflictError("proposal already confirmed")
+                if prop["leave_type"] != "sick":
+                    raise ConflictError("attachment is only supported for sick leave proposals")
+
+                uploaded_at = datetime.now(timezone.utc)
+                connection.execute(
+                    """
+                    INSERT INTO proposal_attachments (
+                        proposal_id, employee_id, filename, content_type, file_size_bytes, file_bytes, uploaded_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (proposal_id) DO UPDATE SET
+                        filename = EXCLUDED.filename,
+                        content_type = EXCLUDED.content_type,
+                        file_size_bytes = EXCLUDED.file_size_bytes,
+                        file_bytes = EXCLUDED.file_bytes,
+                        uploaded_at = EXCLUDED.uploaded_at
+                    """,
+                    (
+                        proposal_id,
+                        employee_id,
+                        filename,
+                        content_type,
+                        len(file_bytes),
+                        file_bytes,
+                        uploaded_at,
+                    ),
+                )
+        return ProposalAttachmentView(
+            proposal_id=proposal_id,
+            employee_id=employee_id,
+            filename=filename,
+            content_type=content_type,
+            file_size_bytes=len(file_bytes),
+            uploaded_at=uploaded_at,
+        )
+
+    def confirm_proposal(
+        self,
+        employee_id: str,
+        proposal_id: str,
+        idempotency_key: str,
+        today: date | None = None,
+    ) -> ActionResult:
         with self.pool.connection() as connection:
             with connection.transaction():
                 # Lock row employee agar konfirmasi paralel dari pegawai yang sama dieksekusi berurutan
@@ -1087,7 +1403,8 @@ class PostgresRepository:
                 proposal = connection.execute(
                     """
                     SELECT proposal_id, action_type, leave_type, start_date, end_date, business_days,
-                           reason, validation_summary, expires_at
+                           reason, validation_summary, expires_at,
+                           COALESCE(requires_attachment, FALSE) AS requires_attachment
                     FROM action_proposals
                     WHERE proposal_id = %s AND employee_id = %s
                     FOR UPDATE
@@ -1131,10 +1448,29 @@ class PostgresRepository:
 
                 # 3. Cek expiry untuk konfirmasi baru
                 expiry = proposal["expires_at"]
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
                 if expiry <= datetime.now(timezone.utc):
                     raise ConflictError("proposal expired")
 
-                # 4. Re-validasi overlap terhadap request yang sudah ada
+                # 4. Re-validasi tanggal masa lalu
+                if today is not None and proposal["start_date"] < today:
+                    raise ConflictError("proposal dates are in the past")
+
+                # 5. Re-validasi lampiran wajib untuk cuti sakit melebihi ambang batas
+                if proposal["requires_attachment"]:
+                    has_prop_att = connection.execute(
+                        "SELECT 1 FROM proposal_attachments WHERE proposal_id = %s",
+                        (proposal_id,),
+                    ).fetchone()
+                    has_req_att = connection.execute(
+                        "SELECT 1 FROM leave_attachments WHERE request_id = %s",
+                        (proposal_id,),
+                    ).fetchone()
+                    if not has_prop_att and not has_req_att:
+                        raise ConflictError("dokumen pendukung surat dokter wajib diunggah sebelum konfirmasi")
+
+                # 6. Re-validasi overlap terhadap request yang sudah ada
                 overlap_row = connection.execute(
                     """
                     SELECT EXISTS (
@@ -1149,7 +1485,7 @@ class PostgresRepository:
                 if overlap_row and overlap_row["overlaps"]:
                     raise ConflictError("leave dates overlap with an existing request")
 
-                # 5. Re-validasi saldo efektif
+                # 7. Re-validasi saldo efektif
                 bal_row = connection.execute(
                     """
                     SELECT
@@ -1187,6 +1523,22 @@ class PostgresRepository:
                         proposal["business_days"],
                         idempotency_key,
                     ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO leave_attachments (
+                        request_id, employee_id, filename, content_type, file_size_bytes, file_bytes, uploaded_at
+                    )
+                    SELECT %s, employee_id, filename, content_type, file_size_bytes, file_bytes, uploaded_at
+                    FROM proposal_attachments
+                    WHERE proposal_id = %s
+                    ON CONFLICT (request_id) DO NOTHING
+                    """,
+                    (request_id, proposal_id),
+                )
+                connection.execute(
+                    "DELETE FROM proposal_attachments WHERE proposal_id = %s",
+                    (proposal_id,),
                 )
         return ActionResult(
             request_id=request_id,
@@ -1262,81 +1614,7 @@ class PostgresRepository:
         review_note: str,
         is_admin: bool = False,
     ) -> ManagerReviewResult:
-        with self.pool.connection() as connection:
-            with connection.transaction():
-                row = connection.execute(
-                    """
-                    SELECT r.request_id, r.employee_id, e.manager_id, r.leave_type,
-                           r.business_days, r.status
-                    FROM leave_requests r
-                    JOIN employees e ON e.employee_id = r.employee_id
-                    WHERE r.request_id = %s
-                    FOR UPDATE OF r
-                    """,
-                    (request_id,),
-                ).fetchone()
-                if not row:
-                    raise KeyError("leave request not found")
-
-                if row["employee_id"] == reviewer_id:
-                    raise ConflictError("manager cannot review own leave request")
-
-                if not is_admin and row["manager_id"] != reviewer_id:
-                    raise KeyError("leave request not found in manager team")
-
-                if row["status"] != "pending_manager_review":
-                    raise ConflictError(f"leave request already finalized as {row['status']}")
-
-                if decision == "approved":
-                    bal = connection.execute(
-                        """
-                        SELECT available_days
-                        FROM leave_balances
-                        WHERE employee_id = %s AND leave_type = %s
-                        FOR UPDATE
-                        """,
-                        (row["employee_id"], row["leave_type"]),
-                    ).fetchone()
-                    if not bal or int(bal["available_days"]) < int(row["business_days"]):
-                        raise ConflictError("insufficient balance")
-                    connection.execute(
-                        """
-                        UPDATE leave_balances
-                        SET available_days = available_days - %s
-                        WHERE employee_id = %s AND leave_type = %s
-                        """,
-                        (row["business_days"], row["employee_id"], row["leave_type"]),
-                    )
-
-                clean_note = redact(review_note)
-                reviewed_at = datetime.now(timezone.utc)
-                audit_id = f"audit-review-{request_id}-{uuid4().hex[:8]}"
-
-                connection.execute(
-                    """
-                    UPDATE leave_requests
-                    SET status = %s, reviewed_by = %s, review_note = %s, reviewed_at = %s
-                    WHERE request_id = %s
-                    """,
-                    (decision, reviewer_id, clean_note, reviewed_at, request_id),
-                )
-                connection.execute(
-                    """
-                    INSERT INTO approval_audit_logs
-                        (audit_id, request_id, reviewer_id, previous_status, new_status, review_note, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (audit_id, request_id, reviewer_id, "pending_manager_review", decision, clean_note, reviewed_at),
-                )
-        return ManagerReviewResult(
-            request_id=request_id,
-            employee_id=row["employee_id"],
-            status=decision,
-            reviewed_by=reviewer_id,
-            review_note=clean_note,
-            reviewed_at=reviewed_at,
-            audit_reference=audit_id,
-        )
+        raise PermissionError("persetujuan akhir hanya dilakukan manusia di sistem HRIS")
 
     def save_leave_attachment(
         self,
@@ -1419,9 +1697,8 @@ class PostgresRepository:
                 raise KeyError("attachment not found")
 
             is_owner = requester.employee_id == row["employee_id"]
-            is_admin = requester.role == "monitoring_admin"
             is_manager = requester.role == "manager" and row["manager_id"] == requester.employee_id
-            if not (is_owner or is_admin or is_manager):
+            if not (is_owner or is_manager):
                 raise PermissionError("not authorized to view this attachment")
 
             raw_bytes = bytes(row["file_bytes"])
@@ -1435,32 +1712,44 @@ class PostgresRepository:
                 uploaded_at=row["uploaded_at"],
             )
 
-    def create_ticket(self, employee_id: str, category: str, summary: str) -> str:
+    def create_ticket(
+        self,
+        employee_id: str,
+        category: str,
+        summary: str,
+        ticket_id: str | None = None,
+    ) -> str:
         clean_summary = redact(summary)
         with self.pool.connection() as connection:
-            existing = connection.execute(
-                """
-                SELECT ticket_id FROM tickets
-                WHERE employee_id = %s AND category = %s AND summary = %s
-                ORDER BY created_at DESC LIMIT 1
-                """,
-                (employee_id, category, clean_summary),
-            ).fetchone()
-            if existing:
-                return str(existing["ticket_id"])
-            ticket_id = f"T-{uuid4().hex[:12]}"
-            connection.execute(
-                """
-                INSERT INTO tickets (ticket_id, employee_id, category, summary, status)
-                VALUES (%s, %s, %s, %s, 'pending')
-                """,
-                (ticket_id, employee_id, category, clean_summary),
-            )
-        return ticket_id
+            with connection.transaction():
+                existing = connection.execute(
+                    """
+                    SELECT ticket_id FROM tickets
+                    WHERE employee_id = %s AND category = %s AND summary = %s AND status != 'done'
+                    ORDER BY created_at DESC LIMIT 1
+                    """,
+                    (employee_id, category, clean_summary),
+                ).fetchone()
+                if existing:
+                    return str(existing["ticket_id"])
+                active_ticket_id = ticket_id or f"T-{uuid4().hex[:12]}"
+                connection.execute(
+                    """
+                    INSERT INTO tickets (ticket_id, employee_id, category, summary, status)
+                    VALUES (%s, %s, %s, %s, 'pending')
+                    ON CONFLICT (ticket_id) DO NOTHING
+                    """,
+                    (active_ticket_id, employee_id, category, clean_summary),
+                )
+        return active_ticket_id
 
-    def list_tickets(self, employee_id: str | None = None) -> list[dict[str, Any]]:
+    def list_tickets(
+        self,
+        employee_id: str | None = None,
+        manager_id: str | None = None,
+    ) -> list[dict[str, Any]]:
         query = """
-            SELECT 
+            SELECT
                 t.ticket_id,
                 t.employee_id,
                 e.display_name AS employee_name,
@@ -1474,10 +1763,16 @@ class PostgresRepository:
             FROM tickets t
             LEFT JOIN employees e ON t.employee_id = e.employee_id
         """
+        clauses: list[str] = []
         params: list[Any] = []
         if employee_id:
-            query += " WHERE t.employee_id = %s"
+            clauses.append("t.employee_id = %s")
             params.append(employee_id)
+        if manager_id is not None:
+            clauses.append("(e.manager_id = %s OR t.employee_id = %s)")
+            params.extend([manager_id, manager_id])
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY t.created_at DESC"
 
         with self.pool.connection() as connection:
@@ -1509,26 +1804,45 @@ class PostgresRepository:
             })
         return results
 
-    def update_ticket_status(self, ticket_id: str, status: str, admin_id: str) -> dict[str, Any]:
+    def update_ticket_status(
+        self,
+        ticket_id: str,
+        status: str,
+        admin_id: str,
+        allowed_manager_id: str | None = None,
+    ) -> dict[str, Any]:
         if status not in ("pending", "on progress", "done"):
             raise ValueError(f"Status tidak valid: {status}")
         with self.pool.connection() as connection:
-            row = connection.execute(
-                """
-                UPDATE tickets
-                SET status = %s, updated_at = CURRENT_TIMESTAMP, updated_by = %s
-                WHERE ticket_id = %s
-                RETURNING ticket_id, employee_id, category, summary, status, created_at, updated_at, updated_by
-                """,
-                (status, admin_id, ticket_id),
-            ).fetchone()
-            if not row:
-                raise ValueError(f"Tiket {ticket_id} tidak ditemukan")
+            with connection.transaction():
+                current = connection.execute(
+                    """
+                    SELECT t.ticket_id, t.employee_id, e.manager_id
+                    FROM tickets t
+                    LEFT JOIN employees e ON e.employee_id = t.employee_id
+                    WHERE t.ticket_id = %s
+                    FOR UPDATE OF t
+                    """,
+                    (ticket_id,),
+                ).fetchone()
+                if not current:
+                    raise KeyError(f"Tiket {ticket_id} tidak ditemukan")
+                if allowed_manager_id is not None and current.get("manager_id") != allowed_manager_id:
+                    raise PermissionError("not authorized to update ticket outside your team")
+                row = connection.execute(
+                    """
+                    UPDATE tickets
+                    SET status = %s, updated_at = CURRENT_TIMESTAMP, updated_by = %s
+                    WHERE ticket_id = %s
+                    RETURNING ticket_id, employee_id, category, summary, status, created_at, updated_at, updated_by
+                    """,
+                    (status, admin_id, ticket_id),
+                ).fetchone()
 
-            emp_row = connection.execute(
-                "SELECT display_name, department FROM employees WHERE employee_id = %s",
-                (row["employee_id"],),
-            ).fetchone()
+                emp_row = connection.execute(
+                    "SELECT display_name, department FROM employees WHERE employee_id = %s",
+                    (row["employee_id"],),
+                ).fetchone()
 
         created_str = (
             row["created_at"].isoformat()

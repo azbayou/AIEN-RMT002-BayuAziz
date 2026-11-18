@@ -26,22 +26,22 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://hr_app:hr_app@postgres:5432/hr_assistant}
       REDIS_URL: redis://redis:6379/0
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       AGENT_MODEL: ${AGENT_MODEL:-}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
       POLICY_INDEX_VERSION: ${POLICY_INDEX_VERSION:-policies-2026-01}
+      MODEL_MODE: ${MODEL_MODE:-live}
+      REFERENCE_DATE: ${REFERENCE_DATE:-2026-10-26}
+      INPUT_COST_PER_1M: ${INPUT_COST_PER_1M:-0.15}
+      OUTPUT_COST_PER_1M: ${OUTPUT_COST_PER_1M:-0.60}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GEMINI_STT_MODEL: ${GEMINI_STT_MODEL:-gemini-3.5-flash}
+      GEMINI_STT_MODEL: ${GEMINI_STT_MODEL:-gemini-2.5-flash}
       OPIK_API_KEY: ${OPIK_API_KEY:-}
       OPIK_WORKSPACE: ${OPIK_WORKSPACE:-}
       OPIK_PROJECT_NAME: ${OPIK_PROJECT_NAME:-Milestone 2 - HR Agent}
       OPIK_ENABLED: ${OPIK_ENABLED:-true}
     ports: ["${API_PORT:-8000}:8000"]
-    volumes:
-      - ./web:/app/web
-      - ./src:/app/src
-      - ./api:/app/api
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}

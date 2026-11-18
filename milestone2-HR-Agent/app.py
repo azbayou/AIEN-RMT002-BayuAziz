@@ -13,44 +13,19 @@ from ui_contract import API_PATHS, load_personas, select_persona
 API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
 
 
-def fetch_personas(api_url: str, fallback_path: Path) -> list[dict]:
-    """Fetch demo personas from backend API, falling back to local demo_personas.json if unreachable."""
-    try:
-        resp = httpx.get(f"{api_url}{API_PATHS['personas']}", timeout=5.0)
-        if resp.status_code == 200:
-            rows = resp.json()
-            if isinstance(rows, list) and rows:
-                formatted: list[dict] = []
-                for row in rows:
-                    if not isinstance(row, dict) or not row.get("employee_id"):
-                        continue
-                    emp_id = row["employee_id"]
-                    display_name = row.get("display_name") or emp_id
-                    dept = row.get("department") or ""
-                    role = row.get("role") or "employee"
-                    demo_token = row.get("demo_token") or ""
-                    formatted.append(
-                        {
-                            "employee_id": emp_id,
-                            "username": row.get("username") or emp_id,
-                            "label": f"{display_name} — {dept or role}",
-                            "scenario": f"Akun {role} ({dept or '-'})",
-                            "demo_token": demo_token,
-                            "requires_password": bool(row.get("requires_password") or not demo_token),
-                        }
-                    )
-                if formatted:
-                    return formatted
-    except Exception:
-        pass
-    return load_personas(fallback_path)
-
-
 def request(method: str, path: str, token: str, **kwargs):
     headers = {"Authorization": f"Bearer {token}"}
-    response = httpx.request(method, f"{API_URL}{path}", headers=headers, timeout=40, **kwargs)
+    try:
+        response = httpx.request(method, f"{API_URL}{path}", headers=headers, timeout=40, **kwargs)
+    except httpx.HTTPError as exc:
+        st.error(f"Gagal menghubungi API: {exc}")
+        return None
     if response.is_error:
-        detail = response.json().get("detail", response.text)
+        try:
+            payload = response.json()
+            detail = payload.get("detail", response.text) if isinstance(payload, dict) else response.text
+        except Exception:
+            detail = response.text
         st.error(f"API {response.status_code}: {detail}")
         return None
     return response.json()
@@ -60,31 +35,11 @@ st.set_page_config(page_title="Asisten HR Nusantara Digital", page_icon="🧭", 
 st.title("Asisten Kebijakan HR dan Cuti")
 st.caption("Data dan token pada aplikasi ini sepenuhnya sintetis untuk kebutuhan pembelajaran.")
 
-personas = fetch_personas(API_URL, Path(__file__).with_name("demo_personas.json"))
+personas = load_personas(Path(__file__).with_name("demo_personas.json"))
 persona = st.sidebar.selectbox("Persona demo", personas, format_func=lambda item: item["label"])
 select_persona(st.session_state, persona)
 st.sidebar.caption(persona["scenario"])
-token_key = f"auth_token_{persona['employee_id']}"
-token = st.session_state.get(token_key) or persona.get("demo_token", "")
-if persona.get("requires_password") and not token:
-    with st.sidebar.form(f"login_form_{persona['employee_id']}"):
-        pwd = st.text_input("Password akun istimewa", type="password")
-        if st.form_submit_button("Masuk"):
-            try:
-                login_resp = httpx.post(
-                    f"{API_URL}/api/v1/auth/login",
-                    json={"username": persona.get("username") or persona["employee_id"], "password": pwd},
-                    timeout=10.0,
-                )
-                if login_resp.status_code == 200:
-                    login_data = login_resp.json()
-                    st.session_state[token_key] = login_data["access_token"]
-                    st.rerun()
-                else:
-                    st.error("Password salah atau akun tidak valid.")
-            except Exception as exc:
-                st.error(f"Gagal menghubungi API login: {exc}")
-    st.sidebar.info("Masukkan password untuk mengaktifkan akses akun manajer/admin.")
+token = persona["demo_token"]
 
 chat_tab, leave_tab, monitor_tab = st.tabs(["Percakapan", "Permintaan Cuti", "Monitoring"])
 

@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import json
+import os
 import re
 import time
 from typing import Any, Protocol
@@ -33,13 +34,18 @@ class OpenAIProvider:
         self.embedding_model = kwargs.pop("embedding_model")
         self.stt_model = kwargs.pop("stt_model", "whisper-1")
         self.gemini_api_key = kwargs.pop("gemini_api_key", None)
-        self.gemini_stt_model = kwargs.pop("gemini_stt_model", "gemini-3.5-transcribe")
+        self.gemini_stt_model = kwargs.pop("gemini_stt_model", "gemini-2.5-flash")
         self.max_retries = kwargs.pop("max_retries", 2)
         client = kwargs.pop("client", None)
         base_url = kwargs.pop("base_url", None)
-        if base_url and isinstance(base_url, str) and base_url.strip():
-            kwargs["base_url"] = base_url.strip()
-        self.client = client or OpenAI(**kwargs)
+        if client is not None:
+            self.client = client
+        else:
+            if base_url and isinstance(base_url, str) and base_url.strip():
+                kwargs["base_url"] = base_url.strip()
+            elif not (os.environ.get("OPENAI_BASE_URL") or "").strip():
+                kwargs["base_url"] = "https://api.openai.com/v1"
+            self.client = OpenAI(**kwargs)
 
     @staticmethod
     def _transient(error: Exception) -> bool:
@@ -83,12 +89,23 @@ class OpenAIProvider:
         tool_calls = []
         for item in getattr(response, "output", []) or []:
             if getattr(item, "type", None) == "function_call":
-                arguments = getattr(item, "arguments", "{}")
+                raw_args = getattr(item, "arguments", "{}")
+                if isinstance(raw_args, dict):
+                    parsed_args = raw_args
+                elif isinstance(raw_args, str):
+                    try:
+                        parsed_args = json.loads(raw_args) if raw_args.strip() else {}
+                    except json.JSONDecodeError:
+                        parsed_args = {}
+                    if not isinstance(parsed_args, dict):
+                        parsed_args = {}
+                else:
+                    parsed_args = {}
                 tool_calls.append(
                     {
                         "call_id": getattr(item, "call_id", getattr(item, "id", "")),
                         "name": item.name,
-                        "arguments": json.loads(arguments),
+                        "arguments": parsed_args,
                     }
                 )
         usage = getattr(response, "usage", None)
@@ -114,26 +131,23 @@ class OpenAIProvider:
 
         b64_audio = base64.b64encode(audio_bytes).decode("ascii")
 
-        # Models to try: valid multimodal Gemini Flash models first
-        models_to_try = []
-        if self.gemini_stt_model and "transcribe" not in self.gemini_stt_model:
-            models_to_try.append(self.gemini_stt_model)
+        # Models to try: configured Gemini STT model first, then standard Gemini Flash fallbacks
+        models_to_try: list[str] = []
         for candidate in (
+            self.gemini_stt_model,
             "gemini-2.5-flash",
             "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-3.5-flash",
-            "gemini-3.6-flash",
         ):
-            if candidate not in models_to_try:
-                models_to_try.append(candidate)
-        if self.gemini_stt_model and self.gemini_stt_model not in models_to_try:
-            models_to_try.append(self.gemini_stt_model)
+            if candidate and isinstance(candidate, str):
+                clean_candidate = candidate.strip()
+                if clean_candidate and clean_candidate not in models_to_try:
+                    models_to_try.append(clean_candidate)
 
         last_error = None
         for m in models_to_try:
             clean_m = m.replace("models/", "")
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_m}:generateContent?key={self.gemini_api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_m}:generateContent"
+            headers = {"x-goog-api-key": self.gemini_api_key}
             payload = {
                 "contents": [
                     {
@@ -156,7 +170,7 @@ class OpenAIProvider:
                 ]
             }
             try:
-                resp = httpx.post(url, json=payload, timeout=25.0)
+                resp = httpx.post(url, json=payload, headers=headers, timeout=25.0)
                 if resp.status_code == 200:
                     data = resp.json()
                     candidates = data.get("candidates", [])
@@ -173,8 +187,12 @@ class OpenAIProvider:
                                 return ""
                     # If candidates is empty or has no text content, try next candidate model
                     continue
-                else:
-                    last_error = f"HTTP {resp.status_code}: {resp.text[:150]}"
+                preview = resp.text[:150]
+                if self.gemini_api_key:
+                    preview = preview.replace(self.gemini_api_key, "[REDACTED]")
+                last_error = f"HTTP {resp.status_code}: {preview}"
+                if resp.status_code in (400, 401, 403):
+                    break
             except Exception as err:
                 msg = str(err)
                 if self.gemini_api_key:

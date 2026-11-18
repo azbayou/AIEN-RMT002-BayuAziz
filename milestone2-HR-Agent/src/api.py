@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+from contextlib import asynccontextmanager
 from datetime import date
-import json
 import os
 from pathlib import Path
 import re
@@ -25,6 +25,7 @@ from .contracts import (
     ChatRequest,
     ChatResponse,
     ConfirmActionRequest,
+    DemoSessionRequest,
     LeaveAttachmentUploadRequest,
     LeaveAttachmentView,
     LeaveBalance,
@@ -34,10 +35,15 @@ from .contracts import (
     ManagerReviewRequest,
     ManagerReviewResult,
     ProblemDetail,
+    ProposalAttachmentView,
     UpdateTicketStatusRequest,
 )
-from .domain import get_annual_leave_lead_days, get_sick_leave_doc_threshold
-from .repository import ConflictError, MemoryRepository, Repository
+from .domain import (
+    compute_earliest_annual_leave_date,
+    get_annual_leave_lead_days,
+    get_sick_leave_doc_threshold,
+)
+from .repository import ConflictError, Repository
 from .security import redact
 
 
@@ -92,7 +98,20 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
     settings = settings or get_settings()
     if repository is None or cache is None or agent is None:
         repository, cache, agent = build_runtime(settings)
-    app = FastAPI(title=settings.app_name)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        try:
+            yield
+        finally:
+            tracker = getattr(agent, "tracker", None)
+            if tracker is not None and hasattr(tracker, "flush"):
+                try:
+                    tracker.flush()
+                except Exception:
+                    pass
+
+    app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
@@ -193,58 +212,56 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
             },
         }
 
-    @app.get("/api/v1/auth/personas")
+    @app.get("/auth/personas")
     def list_personas() -> list[dict[str, Any]]:
         if hasattr(repository, "list_personas"):
             return repository.list_personas()
         return []
 
+    @app.post("/auth/demo-session", response_model=LoginResponse)
+    def create_demo_session(payload: DemoSessionRequest) -> LoginResponse:
+        if settings.environment.strip().casefold() == "production":
+            raise HTTPException(status_code=403, detail="Demo session login is disabled in production")
+        try:
+            return repository.create_demo_session(payload.employee_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        except PermissionError:
+            raise HTTPException(status_code=403, detail="Demo session is only available for employee accounts")
+
+    @app.post("/auth/login", response_model=LoginResponse)
+    def login(payload: LoginRequest) -> LoginResponse:
+        result = repository.authenticate_password(payload.username, payload.password)
+        if result is None:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        return result
+
     @app.get("/api/v1/policies/rules")
-    def policy_rules() -> dict[str, Any]:
+    def policy_rules(auth: AuthContext = Depends(current_auth)) -> dict[str, Any]:
+        today = settings.reference_date or date.today()
         doc_map = {
             "HR-LEAVE-001": "annual",
             "HR-LEAVE-002": "sick",
             "HR-LEAVE-003": "parental",
         }
-        chunks_by_doc: dict[str, list[str]] = {doc_id: [] for doc_id in doc_map}
+        texts_by_doc: dict[str, str | None] = {}
+        for doc_id in doc_map:
+            if hasattr(repository, "get_policy_document_text"):
+                texts_by_doc[doc_id] = repository.get_policy_document_text(doc_id, as_of=today)
+            else:
+                texts_by_doc[doc_id] = None
 
-        if hasattr(repository, "pool"):
-            try:
-                with repository.pool.connection() as connection:
-                    rows = connection.execute(
-                        "SELECT document_id, content FROM policy_chunks "
-                        "WHERE document_id = ANY(%s::text[]) ORDER BY chunk_id",
-                        (list(doc_map),),
-                    ).fetchall()
-                    for r in rows:
-                        doc_id = r["document_id"] if isinstance(r, dict) or (hasattr(r, "__getitem__") and "document_id" in r) else r[0]
-                        content = r["content"] if isinstance(r, dict) or (hasattr(r, "__getitem__") and "content" in r) else r[1]
-                        if doc_id in chunks_by_doc and content:
-                            text = str(content).strip()
-                            if text:
-                                chunks_by_doc[doc_id].append(text)
-            except Exception:
-                pass
-        elif hasattr(repository, "chunks"):
-            for chunk in repository.chunks:
-                doc_id = getattr(chunk, "document_id", None)
-                content = getattr(chunk, "content", None)
-                if doc_id in chunks_by_doc and content:
-                    text = str(content).strip()
-                    if text:
-                        chunks_by_doc[doc_id].append(text)
-
-        annual_policy_text = "\n\n".join(chunks_by_doc["HR-LEAVE-001"]) or None
-        sick_policy_text = "\n\n".join(chunks_by_doc["HR-LEAVE-002"]) or None
+        annual_policy_text = texts_by_doc["HR-LEAVE-001"]
+        sick_policy_text = texts_by_doc["HR-LEAVE-002"]
         lead_days = get_annual_leave_lead_days(annual_policy_text)
+        earliest_annual = compute_earliest_annual_leave_date(today, lead_days)
         sick_thresh = get_sick_leave_doc_threshold(sick_policy_text)
-        today = settings.reference_date or date.today()
         policy_summaries = {
             leave_key: {
                 "citation": f"[{doc_id}]",
                 "summary": (
-                    f"[{doc_id}] {' '.join(chunks_by_doc[doc_id])}"
-                    if chunks_by_doc[doc_id]
+                    f"[{doc_id}] {' '.join(texts_by_doc[doc_id].split())}"
+                    if texts_by_doc[doc_id]
                     else f"[{doc_id}]"
                 ),
             }
@@ -253,16 +270,16 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
         return {
             "server_date": today.isoformat(),
             "annual_lead_days": lead_days,
+            "earliest_annual_start_date": earliest_annual.isoformat(),
             "sick_doc_threshold": sick_thresh,
             "policy_summaries": policy_summaries,
         }
 
-    @app.post("/api/v1/auth/login", response_model=LoginResponse)
-    def login(payload: LoginRequest) -> LoginResponse:
-        result = repository.authenticate_password(payload.username, payload.password)
-        if result is None:
-            raise HTTPException(status_code=401, detail="Invalid username or password")
-        return result
+    @app.get("/api/v1/evaluation/cases")
+    def evaluation_cases(auth: AuthContext = Depends(current_auth)) -> list[dict[str, Any]]:
+        if hasattr(repository, "list_evaluation_cases"):
+            return repository.list_evaluation_cases()
+        return []
 
     @app.get("/api/v1/leave-balances/me", response_model=list[LeaveBalance])
     def my_leave_balances(auth: AuthContext = Depends(current_auth)) -> list[LeaveBalance]:
@@ -293,8 +310,8 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
                 filename=payload.filename,
                 language=payload.language,
             )
-        except Exception as err:
-            raise HTTPException(status_code=502, detail=f"Speech-to-text transcription unavailable: {err}")
+        except Exception:
+            raise HTTPException(status_code=502, detail="Speech-to-text transcription unavailable")
 
         if not transcript:
             raise HTTPException(status_code=422, detail="No speech detected in audio")
@@ -305,14 +322,48 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
             duration_ms=max(0, int((time.monotonic() - started) * 1000)),
         )
 
+    @app.post("/api/v1/action-proposals/{proposal_id}/attachment", response_model=ProposalAttachmentView)
+    def upload_proposal_attachment(
+        proposal_id: str,
+        payload: LeaveAttachmentUploadRequest,
+        auth: AuthContext = Depends(current_auth),
+    ) -> ProposalAttachmentView:
+        try:
+            raw_b64 = payload.content_base64.split(",")[-1].strip()
+            file_bytes = base64.b64decode(raw_b64, validate=True)
+        except (binascii.Error, ValueError):
+            raise HTTPException(status_code=422, detail="Invalid base64 attachment payload")
+
+        _validate_attachment_bytes(payload.content_type, file_bytes)
+        safe_filename = re.sub(r"[^A-Za-z0-9._-]", "_", payload.filename.strip()) or "attachment"
+
+        try:
+            return repository.save_proposal_attachment(
+                employee_id=auth.employee_id,
+                proposal_id=proposal_id,
+                filename=safe_filename,
+                content_type=payload.content_type,
+                file_bytes=file_bytes,
+            )
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Proposal not found")
+        except ConflictError as error:
+            raise HTTPException(status_code=409, detail=redact(str(error)))
+
     @app.post("/api/v1/action-proposals/{proposal_id}/confirm", response_model=ActionResult)
     def confirm(
         proposal_id: str,
         payload: ConfirmActionRequest,
         auth: AuthContext = Depends(current_auth),
     ) -> ActionResult:
+        today = settings.reference_date or date.today()
         try:
-            return repository.confirm_proposal(auth.employee_id, proposal_id, payload.idempotency_key)
+            return repository.confirm_proposal(
+                auth.employee_id,
+                proposal_id,
+                payload.idempotency_key,
+                today=today,
+            )
         except KeyError:
             raise HTTPException(status_code=404, detail="Proposal not found")
         except ConflictError as error:
@@ -375,18 +426,10 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
         payload: ManagerReviewRequest,
         auth: AuthContext = Depends(manager_auth),
     ) -> ManagerReviewResult:
-        try:
-            return repository.review_leave_request(
-                reviewer_id=auth.employee_id,
-                request_id=request_id,
-                decision=payload.decision,
-                review_note=payload.review_note,
-                is_admin=(auth.role == "monitoring_admin"),
-            )
-        except KeyError:
-            raise HTTPException(status_code=404, detail="Leave request not found in your team")
-        except ConflictError as error:
-            raise HTTPException(status_code=409, detail=redact(str(error)))
+        raise HTTPException(
+            status_code=403,
+            detail="Persetujuan akhir hanya dilakukan manusia di sistem HRIS; semua pengajuan berstatus pending_manager_review",
+        )
 
     @app.get("/api/v1/analytics/overview")
     def analytics_overview(
@@ -457,8 +500,11 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
     @app.get("/api/v1/tickets")
     def list_tickets(auth: AuthContext = Depends(current_auth)) -> list[dict[str, Any]]:
         if hasattr(repository, "list_tickets"):
-            emp_id = None if auth.role in ("manager", "monitoring_admin") else auth.employee_id
-            return repository.list_tickets(emp_id)
+            if auth.role == "monitoring_admin":
+                return repository.list_tickets()
+            if auth.role == "manager":
+                return repository.list_tickets(manager_id=auth.employee_id)
+            return repository.list_tickets(employee_id=auth.employee_id)
         return []
 
     @app.patch("/api/v1/tickets/{ticket_id}/status")
@@ -470,23 +516,45 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
         if not hasattr(repository, "update_ticket_status"):
             raise HTTPException(status_code=501, detail="Update ticket status not supported")
         try:
-            return repository.update_ticket_status(ticket_id, payload.status, auth.employee_id)
+            allowed_manager_id = None if auth.role == "monitoring_admin" else auth.employee_id
+            return repository.update_ticket_status(
+                ticket_id,
+                payload.status,
+                auth.employee_id,
+                allowed_manager_id=allowed_manager_id,
+            )
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Ticket not found")
+        except PermissionError:
+            raise HTTPException(status_code=403, detail="Not authorized to update this ticket")
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
+            raise HTTPException(status_code=400, detail=redact(str(exc)))
 
-    @app.get("/")
+    is_vercel = bool(os.getenv("VERCEL"))
+    is_backend_only = os.getenv("BACKEND_ONLY", "false").lower() in ("1", "true", "yes")
+
+    from fastapi.staticfiles import StaticFiles
+
+    base_dir = Path(__file__).resolve().parents[1]
+    public_dir = base_dir / "ui" / "public" if (base_dir / "ui" / "public").is_dir() else (base_dir / "web" / "asset")
+    web_dir = base_dir / "web"
+
     @app.get("/api")
     def root_info() -> dict[str, Any]:
         return {
             "status": "online",
             "service": "PT Nusantara Digital - HR Agent Assistant API",
-            "environment": "vercel_serverless" if os.getenv("VERCEL") else "standalone",
+            "environment": "vercel_serverless" if is_vercel else "standalone",
             "documentation": "/docs",
             "version": settings.policy_index_version,
             "endpoints": {
                 "health": "/healthz",
                 "readiness": "/readyz",
-                "personas": "/api/v1/auth/personas",
+                "personas": "/auth/personas",
+                "demo_session": "/auth/demo-session",
+                "login": "/auth/login",
+                "policy_rules": "/api/v1/policies/rules",
+                "evaluation_cases": "/api/v1/evaluation/cases",
                 "chat": "/api/v1/chat",
                 "tickets": "/api/v1/tickets",
                 "leave_requests": "/api/v1/leave-requests/me",
@@ -497,14 +565,8 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
             },
         }
 
-    is_vercel = bool(os.getenv("VERCEL"))
-    is_backend_only = os.getenv("BACKEND_ONLY", "false").lower() in ("1", "true", "yes")
-
-    from fastapi.staticfiles import StaticFiles
-
-    base_dir = Path(__file__).resolve().parents[1]
-    public_dir = base_dir / "ui" / "public" if (base_dir / "ui" / "public").is_dir() else (base_dir / "web" / "asset")
-    web_dir = base_dir / "web"
+    if is_vercel or is_backend_only or os.getenv("PREFER_ROOT_API") or not (web_dir / "index.html").is_file():
+        app.add_api_route("/", root_info, methods=["GET"])
 
     if public_dir.is_dir():
         app.mount("/public", StaticFiles(directory=str(public_dir)), name="public")
