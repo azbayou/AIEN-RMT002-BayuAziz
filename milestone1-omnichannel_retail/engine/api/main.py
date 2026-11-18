@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from engine.api.control_plane import router as control_plane_router
 from engine.api.models import AnalysisRequest, AnalysisResponse
 from engine.core.legacy_service import configured_max_rows, run_query
 from engine.core.orchestrator import analyze
@@ -14,9 +19,30 @@ from engine.llm.catalog import TABLES
 from engine.llm.providers import build_provider
 from engine.sql.safety import UnsafeQueryError
 
+WEB_UI_DIR = Path(__file__).resolve().parents[2] / "ui" / "web"
+
 app = FastAPI(title="Omnichannel Retail Analytics Engine", version="2.0.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.include_router(control_plane_router)
+app.mount("/assets", StaticFiles(directory=str(WEB_UI_DIR), check_dir=False), name="assets")
+
 provider = build_provider()
 logger = logging.getLogger(__name__)
+
+
+@app.get("/", include_in_schema=False)
+def root() -> Response:
+    """Serve the Modern Enterprise Medallion Control Plane UI."""
+
+    index_path = WEB_UI_DIR / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path, media_type="text/html")
+    return HTMLResponse("<h1>Medallion UI Loading...</h1>")
 
 
 class QueryRequest(BaseModel):

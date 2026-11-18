@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Omnichannel Retail Lakehouse | Medallion Control Plane</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="/assets/styles.css" />
+</head>
+<body>
+  <!-- Sticky Enterprise Command Bar -->
+  <header class="command-bar" role="banner">
+    <div class="command-bar-inner">
+      <div class="brand-cluster">
+        <div class="brand-logo" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L21 7V12L12 17L3 12V7L12 2Z" stroke="#FF3621" stroke-width="1.8" stroke-linejoin="round" />
+            <path d="M3 12L12 17L21 12" stroke="#06B6D4" stroke-width="1.8" stroke-linejoin="round" />
+            <path d="M3 16.5L12 21.5L21 16.5" stroke="#EAB308" stroke-width="1.8" stroke-linejoin="round" />
+          </svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-title" data-i18n="brand.title">Omnichannel Retail Lakehouse</span>
+          <span class="catalog-badge" id="catalogBadge">retail_analytics · Unity Catalog</span>
+        </div>
+      </div>
+
+      <div class="controls-cluster">
+        <!-- Dual-Stack Switcher -->
+        <div class="segmented-group" role="group" aria-label="Pipeline Execution Stack">
+          <button
+            type="button"
+            class="seg-btn is-active"
+            data-stack="databricks"
+            id="stackDatabricksBtn"
+          >
+            <span class="seg-dot dot-lava"></span>
+            <span data-i18n="nav.stackDatabricks">Databricks Lakehouse</span>
+          </button>
+          <button
+            type="button"
+            class="seg-btn"
+            data-stack="airflow"
+            id="stackAirflowBtn"
+          >
+            <span class="seg-dot dot-cyan"></span>
+            <span data-i18n="nav.stackAirflow">Airflow + Postgres</span>
+          </button>
+        </div>
+
+        <!-- Perspective Toggle -->
+        <div class="segmented-group" role="group" aria-label="View Perspective">
+          <button
+            type="button"
+            class="seg-btn is-active"
+            data-perspective="business"
+            id="perspBusinessBtn"
+            data-i18n="nav.perspBusiness"
+          >
+            Business Impact
+          </button>
+          <button
+            type="button"
+            class="seg-btn"
+            data-perspective="engineer"
+            id="perspEngineerBtn"
+            data-i18n="nav.perspEngineer"
+          >
+            Engineer Deep-Dive
+          </button>
+        </div>
+
+        <!-- Language Toggle -->
+        <div class="segmented-group lang-group" role="group" aria-label="Language">
+          <button type="button" class="seg-btn is-active" data-lang="en" id="langEnBtn">EN</button>
+          <button type="button" class="seg-btn" data-lang="id" id="langIdBtn">ID</button>
+        </div>
+      </div>
+
+      <div class="actions-cluster">
+        <button
+          type="button"
+          class="status-pill is-simulation"
+          id="authStatusBtn"
+          title="Configure Databricks workspace connection"
+        >
+          <span class="status-pulse"></span>
+          <span id="authStatusLabel">Simulation Mode</span>
+        </button>
+
+        <a
+          id="openDatabricksBtn"
+          class="btn btn-secondary"
+          href="https://dbc-118afc22-e599.cloud.databricks.com/?o=7474648823106559#job/1033864740434224"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span data-i18n="nav.openDatabricks">Open Databricks ↗</span>
+        </a>
+
+        <button type="button" class="btn btn-primary" id="topRunLiveBtn">
+          <span class="btn-icon-play" aria-hidden="true">▶</span>
+          <span data-i18n="nav.runLive">Run Live on Databricks</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    <!-- Section 1: Executive Hero & Verified Telemetry Ribbon -->
+    <section class="hero-section" id="overview">
+      <div class="hero-top">
+        <div class="hero-copy">
+          <div class="hero-eyebrow">
+            <span class="eyebrow-badge" data-i18n="hero.eyebrow">DATABRICKS LAKEFLOW · UNITY CATALOG · ZERO-DRIFT MEDALLION</span>
+            <span class="verified-run-pill" id="heroRunBadge">Verified Run #647116123722071 · 9m 11s</span>
+          </div>
+          <h1 class="hero-title" id="heroTitle" data-i18n="hero.title">
+            Production Omnichannel Retail Lakehouse &amp; AI Analytics Control Plane
+          </h1>
+          <p class="hero-subtitle" id="heroPitch"></p>
+        </div>
+
+        <aside class="hero-meta-card" aria-label="Workspace Infrastructure Specs">
+          <div class="meta-row">
+            <span class="meta-key" data-i18n="hero.metaWorkspace">Workspace</span>
+            <span class="meta-val mono">dbc-118afc22-e599.cloud.databricks.com</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key" data-i18n="hero.metaJob">Lakeflow Job</span>
+            <span class="meta-val mono" id="heroJobId">1033864740434224</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key" data-i18n="hero.metaWarehouse">SQL Warehouse</span>
+            <span class="meta-val mono" id="heroWarehouseId">d3c4e4657744978e</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-key" data-i18n="hero.metaCompute">Compute Profile</span>
+            <span class="meta-val mono" id="heroComputeProfile">Serverless Env v3 · Delta</span>
+          </div>
+        </aside>
+      </div>
+
+      <div class="kpi-ribbon" id="telemetryRibbon">
+        <article class="ribbon-tile">
+          <div class="ribbon-label" data-i18n="ribbon.rawEvents">Raw Events</div>
+          <div class="ribbon-value mono" id="kpiRawEvents">158,770</div>
+          <div class="ribbon-sub" data-i18n="ribbon.rawSub">bronze.raw_records · 19 files</div>
+        </article>
+        <article class="ribbon-tile">
+          <div class="ribbon-label" data-i18n="ribbon.silverRows">Clean Silver Rows</div>
+          <div class="ribbon-value mono" id="kpiSilverRows">135,805</div>
+          <div class="ribbon-sub" data-i18n="ribbon.silverSub">Deduplicated · UTC TIMESTAMPTZ</div>
+        </article>
+        <article class="ribbon-tile tone-rose">
+          <div class="ribbon-label" data-i18n="ribbon.rejected">Rejected Anomaly</div>
+          <div class="ribbon-value mono" id="kpiRejected">1</div>
+          <div class="ribbon-sub" data-i18n="ribbon.rejectedSub">qty &lt;= 0 → silver.rejected_records</div>
+        </article>
+        <article class="ribbon-tile tone-cyan">
+          <div class="ribbon-label" data-i18n="ribbon.deltaTables">Delta Tables</div>
+          <div class="ribbon-value mono" id="kpiDeltaTables">25</div>
+          <div class="ribbon-sub" data-i18n="ribbon.deltaSub">Unity Catalog (1B · 16S · 5G · 3O)</div>
+        </article>
+        <article class="ribbon-tile tone-emerald">
+          <div class="ribbon-label" data-i18n="ribbon.drift">Reconciliation Drift</div>
+          <div class="ribbon-value mono" id="kpiDrift">$0.00</div>
+          <div class="ribbon-sub" data-i18n="ribbon.driftSub">9/9 ops.quality_checks passed</div>
+        </article>
+        <article class="ribbon-tile tone-gold">
+          <div class="ribbon-label" data-i18n="ribbon.benchmark">NL-to-SQL Benchmark</div>
+          <div class="ribbon-value mono" id="kpiBenchmark">25/25</div>
+          <div class="ribbon-sub" data-i18n="ribbon.benchmarkSub">100% Gold query validation</div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Section 2: Medallion Architecture & Interactive Record X-Ray -->
+    <section class="panel-section" id="medallion-xray">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title" data-i18n="xray.title">Medallion Architecture &amp; Interactive Record X-Ray</h2>
+          <p class="section-subtitle" data-i18n="xray.subtitle">
+            Trace a real omnichannel order from raw Volume landing through Bronze immutability, Silver quarantine/deduplication, and Gold 360° valuation.
+          </p>
+        </div>
+
+        <div class="xray-order-picker" role="group" aria-label="Order Trace Presets" id="xrayOrderPicker"></div>
+      </div>
+
+      <!-- 4-Layer Medallion Pipeline Rail -->
+      <div class="medallion-rail" id="medallionRail" role="tablist" aria-label="Medallion Layers"></div>
+
+      <!-- Selected Stage Contract & X-Ray Inspector -->
+      <div class="xray-grid">
+        <article class="card xray-contract-card">
+          <div class="card-header-row">
+            <span class="layer-pill" id="xrayStagePill">00 RAW UC VOLUME</span>
+            <span class="mono muted-text" id="xrayStageLocation">/Volumes/retail_analytics/bronze/raw_data/</span>
+          </div>
+          <h3 class="card-heading" id="xrayStageHeading"></h3>
+          <p class="card-body-text" id="xrayStageAnalogy"></p>
+
+          <div class="schema-contracts-block">
+            <div class="block-label" data-i18n="xray.contractsLabel">Table Contracts &amp; Guarantees</div>
+            <div class="badge-wrap" id="xrayContractBadges"></div>
+          </div>
+
+          <div class="schema-tables-block">
+            <div class="block-label" data-i18n="xray.tablesLabel">Layer Tables</div>
+            <div class="table-chips" id="xrayLayerTables"></div>
+          </div>
+        </article>
+
+        <article class="card xray-payload-card">
+          <div class="card-header-row">
+            <div>
+              <span class="block-label" data-i18n="xray.traceLabel">Live Record Mutation Trace</span>
+              <h3 class="card-heading mono" id="xrayOrderTitle">ORD-000007</h3>
+            </div>
+            <span class="xray-verdict-badge" id="xrayOrderVerdict"></span>
+          </div>
+          <p class="xray-mutation-note" id="xrayMutationNote"></p>
+          <div class="code-box-wrap">
+            <div class="code-box-bar">
+              <span class="mono" id="xrayPayloadFilename">bronze.raw_records</span>
+              <button type="button" class="btn-ghost-xs" id="copyXrayBtn" data-i18n="common.copy">Copy</button>
+            </div>
+            <pre class="code-pre"><code id="xrayPayloadCode"></code></pre>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <!-- Section 3: Interactive Pipeline DAG Canvas & Split Inspector -->
+    <section class="panel-section" id="pipeline-dag">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title" data-i18n="dag.title">Interactive Pipeline DAG &amp; Code Inspector</h2>
+          <p class="section-subtitle" id="dagSubtitle" data-i18n="dag.subtitle">
+            Execute live Databricks Lakeflow serverless tasks, run animated local simulations, or trigger a negative-quantity quality gate failure.
+          </p>
+        </div>
+
+        <div class="dag-run-meta">
+          <label for="latestRunsSelect" class="select-label" data-i18n="dag.latestRunsLabel">Latest Runs</label>
+          <select id="latestRunsSelect" class="control-select" aria-label="Latest Pipeline Runs"></select>
+        </div>
+      </div>
+
+      <!-- Control Strip -->
+      <div class="dag-control-strip">
+        <div class="dag-btn-group">
+          <button type="button" class="btn btn-primary" id="dagRunLiveBtn">
+            <span aria-hidden="true">▶</span>
+            <span data-i18n="nav.runLive">Run Live on Databricks</span>
+          </button>
+          <button type="button" class="btn btn-secondary" id="simulateBtn">
+            <span aria-hidden="true">⚡</span>
+            <span data-i18n="dag.simulate">Simulate Pipeline</span>
+          </button>
+          <button type="button" class="btn btn-danger-outline" id="testGateBtn">
+            <span aria-hidden="true">🛡</span>
+            <span data-i18n="dag.testGate">Test Quality Gate</span>
+          </button>
+          <button type="button" class="btn btn-ghost" id="resetDagBtn" data-i18n="dag.reset">Reset</button>
+        </div>
+
+        <div class="dag-status-strip">
+          <span class="dag-meta-chip mono" id="dagRunSourceChip">SNAPSHOT</span>
+          <span class="dag-meta-chip mono" id="dagRunIdChip">Run #647116123722071</span>
+          <span class="state-pill state-success" id="dagOverallStatePill">SUCCESS</span>
+          <span class="dag-meta-chip mono" id="dagTotalDurationChip">551.1s</span>
+        </div>
+      </div>
+
+      <!-- Interactive DAG Canvas with SVG Vector Flow -->
+      <div class="dag-canvas-card">
+        <div class="dag-scroll-viewport">
+          <div class="dag-stage" id="dagStage">
+            <svg class="dag-svg-layer" id="dagSvgLayer" aria-hidden="true"></svg>
+            <div class="dag-nodes-row" id="dagNodesRow"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Split Inspector -->
+      <div class="split-inspector">
+        <!-- Left: Recruiter Talking Points, Business Impact & Engineering Deep-Dive -->
+        <article class="card inspector-left">
+          <div class="card-header-row">
+            <div>
+              <span class="layer-pill" id="inspTaskLayer">BRONZE</span>
+              <h3 class="inspector-task-title mono" id="inspTaskTitle">load_bronze</h3>
+            </div>
+            <span class="state-pill state-success" id="inspTaskState">SUCCESS</span>
+          </div>
+
+          <p class="inspector-desc" id="inspTaskDesc"></p>
+
+          <div class="inspector-block highlight-recruiter">
+            <div class="block-label" data-i18n="dag.whyRecruiters">Why Recruiters &amp; Hiring Managers Care</div>
+            <ul class="talking-points-list" id="inspRecruiterPoints"></ul>
+          </div>
+
+          <div class="inspector-perspectives">
+            <div class="perspective-box" id="inspBusinessBox">
+              <div class="block-label" data-i18n="dag.businessImpact">Business Impact</div>
+              <p id="inspBusinessText"></p>
+            </div>
+            <div class="perspective-box" id="inspEngineerBox">
+              <div class="block-label" data-i18n="dag.engineerDeepDive">Engineering Deep-Dive</div>
+              <p id="inspEngineerText"></p>
+            </div>
+          </div>
+
+          <div class="badge-wrap" id="inspTags"></div>
+        </article>
+
+        <!-- Right: Repository Code Viewer + Live Telemetry Stream -->
+        <div class="inspector-right">
+          <article class="card code-viewer-card">
+            <div class="code-box-bar">
+              <div class="code-file-meta">
+                <span class="file-dot"></span>
+                <span class="mono" id="inspFilePath">databricks/pipelines/bronze_ingestion.py</span>
+              </div>
+              <button type="button" class="btn-ghost-xs" id="copyCodeBtn" data-i18n="common.copy">Copy</button>
+            </div>
+            <pre class="code-pre code-viewer-pre"><code id="inspCodeContent"></code></pre>
+          </article>
+
+          <article class="card telemetry-card">
+            <div class="code-box-bar">
+              <span class="mono telemetry-title" data-i18n="dag.telemetryTitle">LIVE EXECUTION TELEMETRY STREAM (UTC)</span>
+              <button type="button" class="btn-ghost-xs" id="clearLogBtn" data-i18n="dag.clearLog">Clear</button>
+            </div>
+            <div class="telemetry-console mono" id="telemetryConsole" aria-live="polite"></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- Section 4: Gold Executive BI Dashboard & Embedded AI NL-to-SQL Copilot -->
+    <section class="panel-section" id="gold-bi">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title" data-i18n="bi.title">Gold Executive BI &amp; Zero-Drift Reconciliation</h2>
+          <p class="section-subtitle" data-i18n="bi.subtitle">
+            Verified analytical marts from retail_analytics.gold.* backed by ops.quality_checks parity audits.
+          </p>
+        </div>
+
+        <div class="bi-actions">
+          <span class="source-badge" id="metricsSourceBadge" data-i18n="bi.sourceSnapshot">Verified Snapshot</span>
+          <button type="button" class="btn btn-secondary" id="refreshMetricsBtn">
+            <span aria-hidden="true">↻</span>
+            <span data-i18n="bi.refreshBtn">Refresh Live Metrics</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Executive KPI Cards -->
+      <div class="bi-kpi-grid">
+        <article class="bi-kpi-card">
+          <span class="bi-kpi-label" data-i18n="bi.kpiNetRev">Net Revenue (90d)</span>
+          <span class="bi-kpi-value mono" id="biNetRevenue">$13,561,301.58</span>
+          <span class="bi-kpi-foot mono" id="biGrossRevenue">Gross: $15,102,816.79</span>
+        </article>
+        <article class="bi-kpi-card">
+          <span class="bi-kpi-label" data-i18n="bi.kpiOrders">Total Orders</span>
+          <span class="bi-kpi-value mono" id="biTotalOrders">10,000</span>
+          <span class="bi-kpi-foot mono" id="biDaysWindow">90 active days · 0 duplicates</span>
+        </article>
+        <article class="bi-kpi-card">
+          <span class="bi-kpi-label" data-i18n="bi.kpiAov">Average Order Value</span>
+          <span class="bi-kpi-value mono" id="biAov">$1,509.79</span>
+          <span class="bi-kpi-foot mono" id="biRefundRate">Refund Rate: 22.69%</span>
+        </article>
+        <article class="bi-kpi-card">
+          <span class="bi-kpi-label" data-i18n="bi.kpiRepeat">Repeat Customer Rate</span>
+          <span class="bi-kpi-value mono" id="biRepeatRate">75.48%</span>
+          <span class="bi-kpi-foot mono" id="biStockoutRate">Stockout Rate: 0.01%</span>
+        </article>
+      </div>
+
+      <!-- SVG Charts Grid -->
+      <div class="charts-grid">
+        <article class="card chart-card">
+          <div class="card-header-row">
+            <div>
+              <h3 class="card-heading" data-i18n="bi.trendTitle">7-Day Net Revenue Trend</h3>
+              <span class="muted-text mono">gold.executive_kpis_daily (2026-09-13 .. 2026-09-19)</span>
+            </div>
+            <span class="layer-pill pill-gold">GOLD</span>
+          </div>
+          <div class="svg-chart-host" id="trendChartHost"></div>
+        </article>
+
+        <article class="card chart-card">
+          <div class="card-header-row">
+            <div>
+              <h3 class="card-heading" data-i18n="bi.channelTitle">Omnichannel Net Revenue Split</h3>
+              <span class="muted-text mono">gold.order_360 · 4 channels</span>
+            </div>
+            <span class="layer-pill pill-cyan">OMNICHANNEL</span>
+          </div>
+          <div class="svg-chart-host" id="channelChartHost"></div>
+        </article>
+      </div>
+
+      <!-- Financial Reconciliation & Quality Gates -->
+      <article class="card reconciliation-card">
+        <div class="card-header-row">
+          <div>
+            <h3 class="card-heading" data-i18n="bi.reconTitle">Financial Reconciliation &amp; Quality Gates</h3>
+            <span class="muted-text mono">retail_analytics.ops.quality_checks</span>
+          </div>
+          <div class="recon-summary-pills">
+            <span class="recon-pill pill-emerald mono" id="reconGateCount">9 / 9 PASSED</span>
+            <span class="recon-pill pill-emerald mono" id="reconRevDiff">Revenue Diff: $0.00</span>
+            <span class="recon-pill pill-emerald mono" id="reconRefDiff">Refund Diff: $0.00</span>
+          </div>
+        </div>
+
+        <div class="table-scroll">
+          <table class="data-table" id="qualityChecksTable">
+            <thead>
+              <tr>
+                <th data-i18n="bi.colCheck">Check Name</th>
+                <th data-i18n="bi.colStage">Gate Stage</th>
+                <th data-i18n="bi.colStatus">Status</th>
+                <th data-i18n="bi.colDetails">Audit Details</th>
+              </tr>
+            </thead>
+            <tbody id="qualityChecksBody"></tbody>
+          </table>
+        </div>
+      </article>
+
+      <!-- Embedded AI NL-to-SQL Copilot -->
+      <article class="card copilot-card" id="ai-copilot">
+        <div class="card-header-row">
+          <div>
+            <span class="layer-pill pill-lava">AI COPILOT · NL-TO-SQL</span>
+            <h3 class="card-heading" data-i18n="copilot.title">Embedded Gold-Layer NL-to-SQL Analyst</h3>
+            <p class="section-subtitle" data-i18n="copilot.subtitle">
+              Ask business questions in natural language. Read-only AST-validated SQL executes against Gold contracts with live SVG visualization.
+            </p>
+          </div>
+          <span class="recon-pill pill-emerald mono">25/25 Benchmark Verified</span>
+        </div>
+
+        <div class="copilot-chips" id="copilotChips" role="group" aria-label="Verified Benchmark Questions"></div>
+
+        <form class="copilot-form" id="copilotForm">
+          <input
+            type="text"
+            id="copilotInput"
+            class="copilot-input"
+            placeholder="Ask a question about omnichannel revenue, categories, ROAS, or stockouts..."
+            autocomplete="off"
+          />
+          <button type="submit" class="btn btn-primary" id="copilotSubmitBtn" data-i18n="copilot.askBtn">
+            Analyze Gold
+          </button>
+        </form>
+
+        <div class="copilot-result" id="copilotResult">
+          <div class="copilot-result-header">
+            <div class="copilot-answer-block">
+              <div class="copilot-meta-row">
+                <span class="source-badge" id="copilotSourceBadge">Verified Snapshot</span>
+                <span class="mono muted-text" id="copilotExecMs">18 ms</span>
+                <div class="table-chips" id="copilotTablesUsed"></div>
+              </div>
+              <p class="copilot-answer-text" id="copilotAnswerText"></p>
+            </div>
+          </div>
+
+          <div class="copilot-output-grid">
+            <div class="copilot-chart-box" id="copilotChartBox">
+              <div class="block-label" data-i18n="copilot.chartLabel">Visual Insight</div>
+              <div class="svg-chart-host" id="copilotChartHost"></div>
+            </div>
+
+            <div class="copilot-table-box">
+              <div class="block-label" data-i18n="copilot.tableLabel">Result Rows (Click headers to sort)</div>
+              <div class="table-scroll copilot-table-scroll" id="copilotTableWrap"></div>
+            </div>
+          </div>
+
+          <details class="sql-expander">
+            <summary data-i18n="copilot.sqlToggle">View Generated Read-Only SQL &amp; Provenance</summary>
+            <div class="code-box-wrap">
+              <div class="code-box-bar">
+                <span class="mono">SELECT · READ-ONLY AST VERIFIED</span>
+                <button type="button" class="btn-ghost-xs" id="copySqlBtn" data-i18n="common.copy">Copy</button>
+              </div>
+              <pre class="code-pre"><code id="copilotSqlCode"></code></pre>
+            </div>
+          </details>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <!-- Databricks Connect & Login Modal -->
+  <div class="modal-backdrop" id="authModal" hidden aria-hidden="true">
+    <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="authModalTitle">
+      <div class="modal-header">
+        <div>
+          <span class="layer-pill pill-lava">DATABRICKS CLOUD CONTROL</span>
+          <h2 class="modal-title" id="authModalTitle" data-i18n="modal.title">Connect &amp; Unlock Databricks Execution</h2>
+        </div>
+        <button type="button" class="btn-ghost-icon" id="closeAuthModalBtn" aria-label="Close modal">✕</button>
+      </div>
+
+      <div class="modal-status-banner" id="modalStatusBanner">
+        <span class="status-pulse"></span>
+        <span id="modalStatusText">Checking workspace control status...</span>
+      </div>
+
+      <div class="modal-tabs" role="tablist">
+        <button type="button" class="modal-tab is-active" data-tab="sso" role="tab" aria-selected="true" data-i18n="modal.tabSso">
+          SSO / Workspace Portal
+        </button>
+        <button type="button" class="modal-tab" data-tab="passcode" role="tab" aria-selected="false" data-i18n="modal.tabPasscode">
+          Demo Passcode
+        </button>
+        <button type="button" class="modal-tab" data-tab="credentials" role="tab" aria-selected="false" data-i18n="modal.tabCredentials">
+          Custom Workspace (Host + PAT)
+        </button>
+      </div>
+
+      <!-- Tab 1: SSO / Workspace Portal -->
+      <div class="modal-panel is-active" id="modalPanel-sso" role="tabpanel">
+        <p class="modal-copy" data-i18n="modal.ssoDesc">
+          Databricks enterprise workspaces authenticate interactive users via workspace SSO. Open the hosted workspace or inspect Lakeflow Job #1033864740434224 directly in Databricks.
+        </p>
+        <div class="modal-portal-links">
+          <a
+            id="modalWorkspacePortalLink"
+            class="btn btn-secondary"
+            href="https://dbc-118afc22-e599.cloud.databricks.com/?o=7474648823106559"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-i18n="modal.openWorkspace"
+          >
+            Open Databricks Workspace Login ↗
+          </a>
+          <a
+            id="modalJobPortalLink"
+            class="btn btn-primary"
+            href="https://dbc-118afc22-e599.cloud.databricks.com/?o=7474648823106559#job/1033864740434224"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-i18n="modal.openJob"
+          >
+            Open Lakeflow Pipeline Job ↗
+          </a>
+        </div>
+        <div class="modal-info-box mono">
+          Org ID: 7474648823106559 · Catalog: retail_analytics · Warehouse: d3c4e4657744978e
+        </div>
+      </div>
+
+      <!-- Tab 2: Demo Passcode Unlock -->
+      <div class="modal-panel" id="modalPanel-passcode" role="tabpanel" hidden>
+        <p class="modal-copy" data-i18n="modal.passcodeDesc">
+          Enter the public demo passcode to unlock server-side HMAC execution against the hosted Databricks workspace. Tokens are kept strictly in sessionStorage for this browser tab.
+        </p>
+        <form id="passcodeForm" class="modal-form">
+          <label class="field-label" for="passcodeInput" data-i18n="modal.passcodeLabel">Demo Passcode</label>
+          <input
+            type="password"
+            id="passcodeInput"
+            class="field-input"
+            placeholder="Enter demo passcode..."
+            autocomplete="off"
+          />
+          <div class="modal-form-actions">
+            <button type="submit" class="btn btn-primary" data-i18n="modal.unlockBtn">Unlock Live Cloud</button>
+            <button type="button" class="btn btn-ghost" id="clearDemoTokenBtn" data-i18n="modal.disconnectBtn">Disconnect Session</button>
+          </div>
+          <p class="form-feedback" id="passcodeFeedback"></p>
+        </form>
+      </div>
+
+      <!-- Tab 3: Custom Workspace (Host + PAT) -->
+      <div class="modal-panel" id="modalPanel-credentials" role="tabpanel" hidden>
+        <p class="modal-copy" data-i18n="modal.credsDesc">
+          Connect your own Databricks workspace with a Personal Access Token (BYOK). Credentials are verified via Databricks SCIM /Me and stored strictly in sessionStorage (never persisted to disk).
+        </p>
+        <form id="credentialsForm" class="modal-form">
+          <label class="field-label" for="byokHostInput" data-i18n="modal.hostLabel">Workspace Host URL</label>
+          <input
+            type="url"
+            id="byokHostInput"
+            class="field-input mono"
+            placeholder="https://dbc-xxxxxxxx-xxxx.cloud.databricks.com"
+          />
+
+          <label class="field-label" for="byokTokenInput" data-i18n="modal.tokenLabel">Personal Access Token (PAT)</label>
+          <input
+            type="password"
+            id="byokTokenInput"
+            class="field-input mono"
+            placeholder="dapi..."
+            autocomplete="off"
+          />
+
+          <div class="field-row-2">
+            <div>
+              <label class="field-label" for="byokJobInput" data-i18n="modal.jobLabel">Job ID (Optional)</label>
+              <input type="text" id="byokJobInput" class="field-input mono" placeholder="1033864740434224" />
+            </div>
+            <div>
+              <label class="field-label" for="byokWarehouseInput" data-i18n="modal.whLabel">SQL Warehouse ID (Optional)</label>
+              <input type="text" id="byokWarehouseInput" class="field-input mono" placeholder="d3c4e4657744978e" />
+            </div>
+          </div>
+
+          <div class="modal-form-actions">
+            <button type="submit" class="btn btn-primary" data-i18n="modal.connectBtn">Verify &amp; Connect Workspace</button>
+            <button type="button" class="btn btn-ghost" id="disconnectByokBtn" data-i18n="modal.disconnectBtn">Disconnect Session</button>
+          </div>
+          <p class="form-feedback" id="credsFeedback"></p>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer" aria-live="polite"></div>
+
+  <script src="/assets/data.js"></script>
+  <script src="/assets/app.js"></script>
+</body>
+</html>
