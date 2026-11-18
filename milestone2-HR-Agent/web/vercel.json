@@ -6,6 +6,10 @@
       "destination": "https://aien-rmt-002-bayu-aziz.vercel.app/api/$1"
     },
     {
+      "source": "/auth/(.*)",
+      "destination": "https://aien-rmt-002-bayu-aziz.vercel.app/auth/$1"
+    },
+    {
       "source": "/readyz",
       "destination": "https://aien-rmt-002-bayu-aziz.vercel.app/readyz"
     },
