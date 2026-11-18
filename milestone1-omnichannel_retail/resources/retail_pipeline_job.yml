@@ -1,0 +1,83 @@
+resources:
+  jobs:
+    retail_medallion_pipeline:
+      name: "[${bundle.target}] Omnichannel Retail Medallion Pipeline"
+      description: "End-to-end Databricks Lakeflow Medallion Pipeline (Unity Catalog, Bronze, Silver, Gold, Quality Gates & Reconciliation)"
+      performance_target: STANDARD
+      tags:
+        project: omnichannel_retail
+        environment: ${bundle.target}
+
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "3"
+
+      tasks:
+        - task_key: setup_schemas
+          description: "Initialize Unity Catalog, schemas (bronze, silver, gold, ops) and Delta tables"
+          environment_key: default
+          spark_python_task:
+            python_file: ../databricks/schemas/setup_unity_catalog.py
+            parameters:
+              - "--catalog"
+              - "${var.catalog_name}"
+
+        - task_key: load_bronze
+          description: "Ingest raw files from Volume into bronze.raw_records with SHA256 checksums"
+          depends_on:
+            - task_key: setup_schemas
+          environment_key: default
+          spark_python_task:
+            python_file: ../databricks/pipelines/bronze_ingestion.py
+            parameters:
+              - "--catalog"
+              - "${var.catalog_name}"
+
+        - task_key: build_silver
+          description: "Deduplicate, cleanse, validate, and normalize into typed Silver Delta tables"
+          depends_on:
+            - task_key: load_bronze
+          environment_key: default
+          spark_python_task:
+            python_file: ../databricks/pipelines/silver_transformation.py
+            parameters:
+              - "--catalog"
+              - "${var.catalog_name}"
+
+        - task_key: silver_quality_gate
+          description: "Silver Quality Gate: verify row count, zero negative qty, unique PKs, referential integrity"
+          depends_on:
+            - task_key: build_silver
+          environment_key: default
+          spark_python_task:
+            python_file: ../databricks/pipelines/quality_checks.py
+            parameters:
+              - "--catalog"
+              - "${var.catalog_name}"
+              - "--stage"
+              - "silver"
+
+        - task_key: build_gold
+          description: "Transform Silver into the 5 analytical Gold dimensional and fact tables without fact multiplication"
+          depends_on:
+            - task_key: silver_quality_gate
+          environment_key: default
+          spark_python_task:
+            python_file: ../databricks/pipelines/gold_transformation.py
+            parameters:
+              - "--catalog"
+              - "${var.catalog_name}"
+
+        - task_key: validate_gold_and_reconciliation
+          description: "Gold Validation & Reconciliation: unique PKs, net revenue match, refund match, KPI bounds [0, 1], non-null grains"
+          depends_on:
+            - task_key: build_gold
+          environment_key: default
+          spark_python_task:
+            python_file: ../databricks/pipelines/quality_checks.py
+            parameters:
+              - "--catalog"
+              - "${var.catalog_name}"
+              - "--stage"
+              - "gold"

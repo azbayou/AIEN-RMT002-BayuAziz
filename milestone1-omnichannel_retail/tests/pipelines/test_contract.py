@@ -22,7 +22,7 @@ def test_gold_contract_contains_all_required_tables_and_keys():
 
 def test_participant_surface_contains_starters_not_reference_builds():
     assert (PROJECT_ROOT / "pipelines/bronze/build_bronze.py").exists()
-    assert (PROJECT_ROOT / "pipelines/silver/build_silver.sql").exists()
-    assert (PROJECT_ROOT / "pipelines/gold/build_gold.sql").exists()
+    assert (PROJECT_ROOT / "pipelines/silver/build_silver.py").exists()
+    assert (PROJECT_ROOT / "pipelines/gold/build_gold.py").exists()
     assert not (PROJECT_ROOT / "pipelines/silver/reference_build.sql").exists()
     assert not (PROJECT_ROOT / "pipelines/gold/reference_build.sql").exists()

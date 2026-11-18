@@ -1,0 +1,16 @@
+command:
+  - "streamlit"
+  - "run"
+  - "ui/app.py"
+  - "--server.port"
+  - "8501"
+  - "--server.address"
+  - "0.0.0.0"
+
+env:
+  - name: "ANALYTICS_DB_TARGET"
+    value: "databricks"
+  - name: "DATABRICKS_CATALOG"
+    value: "retail_analytics"
+  - name: "NL2SQL_PROVIDER"
+    value: "mock"

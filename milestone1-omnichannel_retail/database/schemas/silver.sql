@@ -112,3 +112,70 @@ CREATE TABLE IF NOT EXISTS silver.campaign_spend (
     pipeline_run_id TEXT NOT NULL,
     PRIMARY KEY (spend_date, campaign_id, channel, pipeline_run_id)
 );
+
+-- 11. TABEL CLEAN: Support Tickets
+CREATE TABLE IF NOT EXISTS silver.support_tickets (
+    ticket_id TEXT NOT NULL,
+    customer_id TEXT NOT NULL,
+    order_id TEXT,
+    reason TEXT,
+    event_type TEXT NOT NULL,
+    occurred_at_utc TIMESTAMPTZ NOT NULL,
+    pipeline_run_id TEXT NOT NULL,
+    PRIMARY KEY (ticket_id, pipeline_run_id)
+);
+
+-- 12. TABEL CLEAN: Promotions
+CREATE TABLE IF NOT EXISTS silver.promotions (
+    promotion_id TEXT NOT NULL,
+    promotion_code TEXT NOT NULL,
+    promotion_type TEXT NOT NULL,
+    discount_rate NUMERIC(14, 4) NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    pipeline_run_id TEXT NOT NULL,
+    PRIMARY KEY (promotion_id, pipeline_run_id)
+);
+
+-- 13. TABEL CLEAN: Order Promotions
+CREATE TABLE IF NOT EXISTS silver.order_promotions (
+    order_id TEXT NOT NULL,
+    promotion_id TEXT NOT NULL,
+    discount_amount NUMERIC(14, 2) NOT NULL DEFAULT 0,
+    pipeline_run_id TEXT NOT NULL,
+    PRIMARY KEY (order_id, promotion_id, pipeline_run_id)
+);
+
+-- 14. TABEL CLEAN: Web Events
+CREATE TABLE IF NOT EXISTS silver.web_events (
+    event_id TEXT NOT NULL,
+    event_type TEXT NOT NULL,
+    session_id TEXT,
+    customer_id TEXT,
+    order_id TEXT,
+    channel TEXT,
+    campaign_id TEXT,
+    occurred_at_utc TIMESTAMPTZ NOT NULL,
+    pipeline_run_id TEXT NOT NULL,
+    PRIMARY KEY (event_id, pipeline_run_id)
+);
+
+-- 15. TABEL CLEAN: Products
+CREATE TABLE IF NOT EXISTS silver.products (
+    product_id TEXT NOT NULL,
+    sku TEXT NOT NULL,
+    product_name TEXT NOT NULL,
+    unit_price NUMERIC(14, 2) NOT NULL,
+    pipeline_run_id TEXT NOT NULL,
+    PRIMARY KEY (product_id, pipeline_run_id)
+);
+
+-- 16. TABEL CLEAN: Customers
+CREATE TABLE IF NOT EXISTS silver.customers (
+    customer_id TEXT NOT NULL,
+    customer_segment TEXT,
+    city_id TEXT,
+    created_at_utc TIMESTAMPTZ NOT NULL,
+    pipeline_run_id TEXT NOT NULL,
+    PRIMARY KEY (customer_id, pipeline_run_id)
+);

@@ -1,0 +1,6 @@
+resources:
+  apps:
+    retail_analytics_ui:
+      name: "retail-analytics-ui"
+      description: "Omnichannel Retail Streamlit Analytics UI powered by Databricks Unity Catalog and SQL Warehouse"
+      source_code_path: ..

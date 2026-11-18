@@ -4,10 +4,16 @@ import hashlib
 import json
 from pathlib import Path
 
-from pipelines.generator.generate_data import generate_dataset
+try:
+    from pipelines.generator.generate_data import generate_dataset
+except ImportError:
+    generate_dataset = None
+import pytest
 
 
 def test_generator_is_deterministic(tmp_path):
+    if generate_dataset is None:
+        pytest.skip("pipelines.generator not included in participant distribution")
     first = generate_dataset(tmp_path / "first", seed=42, order_count=30, days=10)
     second = generate_dataset(tmp_path / "second", seed=42, order_count=30, days=10)
 
@@ -20,6 +26,8 @@ def test_generator_is_deterministic(tmp_path):
 
 
 def test_generator_contains_teaching_quality_issues(tmp_path):
+    if generate_dataset is None:
+        pytest.skip("pipelines.generator not included in participant distribution")
     manifest = generate_dataset(tmp_path / "dataset", seed=7, order_count=50, days=10)
     assert manifest["record_counts"]["orders"] > manifest["order_count_requested"]
     assert manifest["record_counts"]["events.payments"] > manifest["order_count_requested"]
@@ -30,6 +38,8 @@ def test_generator_contains_teaching_quality_issues(tmp_path):
 
 
 def test_generator_writes_all_source_families(tmp_path):
+    if generate_dataset is None:
+        pytest.skip("pipelines.generator not included in participant distribution")
     generate_dataset(tmp_path / "dataset", seed=42, order_count=10, days=5)
     root = tmp_path / "dataset"
     assert (root / "operational/orders.json").exists()
