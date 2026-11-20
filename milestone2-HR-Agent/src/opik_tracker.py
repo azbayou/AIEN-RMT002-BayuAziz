@@ -8,16 +8,15 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 import json
 import logging
-import os
 import threading
 import time
 from typing import Any, Callable, Protocol
+from urllib.parse import urlparse
 
 from .config import Settings
-from .contracts import AuthContext, PolicyChunk
+from .contracts import AuthContext
 from .domain import estimate_cost
-from .repository import redact_trace
-from .security import stable_safety_id
+from .security import redact, stable_safety_id
 
 logger = logging.getLogger("hr_assistant.opik")
 
@@ -112,115 +111,32 @@ class NullTracker:
 
 
 # ---------------------------------------------------------------------------
-# Live Opik SDK Wrapper
+# Live Opik SDK Wrapper (Strictly Metadata-Only Telemetry)
 # ---------------------------------------------------------------------------
 
-def _serialize_for_opik(value: Any) -> Any:
-    """Convert Pydantic/SDK objects to JSON-safe primitives and summarize PolicyChunks."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, (date, datetime)):
-        return value.isoformat()
-    if isinstance(value, PolicyChunk):
+def _derive_provider_label(settings: Settings | None) -> str:
+    if settings is None or not settings.openai_base_url:
+        return "openai"
+    host = (urlparse(settings.openai_base_url).hostname or "").casefold()
+    if not host or "openai.com" in host:
+        return "openai"
+    return host
+
+
+def _metadata_only_span_output(span_type: str, output: Any, status: str) -> dict[str, Any]:
+    if span_type == "llm" and isinstance(output, dict):
         return {
-            "document_id": value.document_id,
-            "version": value.version,
-            "section": value.section,
+            "tool_calls_count": int(output.get("tool_calls_count") or 0),
+            "input_tokens": int(output.get("input_tokens") or 0),
+            "output_tokens": int(output.get("output_tokens") or 0),
         }
-    if hasattr(value, "model_dump") and callable(value.model_dump):
-        try:
-            dumped = value.model_dump(mode="json")
-        except TypeError:
-            dumped = value.model_dump()
-        return _serialize_for_opik(dumped)
-    if isinstance(value, dict):
-        return {key: _serialize_for_opik(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple, set)):
-        items = list(value)
-        if items and all(isinstance(item, PolicyChunk) for item in items):
-            return [
-                {
-                    "document_id": item.document_id,
-                    "version": item.version,
-                    "section": item.section,
-                }
-                for item in items
-            ]
-        return [_serialize_for_opik(item) for item in items]
-    if hasattr(value, "to_dict") and callable(value.to_dict):
-        return _serialize_for_opik(value.to_dict())
-    return str(value)
-
-
-def _extract_text_from_content(content: Any) -> str:
-    """Extract readable text from a message content string or structured parts list."""
-    if content is None:
-        return ""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for part in content:
-            if isinstance(part, str):
-                parts.append(part)
-            elif isinstance(part, dict):
-                text = part.get("text")
-                if isinstance(text, str) and text:
-                    parts.append(text)
-            else:
-                text = getattr(part, "text", None)
-                if isinstance(text, str) and text:
-                    parts.append(text)
-        return " ".join(parts)
-    return str(content)
-
-
-def _extract_latest_turn_preview(input_data: Any) -> str:
-    """Extract only the latest user message or function_call_output string, capped at 300 chars."""
-    if input_data is None:
-        return ""
-    if isinstance(input_data, str):
-        return input_data[:300]
-
-    items = list(input_data) if isinstance(input_data, (list, tuple)) else [input_data]
-    for item in reversed(items):
-        if isinstance(item, dict):
-            item_type = item.get("type")
-            item_role = item.get("role")
-            if item_type == "function_call_output":
-                output = item.get("output")
-                if output is not None:
-                    text = (
-                        output
-                        if isinstance(output, str)
-                        else (
-                            json.dumps(_serialize_for_opik(output), ensure_ascii=False)
-                            if isinstance(output, (dict, list))
-                            else str(output)
-                        )
-                    )
-                    return text[:300]
-            elif item_role == "user":
-                return _extract_text_from_content(item.get("content"))[:300]
-        else:
-            item_type = getattr(item, "type", None)
-            item_role = getattr(item, "role", None)
-            if item_type == "function_call_output":
-                output = getattr(item, "output", None)
-                if output is not None:
-                    text = (
-                        output
-                        if isinstance(output, str)
-                        else (
-                            json.dumps(_serialize_for_opik(output), ensure_ascii=False)
-                            if isinstance(output, (dict, list))
-                            else str(output)
-                        )
-                    )
-                    return text[:300]
-            elif item_role == "user":
-                return _extract_text_from_content(getattr(item, "content", None))[:300]
-    return ""
+    summary: dict[str, Any] = {
+        "status": status,
+        "result_type": type(output).__name__ if output is not None else "NoneType",
+    }
+    if isinstance(output, (list, tuple, set)):
+        summary["item_count"] = len(output)
+    return summary
 
 
 class LiveOpikSpan:
@@ -241,13 +157,13 @@ class LiveOpikSpan:
         self._metadata = dict(metadata) if metadata else {}
         self._settings = settings
         self._start_time = start_time or datetime.now(timezone.utc)
-        self._output_data: Any = None
+        self._output_data: dict[str, Any] | None = None
         self._status: str = "ok"
         self._ended: bool = False
 
     def set_output(self, output: Any, status: str = "ok") -> None:
         self._status = status
-        self._output_data = redact_trace(_serialize_for_opik(output))
+        self._output_data = _metadata_only_span_output(self._span_type, output, status)
 
     def end(self) -> None:
         if self._trace is None or self._ended:
@@ -266,36 +182,33 @@ class LiveOpikSpan:
             if self._sanitized_input is not None:
                 kwargs["input"] = self._sanitized_input
             if self._output_data is not None:
-                if isinstance(self._output_data, dict):
-                    kwargs["output"] = self._output_data
-                    in_tok = self._output_data.get("input_tokens")
-                    out_tok = self._output_data.get("output_tokens")
-                    if in_tok is not None and out_tok is not None:
-                        in_count = int(in_tok)
-                        out_count = int(out_tok)
-                        kwargs["usage"] = {
-                            "prompt_tokens": in_count,
-                            "completion_tokens": out_count,
-                            "total_tokens": in_count + out_count,
-                        }
-                        model_name = (
-                            self._settings.agent_model
-                            if self._settings and self._settings.agent_model
-                            else "agent"
+                kwargs["output"] = self._output_data
+                in_tok = self._output_data.get("input_tokens")
+                out_tok = self._output_data.get("output_tokens")
+                if in_tok is not None and out_tok is not None:
+                    in_count = int(in_tok)
+                    out_count = int(out_tok)
+                    kwargs["usage"] = {
+                        "prompt_tokens": in_count,
+                        "completion_tokens": out_count,
+                        "total_tokens": in_count + out_count,
+                    }
+                    model_name = (
+                        self._settings.agent_model
+                        if self._settings and self._settings.agent_model
+                        else "agent"
+                    )
+                    kwargs["model"] = model_name
+                    kwargs["provider"] = _derive_provider_label(self._settings)
+                    if self._settings is not None:
+                        cost = estimate_cost(
+                            in_count,
+                            out_count,
+                            self._settings.input_cost_per_1m,
+                            self._settings.output_cost_per_1m,
                         )
-                        kwargs["model"] = model_name
-                        kwargs["provider"] = "openai"
-                        if self._settings is not None:
-                            cost = estimate_cost(
-                                in_count,
-                                out_count,
-                                self._settings.input_cost_per_1m,
-                                self._settings.output_cost_per_1m,
-                            )
-                            if cost is not None:
-                                kwargs["total_cost"] = round(cost, 6)
-                else:
-                    kwargs["output"] = {"result": self._output_data}
+                        if cost is not None:
+                            kwargs["total_cost"] = round(cost, 6)
             meta = dict(self._metadata)
             if self._status != "ok":
                 meta["status"] = self._status
@@ -311,7 +224,11 @@ class LiveOpikSpan:
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         if exc_type is not None and exc_val is not None:
             self._status = "error"
-            self._output_data = redact_trace(str(exc_val))
+            self._output_data = {
+                "status": "error",
+                "result_type": type(exc_val).__name__,
+                "error": redact(str(exc_val)),
+            }
         self.end()
 
 
@@ -322,6 +239,7 @@ class LiveOpikTrace:
         client: Any,
         settings: Settings | None = None,
         base_metadata: dict[str, Any] | None = None,
+        base_tags: list[str] | None = None,
         flush_callback: Callable[[], None] | None = None,
         start_time: datetime | None = None,
         sanitized_input: dict[str, Any] | None = None,
@@ -330,6 +248,7 @@ class LiveOpikTrace:
         self._client = client
         self._settings = settings
         self._base_metadata: dict[str, Any] = dict(base_metadata) if base_metadata else {}
+        self._base_tags: list[str] = list(base_tags) if base_tags else []
         self._flush_callback = flush_callback
         self._start_time = start_time or datetime.now(timezone.utc)
         self._sanitized_input = sanitized_input
@@ -344,32 +263,35 @@ class LiveOpikTrace:
         if self._trace is None:
             return NullSpan()
         try:
-            if span_type == "llm":
-                preview = _extract_latest_turn_preview(input_data)
+            valid_type = span_type if span_type in ("general", "tool", "llm") else "general"
+            meta_dict = dict(metadata) if isinstance(metadata, dict) else {}
+            if valid_type == "llm":
                 sanitized_input: dict[str, Any] | None = {
-                    "turn": (metadata or {}).get("turn"),
-                    "items_count": len(input_data) if isinstance(input_data, list) else 1,
-                    "latest_input": redact_trace(preview),
+                    "turn": meta_dict.get("turn"),
+                    "role": meta_dict.get("role"),
+                    "message_count": len(input_data) if isinstance(input_data, (list, tuple)) else 1,
+                }
+            elif valid_type == "tool":
+                sanitized_input = {
+                    "arg_keys": sorted(str(k) for k in input_data.keys())
+                    if isinstance(input_data, dict)
+                    else [],
                 }
             else:
-                serialized_input = _serialize_for_opik(input_data)
-                sanitized_input = (
-                    redact_trace(serialized_input)
-                    if isinstance(serialized_input, dict)
-                    else ({"input": redact_trace(serialized_input)} if serialized_input is not None else None)
-                )
-            sanitized_meta = (
-                redact_trace(_serialize_for_opik(metadata))
-                if metadata is not None
-                else {}
-            )
-            valid_type = span_type if span_type in ("general", "tool", "llm") else "general"
+                sanitized_input = {
+                    "input_type": type(input_data).__name__ if input_data is not None else "NoneType",
+                }
+            sanitized_meta = {
+                str(k): redact(v) if isinstance(v, str) else v
+                for k, v in meta_dict.items()
+                if k in {"turn", "role", "call_id"}
+            }
             return LiveOpikSpan(
                 trace_obj=self._trace,
                 name=name,
                 span_type=valid_type,
                 sanitized_input=sanitized_input,
-                metadata=sanitized_meta if isinstance(sanitized_meta, dict) else {},
+                metadata=sanitized_meta,
                 settings=self._settings,
                 start_time=datetime.now(timezone.utc),
             )
@@ -388,17 +310,14 @@ class LiveOpikTrace:
         if self._trace is None:
             return
         try:
-            sanitized_output = (
-                redact_trace(_serialize_for_opik(output_data))
-                if output_data is not None
-                else None
-            )
+            citation_list = list(citations or [])
+            safe_error = redact(str(error)) if error else None
             meta: dict[str, Any] = {
                 "outcome": outcome,
-                "citations": citations or [],
+                "citations": citation_list,
             }
-            if error:
-                meta["error"] = redact_trace(str(error))
+            if safe_error:
+                meta["error"] = safe_error
 
             if usage and isinstance(usage, dict):
                 in_tok = int(usage.get("input_tokens") or 0)
@@ -419,17 +338,19 @@ class LiveOpikTrace:
                 if cost is not None:
                     meta["cost"] = cost
 
-            # Preserve base trace identity/context fields when updating trace metadata on end()
             merged_metadata = {**self._base_metadata, **meta}
+            merged_tags = list(dict.fromkeys([*self._base_tags, outcome]))
+            metadata_output: dict[str, Any] = {
+                "outcome": outcome,
+                "answer_length": len(str(output_data or "")),
+                "citations": citation_list,
+                "error": safe_error,
+            }
             end_kwargs: dict[str, Any] = {
                 "metadata": merged_metadata,
-                "tags": [outcome],
+                "tags": merged_tags,
+                "output": metadata_output,
             }
-            if sanitized_output is not None:
-                if isinstance(sanitized_output, dict):
-                    end_kwargs["output"] = sanitized_output
-                else:
-                    end_kwargs["output"] = {"answer": str(sanitized_output)}
 
             trace_id = getattr(self._trace, "id", None)
             if isinstance(trace_id, str) and trace_id and self._client is not None:
@@ -479,14 +400,6 @@ class OpikTracker:
         try:
             import opik
 
-            # Explicitly set environment variables so Opik SDK picks them up
-            if self.settings.opik_api_key:
-                os.environ["OPIK_API_KEY"] = self.settings.opik_api_key
-            if self.settings.opik_workspace:
-                os.environ["OPIK_WORKSPACE"] = self.settings.opik_workspace
-            if self.settings.opik_project_name:
-                os.environ["OPIK_PROJECT_NAME"] = self.settings.opik_project_name
-
             self.client = opik.Opik(
                 project_name=self.settings.opik_project_name,
                 workspace=self.settings.opik_workspace,
@@ -512,7 +425,6 @@ class OpikTracker:
         if self.client is None:
             return NullTrace()
         try:
-            # Pseudonymized user identifier via stable_safety_id (ADR-004); redact user message
             safety_id = stable_safety_id(auth.employee_id)
             base_metadata: dict[str, Any] = {
                 "trace_id": trace_id,
@@ -521,10 +433,12 @@ class OpikTracker:
                 "environment": self.settings.environment,
                 "model": self.settings.agent_model or "agent",
             }
-
+            base_tags = [auth.role, self.settings.environment]
             sanitized_input = {
-                "message": redact_trace(user_message),
-                "history_length": len(history or []),
+                "message_length": len(user_message or ""),
+                "history_turns": len(history or []),
+                "role": auth.role,
+                "employee_hash": safety_id,
             }
             start_time = datetime.now(timezone.utc)
             trace_obj = self.client.trace(
@@ -532,13 +446,14 @@ class OpikTracker:
                 start_time=start_time,
                 input=sanitized_input,
                 metadata=dict(base_metadata),
-                tags=[auth.role, self.settings.environment],
+                tags=list(base_tags),
             )
             return LiveOpikTrace(
                 trace_obj,
                 self.client,
                 settings=self.settings,
                 base_metadata=base_metadata,
+                base_tags=base_tags,
                 flush_callback=self._schedule_flush,
                 start_time=start_time,
                 sanitized_input=sanitized_input,

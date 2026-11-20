@@ -23,8 +23,10 @@ services:
   api:
     build: .
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://hr_app:hr_app@postgres:5432/hr_assistant}
+      DATABASE_URL: postgresql://hr_app:hr_app@postgres:5432/hr_assistant
       REDIS_URL: redis://redis:6379/0
+      ALLOW_DEMO_SESSION: "false"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8000,http://localhost:8501,http://127.0.0.1:8000,http://127.0.0.1:8501}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       AGENT_MODEL: ${AGENT_MODEL:-}
@@ -33,6 +35,10 @@ services:
       POLICY_INDEX_VERSION: ${POLICY_INDEX_VERSION:-policies-2026-01}
       MODEL_MODE: ${MODEL_MODE:-live}
       REFERENCE_DATE: ${REFERENCE_DATE:-2026-10-26}
+      MAX_AGENT_TURNS: ${MAX_AGENT_TURNS:-4}
+      MAX_TOOL_CALLS: ${MAX_TOOL_CALLS:-6}
+      MAX_OUTPUT_TOKENS: ${MAX_OUTPUT_TOKENS:-700}
+      MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-30}
       INPUT_COST_PER_1M: ${INPUT_COST_PER_1M:-0.15}
       OUTPUT_COST_PER_1M: ${OUTPUT_COST_PER_1M:-0.60}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}

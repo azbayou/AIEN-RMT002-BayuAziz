@@ -265,3 +265,9 @@ Tunggu sampai muncul ringkasan total traces dan tokens di terminal, lalu refresh
 - [risk-register.csv](risk-register.csv) - daftar risiko, mitigasi, dan bukti kontrol.
 - [rubric.md](rubric.md) - bobot penilaian dan aturan hard gate milestone.
 - [submission-checklist.md](submission-checklist.md) - checklist kelengkapan sebelum submit.
+- [templates/evaluation-report.md](templates/evaluation-report.md) - laporan evaluasi 15 skenario live runner (`outputs/evaluation_report.json`).
+- [templates/demo-script.md](templates/demo-script.md) - panduan dan naskah demo 5–7 menit beserta segmen bukti monitoring.
+- [templates/final-presentation-outline.md](templates/final-presentation-outline.md) - outline 10 slide presentasi akhir.
+- [templates/project-brief.md](templates/project-brief.md) - target user, scope, dan kriteria sukses terukur.
+- [templates/architecture.md](templates/architecture.md) - ringkasan keputusan arsitektur (ADR-001 s/d ADR-007).
+- [docs/evidence/](docs/evidence/) - direktori bukti screenshot UI Streamlit, Web SPA, Monitoring Dashboard, dan log pengujian Docker.

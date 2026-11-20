@@ -25,10 +25,10 @@
 
 ## Success Criteria
 - **Hard Gates:** 100% lulus (Identity Binding, Pending-only, Confirmation & Idempotency, Valid Citation, Redaction, Non-root Docker).
-- **Pass Rate Evaluasi:** >= 80% (Tercapai: 100% pada 15 skenario pengujian komprehensif).
+- **Pass Rate Evaluasi:** >= 80% (Tercapai: 100% pada 15 skenario pengujian komprehensif, 45 test deterministik lulus).
 - **Retrieval Recall@3:** >= 80% (Tercapai: 100%).
 - **Citation Validity:** 100% (Semua klaim kebijakan disertai sitasi dokumen yang terverifikasi).
-- **Latensi:** p95 latency < 8000 ms (Tercapai: 5030.78 ms).
+- **Latensi:** p95 latency < 8000 ms (Tercapai: 4289.9 ms, p50: 2930.08 ms).
 - **Deployment:** Multi-service Docker Compose non-root image berjalan sukses dari clean checkout tanpa ketergantungan Python host.
 
 ## Production Gaps

@@ -498,8 +498,8 @@
                     <div class="prose-claude" v-html="renderMarkdown(msg.content)"></div>
                   </div>
 
-                  <!-- Verified Policy Citations (Dev Audit Mode) -->
-                  <div v-if="showDevAudit && msg.citations && msg.citations.length > 0" class="border border-claude-border rounded-xl bg-claude-surface overflow-hidden text-xs">
+                  <!-- Verified Policy Citations (Visible by Default for Evidence Transparency) -->
+                  <div v-if="msg.citations && msg.citations.length > 0" class="border border-claude-border rounded-xl bg-claude-surface overflow-hidden text-xs">
                     <button @click="msg.showCitations = !msg.showCitations; refreshIcons()" class="w-full px-3.5 py-2 flex items-center justify-between text-claude-secondary hover:text-claude-text transition font-medium">
                       <span class="flex items-center gap-2">
                         <i data-lucide="book-open-check" class="w-3.5 h-3.5 text-blue-400"></i>
@@ -773,17 +773,7 @@
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 class="text-base font-semibold text-claude-text">Kalender Jadwal Cuti</h2>
-              <p class="text-xs text-claude-secondary">Visualisasi distribusi cuti aktif dan permohonan yang menunggu persetujuan.</p>
-            </div>
-
-            <!-- Scope Selector for Manager/Admin -->
-            <div v-if="isManager" class="flex items-center bg-claude-surface border border-claude-border rounded-xl p-1 text-xs">
-              <button @click="calScope = 'team'" :class="['px-3 py-1.5 rounded-lg font-medium transition', calScope === 'team' ? 'bg-claude-blue text-white' : 'text-claude-secondary hover:text-claude-text']">
-                Kalender Tim
-              </button>
-              <button @click="calScope = 'personal'" :class="['px-3 py-1.5 rounded-lg font-medium transition', calScope === 'personal' ? 'bg-claude-blue text-white' : 'text-claude-secondary hover:text-claude-text']">
-                Cuti Saya
-              </button>
+              <p class="text-xs text-claude-secondary">Visualisasi distribusi cuti aktif Anda dan jendela pengajuan kebijakan.</p>
             </div>
           </div>
 
@@ -889,149 +879,6 @@
         </div>
 
         <!-- =================================================================
-             TAB 4: ANTREAN TINJAUAN HRIS & ANALITIK SDM (READ-ONLY MANAGER / ADMIN)
-             ================================================================= -->
-        <div v-show="activeTab === 'approvals'" class="flex-1 overflow-y-auto max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
-          <div class="flex items-center justify-between">
-            <div>
-              <h2 class="text-base font-semibold text-claude-text">Antrean Tinjauan HRIS &amp; Analitik SDM</h2>
-              <p class="text-xs text-claude-secondary">Pantau pengajuan berstatus <code class="font-mono text-amber-400">pending_manager_review</code> (antrean read-only) dan risiko saldo tim.</p>
-            </div>
-            <button @click="fetchTeamRequests(); fetchAnalyticsOverview()" class="px-3 py-2 rounded-xl bg-claude-surface border border-claude-border text-xs text-claude-secondary hover:text-claude-text flex items-center gap-1.5 transition">
-              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
-              <span>Segarkan Data</span>
-            </button>
-          </div>
-
-          <!-- Pending-Only Guardrail Notice -->
-          <div class="p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/25 text-xs text-claude-secondary flex items-start gap-2.5">
-            <i data-lucide="shield-check" class="w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5"></i>
-            <div>
-              <span class="font-semibold text-blue-400">Mode Read-Only (Pending-Only HRIS Queue):</span>
-              Seluruh pengajuan dari asisten Miyo berhenti pada status <code class="font-mono text-amber-400">pending_manager_review</code>. Persetujuan atau penolakan final dilakukan oleh manusia secara langsung di sistem HRIS perusahaan.
-            </div>
-          </div>
-
-          <!-- Team HR Analytics Overview -->
-          <div v-if="teamAnalytics" class="space-y-3">
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
-                <div class="text-[11px] text-claude-muted">Cakupan Anggota Tim</div>
-                <div class="text-xl font-bold text-claude-text mt-1">{{ teamAnalytics.team_size }} Pegawai</div>
-              </div>
-              <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
-                <div class="text-[11px] text-claude-muted">Total Hari Cuti Aktif</div>
-                <div class="text-xl font-bold text-blue-400 mt-1">
-                  {{ Object.values(teamAnalytics.days_by_leave_type || {}).reduce((a, b) => a + b, 0) }} Hari Kerja
-                </div>
-              </div>
-              <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
-                <div class="text-[11px] text-claude-muted">Risiko Saldo Rendah (&le; {{ teamAnalytics.low_balance_threshold }} Hari)</div>
-                <div class="text-xl font-bold text-amber-400 mt-1">{{ (teamAnalytics.low_balance_employees || []).length }} Pegawai</div>
-              </div>
-            </div>
-
-            <!-- Low Balance Warning Card -->
-            <div v-if="teamAnalytics.low_balance_employees && teamAnalytics.low_balance_employees.length > 0"
-              class="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs space-y-1.5">
-              <div class="font-semibold text-amber-400 flex items-center gap-1.5">
-                <i data-lucide="alert-triangle" class="w-4 h-4"></i>
-                <span>Pegawai dengan Sisa Cuti Tahunan Rendah:</span>
-              </div>
-              <div class="flex flex-wrap gap-2 pt-1">
-                <span v-for="lb in teamAnalytics.low_balance_employees" :key="lb.employee_id"
-                  class="px-2.5 py-1 rounded-lg bg-claude-surface border border-claude-border text-claude-text font-mono text-[11px]">
-                  {{ lb.display_name }} ({{ lb.employee_id }}): <strong class="text-amber-400">{{ lb.annual_remaining }} hari</strong>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Pending HRIS Queue (Read-Only) -->
-          <div class="space-y-3">
-            <h3 class="text-xs font-semibold uppercase tracking-wider text-claude-muted">
-              Antrean Tinjauan HRIS &mdash; pending_manager_review ({{ pendingTeamRequests.length }})
-            </h3>
-
-            <div v-if="pendingTeamRequests.length === 0" class="p-8 rounded-2xl bg-claude-surface border border-claude-border text-center text-xs text-claude-muted">
-              Tidak ada pengajuan tim yang sedang menunggu tinjauan HRIS (<code class="font-mono">pending_manager_review</code>).
-            </div>
-
-            <div v-for="tr in pendingTeamRequests" :key="tr.request_id" class="p-4 rounded-2xl bg-claude-surface border border-claude-border space-y-3">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <div class="flex items-center gap-2">
-                  <span class="font-semibold text-sm text-claude-text">{{ tr.employee_name || tr.employee_id }}</span>
-                  <span class="font-mono text-xs text-claude-muted">({{ tr.employee_id }})</span>
-                  <span class="font-mono text-xs text-blue-400">#{{ tr.request_id }}</span>
-                </div>
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase" :class="statusBadgeClass(tr.status)">
-                  {{ formatStatus(tr.status) }}
-                </span>
-              </div>
-
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-claude-secondary">
-                <div><span class="text-claude-muted">Jenis:</span> <span class="font-semibold text-claude-text">{{ formatLeaveType(tr.leave_type) }}</span></div>
-                <div><span class="text-claude-muted">Periode:</span> <span class="font-mono text-claude-text">{{ tr.start_date }} s/d {{ tr.end_date }}</span></div>
-                <div><span class="text-claude-muted">Durasi:</span> <span class="font-semibold text-blue-400">{{ tr.business_days }} Hari Kerja</span></div>
-              </div>
-
-              <!-- Sick Leave Attachment Preview (Blocked for monitoring_admin) -->
-              <div v-if="tr.leave_type === 'sick'" class="flex items-center justify-between p-2.5 rounded-xl bg-claude-elevated border border-claude-border text-xs">
-                <div class="flex items-center gap-2">
-                  <i data-lucide="file-text" class="w-4 h-4 text-blue-400"></i>
-                  <span v-if="tr.has_attachment" class="text-claude-text">Surat Dokter: <code class="font-mono text-blue-400">{{ tr.attachment_filename }}</code></span>
-                  <span v-else class="text-amber-400">Belum ada surat dokter terlampir</span>
-                </div>
-                <button v-if="tr.has_attachment && !isAdmin" @click="viewAttachment(tr.request_id)"
-                  class="px-3 py-1 rounded-lg bg-claude-blue-subtle border border-blue-500/30 text-blue-400 font-medium text-[11px] flex items-center gap-1.5 hover:bg-blue-600 hover:text-white transition">
-                  <i data-lucide="eye" class="w-3.5 h-3.5"></i>
-                  <span>Tinjau Dokumen</span>
-                </button>
-                <span v-else-if="tr.has_attachment && isAdmin" class="text-[11px] text-claude-muted italic">
-                  Akses dokumen medis dibatasi (khusus manajer &amp; pegawai)
-                </span>
-              </div>
-
-              <!-- Read-Only Queue Indicator -->
-              <div class="pt-2 border-t border-claude-border flex items-center justify-between gap-2 text-[11px] text-amber-400">
-                <span class="flex items-center gap-1.5">
-                  <i data-lucide="clock" class="w-3.5 h-3.5"></i>
-                  <span>Read-Only &mdash; Menunggu persetujuan manusia di sistem HRIS (<code class="font-mono">pending_manager_review</code>)</span>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Historical Team Requests (Read-Only) -->
-          <div v-if="historicalTeamRequests.length > 0" class="space-y-3 pt-2">
-            <h3 class="text-xs font-semibold uppercase tracking-wider text-claude-muted">
-              Riwayat Permohonan Tim Lainnya ({{ historicalTeamRequests.length }})
-            </h3>
-
-            <div v-for="tr in historicalTeamRequests" :key="tr.request_id" class="p-4 rounded-2xl bg-claude-surface/70 border border-claude-border space-y-2.5">
-              <div class="flex flex-wrap items-center justify-between gap-2">
-                <div class="flex items-center gap-2">
-                  <span class="font-semibold text-sm text-claude-text">{{ tr.employee_name || tr.employee_id }}</span>
-                  <span class="font-mono text-xs text-claude-muted">({{ tr.employee_id }})</span>
-                  <span class="font-mono text-xs text-blue-400">#{{ tr.request_id }}</span>
-                </div>
-                <span class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-semibold uppercase" :class="statusBadgeClass(tr.status)">
-                  {{ formatStatus(tr.status) }}
-                </span>
-              </div>
-              <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-claude-secondary">
-                <div><span class="text-claude-muted">Jenis:</span> <span class="font-semibold text-claude-text">{{ formatLeaveType(tr.leave_type) }}</span></div>
-                <div><span class="text-claude-muted">Periode:</span> <span class="font-mono text-claude-text">{{ tr.start_date }} s/d {{ tr.end_date }}</span></div>
-                <div><span class="text-claude-muted">Durasi:</span> <span class="font-semibold text-blue-400">{{ tr.business_days }} Hari Kerja</span></div>
-              </div>
-              <div v-if="tr.reviewed_by" class="text-[11px] text-claude-muted pt-1">
-                Catatan HRIS oleh <code class="font-mono text-claude-secondary">{{ tr.reviewed_by }}</code>: "{{ tr.review_note }}"
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- =================================================================
              TAB: TICKETS (EMAIL INBOX CONCEPT FOR EMPLOYEE REQUESTS)
              ================================================================= -->
         <div v-show="activeTab === 'tickets'" class="flex-1 min-h-0 flex flex-col h-full overflow-hidden max-w-6xl w-full mx-auto px-4 sm:px-6 py-4">
@@ -1045,7 +892,7 @@
                 </span>
               </div>
               <p class="text-xs text-claude-secondary">
-                {{ isAdmin || isManager ? 'Pusat peninjauan eskalasi kebijakan, pertanyaan HR, dan permintaan khusus karyawan.' : 'Pantau tiket eskalasi dan permohonan yang telah Anda ajukan.' }}
+                {{ isAdmin ? 'Pusat peninjauan eskalasi kebijakan, pertanyaan HR, dan permintaan khusus karyawan.' : 'Pantau tiket eskalasi dan permohonan yang telah Anda ajukan.' }}
               </p>
             </div>
 
@@ -1222,8 +1069,8 @@
                     </span>
                   </div>
 
-                  <!-- If Admin or Manager: Form to Change Status -->
-                  <div v-if="isAdmin || isManager" class="space-y-3">
+                  <!-- If Admin: Form to Change Status -->
+                  <div v-if="isAdmin" class="space-y-3">
                     <div class="grid grid-cols-3 gap-2">
                       <button type="button" @click="editTicketStatus = 'pending'"
                         :class="[
@@ -1312,6 +1159,24 @@
             <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
               <div class="text-[11px] text-claude-muted">Total Panggilan Tool</div>
               <div class="text-xl font-bold font-mono text-emerald-400 mt-1">{{ monitoringSummary.tool_calls || 0 }}</div>
+            </div>
+          </div>
+
+          <!-- Anonymized Aggregate HR Overview (Privacy-Safe, No Individual Employee Data) -->
+          <div v-if="teamAnalytics" class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+              <div class="text-[11px] text-claude-muted">Populasi Pegawai Tercakup</div>
+              <div class="text-xl font-bold font-mono text-claude-text mt-1">{{ teamAnalytics.team_size || 0 }} Pegawai</div>
+            </div>
+            <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+              <div class="text-[11px] text-claude-muted">Total Hari Cuti Aktif (Agregat)</div>
+              <div class="text-xl font-bold font-mono text-blue-400 mt-1">
+                {{ Object.values(teamAnalytics.days_by_leave_type || {}).reduce((a, b) => a + b, 0) }} Hari Kerja
+              </div>
+            </div>
+            <div class="p-4 rounded-xl bg-claude-surface border border-claude-border">
+              <div class="text-[11px] text-claude-muted">Pegawai Saldo Rendah (&le; {{ teamAnalytics.low_balance_threshold }} Hari)</div>
+              <div class="text-xl font-bold font-mono text-amber-400 mt-1">{{ teamAnalytics.low_balance_employee_count ?? 0 }} Pegawai</div>
             </div>
           </div>
 
@@ -1540,7 +1405,7 @@
           Memuat dokumen lampiran...
         </div>
         <div v-else class="max-h-[70vh] overflow-auto rounded-xl border border-claude-border bg-claude-elevated flex items-center justify-center p-2">
-          <iframe v-if="attachmentViewerModal.contentType === 'application/pdf'" :src="attachmentViewerModal.dataUrl" class="w-full h-[60vh] rounded-lg"></iframe>
+          <iframe v-if="attachmentViewerModal.contentType === 'application/pdf'" sandbox="allow-same-origin" :src="attachmentViewerModal.dataUrl" class="w-full h-[60vh] rounded-lg"></iframe>
           <img v-else :src="attachmentViewerModal.dataUrl" :alt="attachmentViewerModal.filename" class="max-h-[62vh] object-contain rounded-lg">
         </div>
       </div>

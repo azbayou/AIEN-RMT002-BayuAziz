@@ -10,13 +10,23 @@ from typing import Any
 
 
 _EMAIL_RE = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
-_PHONE_RE = re.compile(r"(?<!\w)(?:\+?62[\s.-]?|0)8[1-9](?:[\s.-]?\d){7,11}(?!\w)")
+_PHONE_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:"
+    r"(?:\+?62[\s.-]?|0)8[1-9](?:[\s.-]?\d){7,11}|"
+    r"(?:\+?62[\s.-]?|0)[2-9]\d{1,2}[\s.-]?\d{3,4}[\s.-]?\d{3,4}|"
+    r"\+(?!62\b)[1-9]\d{0,2}(?:[\s.-]?\(?\d{2,4}\)?){2,4}"
+    r")(?![A-Za-z0-9])"
+)
 _TOKEN_RE = re.compile(
-    r"(?<![\w-])(?:bearer\s+)?(?:token[-_][A-Z0-9._-]+|sk-[A-Z0-9._-]{8,}|"
-    r"secret[-_][A-Z0-9._-]+|api[-_]?key[-_][A-Z0-9._-]+|"
+    r"(?<![A-Za-z0-9-])(?:"
+    r"bearer\s+[A-Za-z0-9._-]{6,}|"
+    r"(?:bearer\s+)?(?:token[-_][A-Z0-9._-]+|sess_[A-Za-z0-9_-]{12,}|"
+    r"sk-[A-Z0-9._-]{8,}|secret[-_][A-Z0-9._-]+|"
+    r"api[-_]?key(?:[-_][A-Z0-9._-]+|\s*[:=]\s*[^\s\"'`]+)|"
     r"AIza[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{20,}|"
     r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|"
-    r"postgres(?:ql)?://[^\s\"']+)(?![\w-])",
+    r"(?:postgres(?:ql)?|redis(?:s)?)://[^\s\"']+)"
+    r")(?![A-Za-z0-9-])",
     re.IGNORECASE,
 )
 _MEDICAL_LABEL_RE = re.compile(
@@ -48,6 +58,19 @@ _BASELINE_MEDICAL_TERMS: tuple[str, ...] = (
     "dbd",
     "tbc",
     "tuberkulosis",
+    "cancer",
+    "pneumonia",
+    "asthma",
+    "hypertension",
+    "tuberculosis",
+    "depression",
+    "surgery",
+    "infection",
+    "fracture",
+    "migraine",
+    "allergy",
+    "typhoid",
+    "dengue",
 )
 _CACHED_TERMS: tuple[str, ...] | None = None
 _LAST_DB_ATTEMPT: float = 0.0
@@ -130,6 +153,8 @@ def _build_medical_term_re(terms: tuple[str, ...] | None = None) -> re.Pattern:
         r"(?<!jenis\s)"
         r"(?<!hak\s)"
         r"(?<!kategori\s)"
+        r"(?<!rumah\s)"
+        r"(?<!keterangan\s)"
     )
     hr_suffix_lookahead = r"(?!\s*:\s*\d+\s*(?:hari(?:\s*kerja)?))"
     if active_terms:
@@ -142,7 +167,7 @@ def _build_medical_term_re(terms: tuple[str, ...] | None = None) -> re.Pattern:
     return re.compile(pattern, re.IGNORECASE)
 
 
-_COMPILED_TERMS: tuple[str, ...] = _load_medical_terms()
+_COMPILED_TERMS: tuple[str, ...] = _BASELINE_MEDICAL_TERMS
 _MEDICAL_TERM_RE = _build_medical_term_re(_COMPILED_TERMS)
 
 

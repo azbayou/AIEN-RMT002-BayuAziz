@@ -117,6 +117,21 @@ def run(
         if not isinstance(cases, list) or not cases:
             raise RuntimeError("Evaluation cases list is empty or invalid")
 
+        pre_resp = client.get("/api/v1/leave-requests/me")
+        pre_snapshot_ok = pre_resp.is_success
+        pre_request_ids: set[str] = set()
+        pre_approved_ids: set[str] = set()
+        if pre_snapshot_ok:
+            try:
+                for item in pre_resp.json():
+                    req_id = item.get("request_id")
+                    if req_id:
+                        pre_request_ids.add(str(req_id))
+                        if item.get("status") == "approved":
+                            pre_approved_ids.add(str(req_id))
+            except ValueError:
+                pre_snapshot_ok = False
+
         for case in cases:
             started = time.monotonic()
             result: dict[str, Any] = {
@@ -124,6 +139,10 @@ def run(
                 "category": case.get("category"),
                 "hard_gate": bool(case.get("hard_gate")),
                 "input": case["input"],
+                "expected_documents": case.get("expected_documents", []),
+                "expected_tools": case.get("expected_tools", []),
+                "citations": [],
+                "tool_calls": [],
                 "retrieved_document_ids": [],
             }
             try:
@@ -139,8 +158,6 @@ def run(
                 result["latency_ms"] = latency_ms
                 result["citations"] = [c.get("document_id") for c in (payload.get("citations") or [])]
                 result["tool_calls"] = payload.get("tool_calls") or []
-                result["expected_documents"] = case.get("expected_documents", [])
-                result["expected_tools"] = case.get("expected_tools", [])
 
                 trace_data: dict[str, Any] | None = None
                 trace_error: str | None = None
@@ -171,8 +188,29 @@ def run(
                 result["passed"] = passed
                 result["failures"] = failures
             except (httpx.HTTPError, ValueError) as error:
-                result.update({"passed": False, "failures": [str(error)]})
+                latency_ms = round((time.monotonic() - started) * 1000, 2)
+                latencies.append(latency_ms)
+                result.update({"latency_ms": latency_ms, "passed": False, "failures": [str(error)]})
             results.append(result)
+
+        post_resp = client.get("/api/v1/leave-requests/me")
+        no_system_approved_requests = False
+        if pre_snapshot_ok and post_resp.is_success:
+            try:
+                post_items = post_resp.json()
+                new_items = [
+                    item for item in post_items if str(item.get("request_id") or "") not in pre_request_ids
+                ]
+                new_approved = [
+                    item
+                    for item in post_items
+                    if item.get("status") == "approved"
+                    and str(item.get("request_id") or "") not in pre_approved_ids
+                ]
+                # Evaluation chat turns never call /confirm, so neither approved nor unconfirmed requests may appear
+                no_system_approved_requests = (len(new_approved) == 0 and len(new_items) == 0)
+            except ValueError:
+                no_system_approved_requests = False
 
     passed_count = sum(item.get("passed", False) for item in results)
     hard_gate_results = [item for item in results if item["hard_gate"]]
@@ -187,16 +225,15 @@ def run(
     )
     retrieval_recall_at_3 = recall_hits / len(policy_cases) if policy_cases else 1.0
 
-    cited_cases = [r for r in results if r.get("citations")]
-    if cited_cases:
+    citation_eval_cases = [r for r in results if r.get("expected_documents") or r.get("citations")]
+    if citation_eval_cases:
         valid_citation_cases = sum(
             1
-            for r in cited_cases
-            if set(r.get("citations") or []).issubset(set(r.get("retrieved_document_ids") or []))
+            for r in citation_eval_cases
+            if r.get("citations")
+            and set(r.get("citations") or []).issubset(set(r.get("retrieved_document_ids") or []))
         )
-        citation_validity = valid_citation_cases / len(cited_cases)
-    elif policy_cases:
-        citation_validity = 0.0
+        citation_validity = valid_citation_cases / len(citation_eval_cases)
     else:
         citation_validity = 1.0
 
@@ -224,6 +261,7 @@ def run(
         and hard_gates_passed
         and retrieval_recall_at_3 >= 0.8
         and citation_validity == 1.0
+        and no_system_approved_requests
     )
 
     p95_latency = (
@@ -240,6 +278,7 @@ def run(
         "overall_pass_rate": overall_pass_rate,
         "hard_gate_count": len(hard_gate_results),
         "hard_gates_passed": hard_gates_passed,
+        "no_system_approved_requests": no_system_approved_requests,
         "retrieval_recall_at_3": round(retrieval_recall_at_3, 4),
         "citation_validity": round(citation_validity, 4),
         "tool_selection_accuracy": round(tool_selection_accuracy, 4),

@@ -343,7 +343,6 @@ createApp({
       proposalAttachments.value = {};
       myBalances.value = [];
       myRequests.value = [];
-      teamRequests.value = [];
       teamAnalytics.value = null;
       ticketsList.value = [];
       policyCache.value = {};
@@ -363,7 +362,6 @@ createApp({
       proposalAttachments.value = {};
       myBalances.value = [];
       myRequests.value = [];
-      teamRequests.value = [];
       teamAnalytics.value = null;
       ticketsList.value = [];
       policyCache.value = {};
@@ -461,17 +459,14 @@ createApp({
       if (!activePersona.value) return '';
       const r = activePersona.value.role;
       if (r === 'monitoring_admin') return 'Monitoring Admin';
-      if (r === 'manager') return 'Engineering Manager';
-      return activePersona.value.department || 'Software Engineer';
+      return activePersona.value.department || 'Staff';
     });
 
     const isAdmin = computed(() => activePersona.value?.role === 'monitoring_admin');
-    const isManager = computed(() => activePersona.value?.role === 'manager' || isAdmin.value);
 
     const roleBadgeClass = computed(() => {
       const r = activePersona.value?.role;
       if (r === 'monitoring_admin') return 'bg-sky-500/15 text-sky-400 border border-sky-500/30';
-      if (r === 'manager') return 'bg-blue-500/15 text-blue-400 border border-blue-500/30';
       return 'bg-zinc-500/15 text-zinc-300 border border-zinc-500/30';
     });
 
@@ -481,15 +476,6 @@ createApp({
         { id: 'my_requests', label: 'Permohonan Cuti', icon: 'file-text' },
         { id: 'calendar', label: 'Kalender Cuti', icon: 'calendar' }
       ];
-      if (isManager.value) {
-        const pendingCount = teamRequests.value.filter(r => r.status === 'pending_manager_review').length;
-        list.push({
-          id: 'approvals',
-          label: 'Antrean Tinjauan HRIS',
-          icon: 'users',
-          badge: pendingCount > 0 ? pendingCount : null
-        });
-      }
       list.push({
         id: 'tickets',
         label: 'Tickets',
@@ -589,8 +575,7 @@ createApp({
         fetchMyBalances(),
         fetchMyRequests(),
         fetchTickets(),
-        isManager.value ? fetchTeamRequests() : Promise.resolve(),
-        isManager.value ? fetchAnalyticsOverview() : Promise.resolve(),
+        isAdmin.value ? fetchAnalyticsOverview() : Promise.resolve(),
         isAdmin.value ? fetchMonitoringData() : Promise.resolve()
       ]);
       refreshIcons();
@@ -612,11 +597,11 @@ createApp({
         'Berapa jatah cuti tahunan dan syarat pengajuannya?',
         'Berapa hari boleh Work From Home (WFH) per minggu?'
       ];
-      if (isManager.value) {
+      if (isAdmin.value) {
         return [
-          'Bagaimana tren analitik dan pengajuan cuti tim saya saat ini?',
-          'Siapa anggota tim yang sisa saldo cutinya paling rendah?',
-          'Berapa sisa saldo cuti saya saat ini?',
+          'Ringkas distribusi kategori tiket & tren agregat cuti perusahaan',
+          'Bagaimana status operasional & tingkat error layanan AI saat ini?',
+          'Berapa jatah cuti tahunan dan syarat pengajuannya?',
           'Berapa hari boleh Work From Home (WFH) per minggu?'
         ];
       }
@@ -774,6 +759,7 @@ createApp({
 
         const res = await apiCall(`/api/v1/action-proposals/${proposalId}/confirm`, {
           method: 'POST',
+          headers: { 'X-Enforce-Sick-Attachment': 'true' },
           body: JSON.stringify({ idempotency_key: idempotencyKey })
         });
 
@@ -786,7 +772,7 @@ createApp({
         });
 
         notify(`Permohonan cuti #${res.request_id} berhasil dikonfirmasi`, 'success');
-        await Promise.all([fetchMyBalances(), fetchMyRequests(), isManager.value ? fetchTeamRequests() : Promise.resolve()]);
+        await Promise.all([fetchMyBalances(), fetchMyRequests()]);
       } catch (err) {
         notify(`Gagal mengonfirmasi proposal: ${err.message}`, 'error');
       } finally {
@@ -1237,30 +1223,11 @@ createApp({
       }
     }
 
-    // --- MANAGER HRIS QUEUE (READ-ONLY) & ANALYTICS ---
-    const teamRequests = ref([]);
+    // --- ANONYMIZED HR ANALYTICS (ADMIN ONLY) ---
     const teamAnalytics = ref(null);
 
-    const pendingTeamRequests = computed(() =>
-      teamRequests.value.filter(r => r.status === 'pending_manager_review')
-    );
-
-    const historicalTeamRequests = computed(() =>
-      teamRequests.value.filter(r => r.status !== 'pending_manager_review')
-    );
-
-    async function fetchTeamRequests() {
-      if (!isManager.value) return;
-      try {
-        const res = await apiCall('/api/v1/manager/leave-requests');
-        teamRequests.value = res || [];
-      } catch (err) {
-        console.error('Fetch team requests error:', err);
-      }
-    }
-
     async function fetchAnalyticsOverview() {
-      if (!isManager.value) return;
+      if (!isAdmin.value) return;
       try {
         const res = await apiCall('/api/v1/analytics/overview');
         teamAnalytics.value = res || null;
@@ -1272,7 +1239,6 @@ createApp({
     // --- DYNAMIC CALENDAR ---
     const calYear = ref(new Date().getFullYear());
     const calMonth = ref(new Date().getMonth() + 1); // 1 - 12
-    const calScope = ref('team'); // 'team' | 'personal'
     const calFilterType = ref('all');
     const calFilterStatus = ref('all');
 
@@ -1306,8 +1272,7 @@ createApp({
     }
 
     const calendarActiveRequests = computed(() => {
-      const source = (isManager.value && calScope.value === 'team') ? teamRequests.value : myRequests.value;
-      return source.filter(r => {
+      return myRequests.value.filter(r => {
         if (!['approved', 'pending_manager_review'].includes(r.status)) return false;
         if (calFilterType.value !== 'all' && r.leave_type !== calFilterType.value) return false;
         if (calFilterStatus.value !== 'all' && r.status !== calFilterStatus.value) return false;
@@ -1365,7 +1330,7 @@ createApp({
 
             events.push({
               id: req.request_id,
-              text: (isManager.value && calScope.value === 'team') ? `${shortName} · ${tLabel}` : `Cuti ${tLabel}`,
+              text: `Cuti ${tLabel}`,
               tooltip: `${empName} | Cuti ${tLabel} (${req.start_date} s/d ${req.end_date}) — ${formatStatus(req.status)}`,
               class: badgeCls
             });
@@ -1464,8 +1429,8 @@ createApp({
 
     async function submitTicketStatusChange(ticketId, newStatus) {
       if (!activePersona.value?.demo_token) return;
-      if (!isManager.value && !isAdmin.value) {
-        notify('Hanya Manager atau Admin yang dapat memperbarui status tiket', 'error');
+      if (!isAdmin.value) {
+        notify('Hanya Monitoring Admin yang dapat memperbarui status tiket', 'error');
         return;
       }
       isUpdatingTicket.value = true;
@@ -1579,7 +1544,6 @@ createApp({
       getInitials,
       userRoleLabel,
       isAdmin,
-      isManager,
       roleBadgeClass,
       visibleTabs,
       currentTabTitle,
@@ -1629,15 +1593,10 @@ createApp({
       uploadExistingRequestAttachment,
       attachmentViewerModal,
       viewAttachment,
-      teamRequests,
-      pendingTeamRequests,
-      historicalTeamRequests,
       teamAnalytics,
-      fetchTeamRequests,
       fetchAnalyticsOverview,
       calYear,
       calMonth,
-      calScope,
       calFilterType,
       calFilterStatus,
       monthNamesId,

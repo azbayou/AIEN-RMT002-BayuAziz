@@ -8,17 +8,17 @@
 Karyawan sering menghadapi kesulitan menavigasi dokumen kebijakan HR untuk mengetahui hak cuti, aturan kerja jarak jauh (WFH), dan ketentuan izin sakit beserta dokumen pendukungnya. Di sisi lain, sistem AI yang langsung menyetujui cuti, menyimpan teks medis sensitif tanpa redaksi, atau membocorkan data antar pegawai menimbulkan risiko kepatuhan ketenagakerjaan dan privasi (UU PDP).
 
 Sistem **Miyo HR Assistant** dirancang sebagai asisten kebijakan HR enterprise yang menggabungkan:
-1. **Grounded Hybrid RAG** berbasis PostgreSQL (`to_tsvector` GIN + `pgvector` HNSW + RRF) dengan sitasi terverifikasi `[DOCUMENT_ID]` dan abstensi wajib bila bukti tidak valid.
-2. **Dynamic DB Policy Matrix** di mana aturan lead time cuti tahunan (`HR-LEAVE-001`) dan ambang surat dokter cuti sakit (`HR-LEAVE-002`) dibaca langsung dari `policy_chunks` aktif di database sehingga perubahan kebijakan langsung memperbarui validasi domain, kalender, API `/api/v1/policies/rules`, dan UI SPA tanpa perubahan kode.
-3. **Two-Phase Action Safety & Pending-Only Gate** di mana asisten hanya menyiapkan `ActionProposal` ber-TTL, mewajibkan upload lampiran medis pra-konfirmasi jika diperlukan, dan mengunci seluruh pengajuan pada status `pending_manager_review` tanpa kemampuan approval otomatis di API.
-4. **Zero-Trust Identity Isolation & Recursive Redaction** berbasis hash token (`employees.token_hash` dan `auth_sessions`), redaksi offline-safe (`_BASELINE_MEDICAL_TERMS` + tabel `medical_terms`), dan sanitasi rekursif sebelum penyimpanan trace maupun pengiriman ke Opik.
+1. **Grounded Hybrid RAG** berbasis PostgreSQL (`to_tsvector` GIN + `pgvector` HNSW + RRF) dengan sitasi terverifikasi `[DOCUMENT_ID]` (termasuk multi-ID `[DOC-A, DOC-B]`) serta abstensi wajib bila bukti tidak valid.
+2. **Dynamic DB Policy Matrix** di mana aturan lead time cuti tahunan (`HR-LEAVE-001`) dan ambang surat dokter cuti sakit (`HR-LEAVE-002`) dibaca langsung dari `policy_chunks` aktif (`as_of=reference_date`) sehingga perubahan kebijakan langsung memperbarui validasi domain, kalender, API `/api/v1/policies/rules`, dan UI SPA tanpa perubahan kode.
+3. **Two-Phase Action Safety & Pending-Only Gate** di mana asisten hanya men-stage `ActionProposal` ber-TTL (ditulis ke DB hanya jika turn sukses tanpa abstensi), mendukung upload lampiran medis pra-konfirmasi kondisional (`X-Enforce-Sick-Attachment: true` pada Web SPA, tetap kompatibel penuh dengan starter Streamlit `app.py`), dan mengunci seluruh pengajuan pada status `pending_manager_review` tanpa endpoint approval di API.
+4. **Zero-Trust Identity Isolation & Privacy-First Telemetry** berbasis hash token (`employees.token_hash` dan `auth_sessions`), login password wajib secara default (`ALLOW_DEMO_SESSION=false`), analitik `monitoring_admin` agregat anonim tanpa data individu, redaksi offline-safe 36 istilah ID+EN (`_BASELINE_MEDICAL_TERMS` + tabel `medical_terms`), sanitasi `proposal.reason` & `filename`, dan telemetri Opik **metadata-only** tanpa teks prompt maupun jawaban.
 
 ### 1.2 User Personas
 | Persona | Role | Identitas & Autentikasi | Saldo Awal (`employees.json`) | Wewenang & Batasan |
 |---|---|---|---|---|
-| **Alya Pratama** | `employee` | `EMP-001` (Demo SSO `POST /auth/demo-session` atau Bearer token ter-hash) | Annual `8 hari`, Sick `10 hari`, Parental `60 hari` | Membaca kebijakan HR, melihat saldo & request pribadi, mengajukan proposal & lampiran cuti sakit, membuat tiket HR, melihat trace pribadi. |
-| **Bima Santoso** | `employee` | `EMP-002` (Demo SSO `POST /auth/demo-session` atau Bearer token ter-hash) | Annual `3 hari`, Sick `10 hari`, Parental `60 hari` | Akses mandiri atas data pribadi; terisolasi penuh dari saldo, proposal, lampiran, dan trace milik Alya. |
-| **Monitoring Admin** | `monitoring_admin` | `ADM-001` (Wajib login password `POST /auth/login` pada UI; demo session diblokir `403`) | `-` | Mengakses `/api/v1/monitoring/summary|rules|alerts`, analitik agregat, tiket operasional, dan trace tersanitasi. Diblokir (`403`) dari lampiran medis pegawai dan approval cuti. |
+| **Alya Pratama** | `employee` | `EMP-001` (Wajib login password `POST /auth/login` karena `ALLOW_DEMO_SESSION=false`, atau Bearer token ter-hash) | Annual `8 hari`, Sick `10 hari`, Parental `60 hari` | Membaca kebijakan HR, melihat saldo & request pribadi, mengajukan proposal & lampiran cuti sakit, membuat tiket HR, melihat trace pribadi. |
+| **Bima Santoso** | `employee` | `EMP-002` (Wajib login password `POST /auth/login` atau Bearer token ter-hash) | Annual `3 hari`, Sick `10 hari`, Parental `60 hari` | Akses mandiri atas data pribadi; terisolasi penuh dari saldo, proposal, lampiran, dan trace milik Alya. |
+| **Monitoring Admin** | `monitoring_admin` | `ADM-001` (Wajib login password `POST /auth/login`; `/auth/demo-session` diblokir `403`) | `-` | Mengakses `/api/v1/monitoring/summary|rules|alerts`, analitik agregat anonim (`/api/v1/analytics/overview`, `low_balance_employees=[]`), tiket operasional tersamarkan, dan trace tersamarkan. Diblokir dari saldo/request individu dan lampiran medis (`403`). |
 
 ### 1.3 Scope & Non-Scope
 - **In Scope:**
@@ -31,10 +31,10 @@ Sistem **Miyo HR Assistant** dirancang sebagai asisten kebijakan HR enterprise y
   - Pembuatan tiket HR (`create_hr_ticket`) yang ditunda selama turn agent dan hanya di-commit bila turn berakhir sukses tanpa abstensi (`Outcome.escalated`).
   - Redaksi otomatis PII (email, nomor HP, token/API key/JWT/DSN, istilah medis) serta graceful degradation saat Redis atau Embedding provider terganggu.
 - **Out of Scope (Non-Negotiable Constraints):**
-  - API dan AI dilarang menyetujui (`approved`) permohonan cuti; endpoint `/api/v1/manager/leave-requests/{id}/review` dikunci HTTP `403`.
-  - AI dan pegawai dilarang membaca saldo, request, lampiran, atau trace milik pegawai lain.
-  - `monitoring_admin` dilarang mengunduh lampiran medis pegawai (`GET /api/v1/leave-requests/{id}/attachment` mengembalikan `403`).
-  - Sistem dilarang menyimpan plaintext API key, password, demo token (`persona_tokens` dihapus), prompt mentah, atau chain-of-thought di DB maupun Opik.
+  - Role `manager` dan seluruh endpoint persetujuan/daftar cuti tim (`/api/v1/manager/leave-requests*`) ditiadakan; API dan AI dilarang membuat atau mengubah status leave request menjadi `approved`.
+  - AI, pegawai, maupun `monitoring_admin` dilarang membaca saldo, daftar leave request, atau lampiran medis milik pegawai lain (`low_balance_employees=[]`).
+  - `monitoring_admin` hanya menerima metrik agregat anonim dan trace tersamarkan; `GET /api/v1/leave-requests/{id}/attachment` mengembalikan `403`.
+  - Sistem dilarang menyimpan plaintext API key, password, demo token (`persona_tokens` dihapus), prompt mentah, atau chain-of-thought di DB maupun Opik Cloud.
 
 ---
 
@@ -101,32 +101,32 @@ flowchart TD
 
     subgraph TB1["Trust Boundary 1: Authentication & Session Gateway"]
         direction TB
-        BOOTSTRAP["/auth/personas (No Tokens/Balances), /auth/demo-session (Employee Only), /auth/login (PBKDF2)"]
-        BEARER["Bearer Header Validation on ALL /api/v1/*"]
+        BOOTSTRAP["/auth/personas (requires_password=true), /auth/demo-session (403 default), /auth/login (PBKDF2)"]
+        BEARER["Bearer Header Validation on ALL /api/v1/* (401 + WWW-Authenticate)"]
         HASH_AUTH["SHA-256 Lookup (employees.token_hash UNION auth_sessions.session_token_hash)"]
-        CTX["Immutable AuthContext (employee_id, display_name, role, department, manager_id)"]
+        CTX["Immutable AuthContext (employee_id, display_name, role: employee | monitoring_admin)"]
         BOOTSTRAP --> BEARER --> HASH_AUTH --> CTX
     end
 
     subgraph TB2["Trust Boundary 2: Application Execution Enclave"]
         direction TB
-        INPUT_VAL["Pydantic Validation & Role Guards (manager_auth / admin_auth / 403 Review Lock)"]
+        INPUT_VAL["Pydantic Validation & Role Guards (admin_auth only, No manager role)"]
         TOOL_GUARD["Identity Binding (AuthContext only, no employee_id arg on tools)"]
-        REDACT_PIPE["Offline-Safe PII & Recursive ActionProposal Redactor (redact_trace)"]
+        REDACT_PIPE["Offline-Safe PII & Recursive ActionProposal Redactor (redact + redact_trace)"]
         INPUT_VAL --> TOOL_GUARD --> REDACT_PIPE
     end
 
     subgraph TB3["Trust Boundary 3: Internal Data Enclave"]
         direction TB
         SQL_TX["Parameterized SQL + FOR UPDATE Locks + Pending-Only Confirmation"]
-        ROW_ISOLATION["Owner Predicates & Attachment Privacy (monitoring_admin blocked 403)"]
+        ROW_ISOLATION["Owner Predicates, Anonymized Admin Aggregates & Attachment Privacy (403)"]
         SQL_TX --> ROW_ISOLATION
     end
 
     subgraph TB4["Trust Boundary 4: External LLM & Telemetry Enclave"]
         direction TB
-        EXT_LLM["OpenAI API (store=False, hashed safety_identifier, untrusted policy context)"]
-        OPIK_OUT["Opik Telemetry (No raw prompt/history/CoT; PolicyChunk summarized & redacted)"]
+        EXT_LLM["OpenAI API (store=False, max_retries=0, hashed safety_identifier, untrusted policy context)"]
+        OPIK_OUT["Opik Telemetry (Strictly metadata-only: lengths, counts, tokens, citations; NO prompts/answers)"]
         EXT_LLM --- OPIK_OUT
     end
 
@@ -137,10 +137,10 @@ flowchart TD
 ```
 
 ### Trust Boundary Rules
-1. **TB0 → TB1 (Public ke Gateway):** Seluruh input pengguna, file lampiran (magic bytes PDF/PNG/JPEG, maks 5 MB), dan audio dianggap *untrusted*. Markdown pada Web SPA disanitasi dengan `DOMPurify.sanitize(...)`. Seluruh rute `/api/v1/*` (termasuk `/api/v1/policies/rules` dan `/api/v1/evaluation/cases`) wajib menyertakan Bearer token yang valid; hanya hash SHA-256 yang disimpan pada `employees.token_hash` dan `auth_sessions.session_token_hash` (`persona_tokens` dihapus).
-2. **TB1 → TB2 (Gateway ke Application):** `AuthContext` bersifat *immutable*. Tool `get_my_leave_balance` (`additionalProperties: false`) dan `prepare_leave_request` tidak pernah menerima parameter `employee_id` dari LLM. Endpoint `/api/v1/manager/leave-requests/{id}/review` dikunci HTTP `403` agar approval otomatis mustahil dilakukan melalui API.
-3. **TB2 → TB3 (Application ke Storage):** Seluruh query SQL menggunakan parameter binding. Transaksi `/confirm` mengunci baris `employees` dan `leave_balances` dengan `FOR UPDATE`, memvalidasi tanggal tidak berada di masa lalu, memverifikasi `proposal_attachments` untuk cuti sakit berlampiran wajib, mengecek overlap (`pending_manager_review` & `approved`), memigrasikan lampiran ke `leave_attachments`, dan mengunci status baru pada `pending_manager_review`. Akses `GET /api/v1/leave-requests/{id}/attachment` memblokir `monitoring_admin` dengan `403`.
-4. **TB2 → TB4 (Application ke External LLM/Opik):** Panggilan OpenAI menggunakan `store=False` dan `safety_identifier` ber-hash SHA-256. Dokumen kebijakan diperlakukan sebagai *untrusted data*. Sebelum dikirim ke Opik Cloud, `OpikTracker` menghapus `user_message`, `history`, dan array `messages` mentah, meringkas `PolicyChunk`, lalu menjalankan `redact_trace(...)` secara rekursif.
+1. **TB0 → TB1 (Public ke Gateway):** Seluruh input pengguna, file lampiran (magic bytes PDF/PNG/JPEG, maks 5 MB, `sandbox="allow-same-origin"` pada PDF preview), dan audio dianggap *untrusted*. Markdown pada Web SPA disanitasi dengan `DOMPurify.sanitize(...)`. CORS dibatasi ke origin terdaftar (`CORS_ORIGINS`), rute statis hanya melayani `/`, `/app.js`, dan `/asset` (tanpa mengekspos `vercel.json`). Seluruh rute `/api/v1/*` wajib menyertakan Bearer token valid (HTTP `401` + `WWW-Authenticate: Bearer`); `POST /auth/demo-session` dinonaktifkan default (`ALLOW_DEMO_SESSION=false`).
+2. **TB1 → TB2 (Gateway ke Application):** `AuthContext` bersifat *immutable* (`employee` atau `monitoring_admin`). Tool `get_my_leave_balance` (`additionalProperties: false`) dan `prepare_leave_request` tidak pernah menerima `employee_id`. `get_team_hr_analytics` dan `/api/v1/analytics/overview` hanya mengembalikan jumlah agregat anonim (`low_balance_employee_count`, `low_balance_employees=[]`).
+3. **TB2 → TB3 (Application ke Storage):** Seluruh query SQL menggunakan parameter binding. Transaksi `/confirm` mengunci baris `employees` dan `leave_balances` dengan `FOR UPDATE`, mengecek kedaluwarsa & masa lalu, mewajibkan `proposal_attachments` saat `X-Enforce-Sick-Attachment: true`, mengecek overlap (`pending_manager_review` & `approved`), memigrasikan lampiran ke `leave_attachments`, dan mengunci status baru pada `pending_manager_review`. Kegagalan `save_trace` terdegradasi aman ke `Outcome.abstained` (HTTP 200, nol side effect).
+4. **TB2 → TB4 (Application ke External LLM/Opik):** Panggilan OpenAI menggunakan `store=False`, `max_retries=0` pada SDK (retry hanya di satu lapisan `_call`), deadline loop total 30 detik, dan `safety_identifier` ber-hash SHA-256. Dokumen kebijakan diperlakukan sebagai *untrusted data*. `OpikTracker` mengirim telemetri **strictly metadata-only** (`message_length`, `history_turns`, `role`, `employee_hash`, `answer_length`, `citations`, `outcome`, `usage`, `arg_keys`) — tidak pernah mengirim teks prompt user, jawaban, maupun isi output tool.
 
 ---
 
@@ -194,28 +194,27 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant HRIS as Portal HRIS (Manajer Manusia)
 
-    Note over Employee,DB: Fase 1: Pembuatan Proposal (Tanpa menulis leave_requests)
+    Note over Employee,DB: Fase 1: Pembuatan Proposal (Deferred DB write sampai turn sukses)
     Employee->>API: POST /api/v1/chat ("Ajukan cuti sakit 3 hari kerja")
-    API->>Tools: prepare_leave_request(start_date, end_date, "sick", reason)
+    API->>Tools: prepare_leave_request(start_date, end_date, "sick", redact(reason))
     Tools->>DB: Baca HR-LEAVE-002 aktif -> threshold dinamis & validasi saldo/overlap/H-N
-    Tools->>DB: INSERT action_proposals (TTL=15m, requires_attachment=True)
-    Tools-->>API: ActionProposal (requires_confirmation=True)
+    Agent->>DB: INSERT action_proposals (TTL=15m, requires_attachment=True) jika non-abstained
     API-->>Employee: Outcome: action_proposed + Detail Proposal & Valid Citations
 
-    Note over Employee,DB: Fase 1b: Upload Lampiran Wajib Pra-Konfirmasi (jika requires_attachment=True)
-    opt Konfirmasi sebelum upload lampiran
-        Employee->>API: POST /api/v1/action-proposals/{id}/confirm
+    Note over Employee,DB: Fase 1b: Upload Lampiran Kondisional (X-Enforce-Sick-Attachment: true pada Web SPA)
+    opt Konfirmasi dari Web SPA sebelum upload lampiran
+        Employee->>API: POST /api/v1/action-proposals/{id}/confirm (Header X-Enforce-Sick-Attachment: true)
         API-->>Employee: HTTP 409 Conflict ("dokumen pendukung surat dokter wajib diunggah sebelum konfirmasi")
     end
-    Employee->>API: POST /api/v1/action-proposals/{id}/attachment (PDF/PNG/JPEG <= 5MB)
+    Employee->>API: POST /api/v1/action-proposals/{id}/attachment (PDF/PNG/JPEG <= 5MB, filename redacted)
     API->>DB: Simpan ke proposal_attachments
 
-    Note over Employee,DB: Fase 2: Konfirmasi Eksplisit & Idempotensi
+    Note over Employee,DB: Fase 2: Konfirmasi Eksplisit & Idempotensi (Starter app.py & Web SPA)
     Employee->>API: POST /api/v1/action-proposals/{id}/confirm {idempotency_key}
     API->>DB: BEGIN TX (FOR UPDATE lock on employees & leave_balances)
-    alt Valid, belum kadaluarsa, tanggal >= today, lampiran lengkap, tidak overlap
+    alt Valid, belum kadaluarsa, tanggal >= today, tidak overlap
         DB->>DB: INSERT leave_requests (status='pending_manager_review')
-        DB->>DB: Migrasi proposal_attachments -> leave_attachments
+        DB->>DB: Migrasi proposal_attachments -> leave_attachments (bila ada)
         DB->>DB: COMMIT
         API-->>Employee: HTTP 200 {status: "pending_manager_review", idempotent_replay: false}
     else Replay Idempotency Key Sama
@@ -223,10 +222,8 @@ sequenceDiagram
         API-->>Employee: HTTP 200 {idempotent_replay: true, status: "pending_manager_review"}
     end
 
-    Note over API,HRIS: Fase 3: Tinjauan Manusia (API Approval Dikunci)
-    Employee->>API: POST /api/v1/manager/leave-requests/{id}/review
-    API-->>Employee: HTTP 403 Forbidden (Persetujuan akhir hanya di sistem HRIS manusia)
-    HRIS->>HRIS: Manajer meninjau antrean pending_manager_review secara manual
+    Note over API,HRIS: Fase 3: Tinjauan Manusia di Luar Sistem AI
+    HRIS->>HRIS: Manajer meninjau antrean pending_manager_review secara manual di HRIS eksternal (nol endpoint approval di API)
 ```
 
 ---
@@ -257,14 +254,14 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    RAW["Raw Text / Pydantic ActionProposal / Error / SDK Object"] --> SER["1. Recursive Traversal (redact_trace: BaseModel -> dict -> list -> str)"]
-    SER --> REGEX_PHONE["2. Phone Redactor (+62 / 08xx -> [REDACTED_PHONE])"]
+    RAW["Raw Text / ActionProposal / Error / Filename"] --> SER["1. Recursive Traversal (redact_trace: BaseModel -> dict -> list -> str)"]
+    SER --> REGEX_PHONE["2. Phone Redactor (+62/08xx/021/intl -> [REDACTED_PHONE])"]
     REGEX_PHONE --> REGEX_EMAIL["3. Email Redactor ([REDACTED_EMAIL])"]
-    REGEX_EMAIL --> REGEX_TOKEN["4. Token/Secret Redactor (token-/sk-/AIza/ghp_/JWT/Postgres DSN -> [REDACTED_TOKEN])"]
-    REGEX_TOKEN --> REGEX_MED["5. Medical Redactor (_BASELINE_MEDICAL_TERMS 23 istilah + DB medical_terms, 60s cooldown)"]
-    REGEX_MED --> LOOKBEHIND["6. Negative Lookbehind ('cuti sakit', 'saldo sakit' tetap utuh)"]
-    LOOKBEHIND --> TRACE_DB[("PostgreSQL traces table (tanpa raw user message)")]
-    LOOKBEHIND --> OPIK_CLD["Opik Cloud (message_length, summarized PolicyChunks, pseudonymized safety_id)"]
+    REGEX_EMAIL --> REGEX_TOKEN["4. Token/Secret Redactor (token-/sess_/Bearer/api_key=/sk-/AIza/ghp_/JWT/Postgres+Redis DSN -> [REDACTED_TOKEN])"]
+    REGEX_TOKEN --> REGEX_MED["5. Medical Redactor (36 istilah ID+EN _BASELINE_MEDICAL_TERMS + DB medical_terms, 60s cooldown)"]
+    REGEX_MED --> LOOKBEHIND["6. Negative Lookbehind ('cuti sakit', 'rumah sakit', 'surat keterangan sakit' tetap utuh)"]
+    LOOKBEHIND --> TRACE_DB[("PostgreSQL traces table (tanpa raw user message & CoT)")]
+    LOOKBEHIND --> OPIK_CLD["Opik Cloud (strictly metadata-only: message_length, counts, tokens, citations, employee_hash)"]
 ```
 
 ---
@@ -310,9 +307,25 @@ Aturan monitoring di-seed dari `data/monitoring_rules.json` ke tabel PostgreSQL 
 - **Trade-offs:** Akun `monitoring_admin` memerlukan login password pada Web SPA (tidak ada 1-klik demo session), namun menjamin isolasi hak akses istimewa.
 - **Production Follow-up:** Integrasi SSO OIDC/OAuth2 enterprise (Okta/Azure AD) dan ontologi medis terenkripsi (ICD-10 / SNOMED-CT).
 
-### ADR-005: Deferred Side-Effect Tickets & Resilient Cache Degradation
-- **Context:** Pembuatan tiket langsung di tengah turn berisiko meninggalkan tiket yatim jika turn berikutnya gagal atau abstain, sementara kegagalan Redis tidak boleh melumpuhkan layanan chat.
-- **Decision:** Menunda penulisan `create_hr_ticket` (`defer_tickets=True`) hingga seluruh loop agent selesai tanpa status `abstained` (lalu memancarkan `Outcome.escalated`), serta membungkus Redis dalam `ResilientCache` ber-timeout 0.5 detik yang mendegradasi error menjadi *cache miss*.
-- **Alternatives Considered:** Menulis tiket segera saat pemanggilan tool; fail-fast jika Redis mati.
-- **Trade-offs:** Memerlukan state `staged_tickets` selama satu siklus `AgentService.run()`, namun menjamin properti *zero side effects on abstention*.
+### ADR-005: Deferred Side Effects (Tickets & Proposals) & Resilient Cache Degradation
+- **Context:** Pembuatan tiket maupun `action_proposals` di tengah turn berisiko meninggalkan record yatim jika turn berikutnya gagal atau abstain, sementara kegagalan Redis tidak boleh melumpuhkan layanan chat.
+- **Decision:** Menunda penulisan `create_hr_ticket` (`defer_tickets=True`) dan `prepare_leave_request` (`defer_proposals=True`) hingga seluruh loop agent selesai tanpa status `abstained` (dan `save_trace` sukses), membungkus `save_trace` dalam `try/except` dengan degradasi ke `Outcome.abstained`, serta membungkus Redis dalam `ResilientCache` ber-timeout 0.5 detik.
+- **Alternatives Considered:** Menulis tiket/proposal segera saat pemanggilan tool; fail-fast jika Redis mati.
+- **Trade-offs:** Memerlukan staging state selama satu siklus `AgentService.run()`, namun menjamin *zero side effects on abstention* serta ketahanan penuh terhadap gangguan DB/Redis.
 - **Production Follow-up:** Redis Sentinel/Cluster HA serta *circuit breaker* cooldown untuk Redis outage berkepanjangan.
+
+### ADR-006: Grounded RAG vs Context Stuffing & Fine-Tuning
+- **Context:** Kebijakan HR (`HR-LEAVE-*`, `HR-WORK-*`, `HR-ELIG-*`, `HR-PRIV-*`, `HR-ESC-*`, `HR-OPS-*`) dapat berubah kapan saja (versi & `effective_date`), dan setiap jawaban wajib dapat ditelusuri ke `[DOCUMENT_ID]` resmi.
+- **Decision:** Memilih Hybrid RAG (`policy_chunks` di PostgreSQL + `pgvector`) dan mengekstrak aturan operasional langsung dari database daripada menanam teks kebijakan ke prompt sistem (*context stuffing*) atau bobot model (*fine-tuning*).
+- **Alternatives Considered:**
+  - *Context stuffing* seluruh Markdown kebijakan ke `SYSTEM_INSTRUCTIONS`: boros token di setiap request, rawan *lost in the middle*, dan menyulitkan audit sitasi per chunk.
+  - *Fine-tuning* LLM pada teks kebijakan: mahal dilatih ulang saat kebijakan berubah, tetap bisa berhalusinasi angka/tanggal, dan tidak memiliki kontrol *effective_date* per versi.
+- **Trade-offs:** Membutuhkan pipeline ingestion & indexing embedding, tetapi pembaruan kebijakan cukup me-seed ulang `policy_chunks` tanpa ubah kode/prompt dan otomatis menginvalidasi cache via `policy_fingerprint(as_of)`.
+- **Production Follow-up:** Penambahan *cross-encoder reranker* dan skema aturan terstruktur berdampingan dengan teks Markdown.
+
+### ADR-007: Bounded Single-Agent vs Multi-Agent Architecture
+- **Context:** Alur asisten mencakup Q&A kebijakan, cek saldo pribadi, kalender dinamis, pembuatan proposal cuti, tiket eskalasi, dan analitik agregat admin.
+- **Decision:** Menggunakan satu *bounded agent loop* (`AgentService`, maks `4` turn, `6` tool call, `700` output tokens, deadline total `30` detik, `max_retries=0` pada OpenAI SDK + retry tunggal di `_call`, larangan eksekusi tool mutasi di turn terakhir) dibanding arsitektur *multi-agent*.
+- **Alternatives Considered:** Memisahkan agen khusus per domain (Policy Agent, Leave Agent, Security Supervisor Agent) dengan handoff antar-agent.
+- **Trade-offs:** *Multi-agent* melipatgandakan latensi (p95 melampaui SLA `< 8000 ms`), konsumsi token/biaya, serta permukaan kebocoran state/konteks lintas trust boundary, sedangkan domain HR Nusantara Digital dapat ditangani deterministik oleh 1 agen ber-tool strict (`additionalProperties: false`) dan validasi domain di `src/domain.py`.
+- **Production Follow-up:** Evaluasi pemisahan worker asinkron hanya untuk tugas batch offline (retensi trace & evaluasi terjadwal), bukan pada jalur chat sinkron.

@@ -1,0 +1,69 @@
+Milestone 2 HR-Agent — Clean-Checkout Docker Verification & Evaluation Transcript
+Date: 2026-11-20
+Compose Project: p2m2_final
+
+1. Build & Non-Root Image Check
+- Command: docker compose -p p2m2_final build api streamlit
+  Result: EXIT 0 (2.1s)
+- Command: docker compose -p p2m2_final run --rm --no-deps api id
+  Output: uid=10001(appuser) gid=10001(appuser) groups=10001(appuser)
+- Command: docker compose -p p2m2_final run --rm --no-deps api ls -la /app
+  Verified contents: README.md, app.py, data/, demo_personas.json, pyproject.toml, requirements.txt, scripts/, src/, tests/, ui_contract.py, web/
+  Confirmed excluded: .env, outputs/, docs/, .venv/, .git/, caches
+
+2. Idempotent Database Seed (2x without --reset)
+- Command: docker compose -p p2m2_final up -d --wait postgres redis
+  Result: postgres Healthy, redis Healthy
+- Command: docker compose -p p2m2_final run --rm api python -m src.setup_lab (run 1 & run 2)
+  Result: EXIT 0 on both runs
+- Post-seed Postgres table counts (0 duplicates):
+  employees: 3 | leave_balances: 6 | policy_chunks: 15 | leave_requests: 2 | evaluation_cases: 15 | monitoring_rules: 2 | medical_terms: 36
+- API container boot log:
+  "Database already seeded; skipping setup_lab (set FORCE_SETUP=true to re-run)."
+
+3. Deterministic Test Suite inside Container
+- Command: docker compose -p p2m2_final run --rm api python -m pytest -m "not live"
+  Result: 45 passed, 1 deselected, 1 warning in 2.19s (EXIT 0)
+  Included: all 22 starter acceptance tests untouched + 23 P0/P1 remediation & regression tests
+
+4. HTTP Contract, RBAC Privacy & Redis Degradation Checks
+- GET /healthz -> 200 {"status":"ok"}
+- GET /readyz -> 200 {"status":"ready","ready":true,"dependencies":{"database":true,"cache":true,"configuration":true}}
+- GET /openapi.json -> 200 (manager_paths: [])
+- GET /vercel.json -> 404
+- POST /auth/demo-session ({"employee_id":"EMP-001"}) -> 403 Forbidden
+- GET /auth/personas -> 200 (requires_password: true for ADM-001, EMP-001, EMP-002)
+- GET /api/v1/analytics/overview?low_balance_threshold=30 (monitoring_admin) -> 200 (low_balance_employees: [], low_balance_employee_count: 2; 0 individual employee names/IDs)
+- GET http://localhost:8501 -> 200 (Streamlit UI)
+- Redis stopped -> GET /readyz: 200 {"status":"ready","ready":true,"dependencies":{"database":true,"cache":false,"configuration":true}}
+- Redis stopped -> POST /api/v1/chat ("Berapa jatah cuti tahunan?"): 200 outcome="answered", citations=["HR-LEAVE-001"], trace_id="trace-0aed4b6ca2bd"
+- Redis restarted -> GET /readyz: 200 (cache: true)
+
+5. Live LLM Test & Evaluation Suite
+- Command: docker compose -p p2m2_final exec -T -e RUN_LIVE_TESTS=1 -e API_URL=http://localhost:8000 api python -m pytest -m live -o addopts=""
+  Result: 1 passed, 45 deselected, 1 warning in 6.22s (EXIT 0)
+- Command: docker compose -p p2m2_final exec -T api python -m src.run_evaluation --base-url http://localhost:8000 --token token-alya
+  Result:
+    evaluated_at: 2026-11-20T02:57:59.317813+00:00
+    case_count: 15
+    passed_count: 15
+    overall_pass_rate: 1.0
+    hard_gate_count: 6
+    hard_gates_passed: true
+    no_system_approved_requests: true
+    retrieval_recall_at_3: 1.0
+    citation_validity: 1.0
+    tool_selection_accuracy: 1.0
+    latency_ms.p50: 2930.08
+    latency_ms.p95: 4289.9
+    usage: 53661 input_tokens, 1496 output_tokens, $0.006114 estimated_cost
+    release_decision: release
+- Post-eval Postgres leave_requests check:
+  Only 2 seeded historical rows (LR-HIST-001 approved, LR-HIST-002 cancelled); 0 unconfirmed or system-approved rows.
+- Post-eval monitoring summary:
+  run_count: 17, error_count: 0, error_rate: 0.0, abstain_count: 5, blocked_count: 1, p95_latency_ms: 6248.8, tool_calls: 13
+- Post-eval monitoring alerts: []
+
+6. Cleanup
+- Command: docker compose -p p2m2_final down -v
+  Result: EXIT 0 (containers, volumes, network removed)

@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import Settings, get_settings
@@ -32,8 +32,6 @@ from .contracts import (
     LeaveRequestView,
     LoginRequest,
     LoginResponse,
-    ManagerReviewRequest,
-    ManagerReviewResult,
     ProblemDetail,
     ProposalAttachmentView,
     UpdateTicketStatusRequest,
@@ -82,6 +80,12 @@ def build_runtime(settings: Settings):
     return repository, cache, AgentService(repository, provider, tools, settings)
 
 
+def _sanitize_upload_filename(raw_filename: str) -> str:
+    base = Path(raw_filename.strip()).name
+    redacted = redact(redact(base).replace("_", " "))
+    return re.sub(r"[^A-Za-z0-9._-]", "_", redacted) or "attachment"
+
+
 def _validate_attachment_bytes(content_type: str, data: bytes) -> None:
     if len(data) < 4 or len(data) > 5 * 1024 * 1024:
         raise HTTPException(status_code=422, detail="Attachment size must be between 4 bytes and 5 MB")
@@ -110,12 +114,17 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
                     tracker.flush()
                 except Exception:
                     pass
+            if hasattr(repository, "close"):
+                try:
+                    repository.close()
+                except Exception:
+                    pass
 
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.parsed_cors_origins,
         allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -151,8 +160,12 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
             405: "Method not allowed",
             409: "Conflict",
         }
+        headers = dict(getattr(exc, "headers", None) or {})
+        if exc.status_code == 401 and "WWW-Authenticate" not in headers:
+            headers["WWW-Authenticate"] = "Bearer"
         return JSONResponse(
             status_code=exc.status_code,
+            headers=headers or None,
             content=ProblemDetail(
                 title=titles.get(exc.status_code, "Request error"),
                 status=exc.status_code,
@@ -173,10 +186,18 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
 
     def authenticate(authorization: str | None) -> AuthContext:
         if not authorization or not authorization.startswith("Bearer "):
-            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid authentication credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         context = repository.authenticate(authorization[7:])
         if context is None:
-            raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid authentication credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         return context
 
     def current_auth(authorization: str | None = Header(default=None)) -> AuthContext:
@@ -187,41 +208,52 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
             raise HTTPException(status_code=403, detail="Monitoring admin access required")
         return auth
 
-    def manager_auth(auth: AuthContext = Depends(current_auth)) -> AuthContext:
-        if auth.role not in ("manager", "monitoring_admin"):
-            raise HTTPException(status_code=403, detail="Manager access required")
-        return auth
-
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
     @app.get("/readyz")
-    def readyz() -> dict[str, Any]:
+    def readyz() -> JSONResponse:
         repository_ready = bool(repository.health())
         cache_ready = bool(cache.health())
         configuration_ready = bool(settings.configuration_ready)
         ready = repository_ready and configuration_ready
-        return {
-            "status": "ready" if ready else "degraded",
-            "ready": ready,
-            "dependencies": {
-                "database": repository_ready,
-                "cache": cache_ready,
-                "configuration": configuration_ready,
+        return JSONResponse(
+            status_code=200 if ready else 503,
+            content={
+                "status": "ready" if ready else "degraded",
+                "ready": ready,
+                "dependencies": {
+                    "database": repository_ready,
+                    "cache": cache_ready,
+                    "configuration": configuration_ready,
+                },
             },
-        }
+        )
 
     @app.get("/auth/personas")
     def list_personas() -> list[dict[str, Any]]:
         if hasattr(repository, "list_personas"):
-            return repository.list_personas()
+            allow_demo = (
+                settings.allow_demo_session
+                and settings.environment.strip().casefold() != "production"
+            )
+            try:
+                return repository.list_personas(allow_demo_session=allow_demo)
+            except TypeError:
+                return repository.list_personas()
         return []
 
     @app.post("/auth/demo-session", response_model=LoginResponse)
     def create_demo_session(payload: DemoSessionRequest) -> LoginResponse:
-        if settings.environment.strip().casefold() == "production":
-            raise HTTPException(status_code=403, detail="Demo session login is disabled in production")
+        if (
+            not settings.allow_demo_session
+            or settings.environment.strip().casefold() == "production"
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Demo session login is disabled; use /auth/login",
+            )
         try:
             return repository.create_demo_session(payload.employee_id)
         except KeyError:
@@ -283,7 +315,11 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
 
     @app.get("/api/v1/leave-balances/me", response_model=list[LeaveBalance])
     def my_leave_balances(auth: AuthContext = Depends(current_auth)) -> list[LeaveBalance]:
-        return repository.get_balances(auth.employee_id)
+        today = settings.reference_date or date.today()
+        try:
+            return repository.get_balances(auth.employee_id, as_of=today)
+        except TypeError:
+            return repository.get_balances(auth.employee_id)
 
     @app.post("/api/v1/chat", response_model=ChatResponse)
     def chat(payload: ChatRequest, auth: AuthContext = Depends(current_auth)) -> ChatResponse:
@@ -335,7 +371,7 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
             raise HTTPException(status_code=422, detail="Invalid base64 attachment payload")
 
         _validate_attachment_bytes(payload.content_type, file_bytes)
-        safe_filename = re.sub(r"[^A-Za-z0-9._-]", "_", payload.filename.strip()) or "attachment"
+        safe_filename = _sanitize_upload_filename(payload.filename)
 
         try:
             return repository.save_proposal_attachment(
@@ -355,15 +391,26 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
         proposal_id: str,
         payload: ConfirmActionRequest,
         auth: AuthContext = Depends(current_auth),
+        x_enforce_sick_attachment: str | None = Header(default=None),
     ) -> ActionResult:
         today = settings.reference_date or date.today()
+        enforce_attachment = (x_enforce_sick_attachment or "").strip().lower() in {"1", "true", "yes"}
         try:
-            return repository.confirm_proposal(
-                auth.employee_id,
-                proposal_id,
-                payload.idempotency_key,
-                today=today,
-            )
+            try:
+                return repository.confirm_proposal(
+                    auth.employee_id,
+                    proposal_id,
+                    payload.idempotency_key,
+                    today=today,
+                    enforce_attachment=enforce_attachment,
+                )
+            except TypeError:
+                return repository.confirm_proposal(
+                    auth.employee_id,
+                    proposal_id,
+                    payload.idempotency_key,
+                    today=today,
+                )
         except KeyError:
             raise HTTPException(status_code=404, detail="Proposal not found")
         except ConflictError as error:
@@ -386,7 +433,7 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
             raise HTTPException(status_code=422, detail="Invalid base64 attachment payload")
 
         _validate_attachment_bytes(payload.content_type, file_bytes)
-        safe_filename = re.sub(r"[^A-Za-z0-9._-]", "_", payload.filename.strip()) or "attachment"
+        safe_filename = _sanitize_upload_filename(payload.filename)
 
         try:
             return repository.save_leave_attachment(
@@ -413,29 +460,11 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
         except PermissionError:
             raise HTTPException(status_code=403, detail="Not authorized to view this attachment")
 
-    @app.get("/api/v1/manager/leave-requests", response_model=list[LeaveRequestView])
-    def team_leave_requests(auth: AuthContext = Depends(manager_auth)) -> list[LeaveRequestView]:
-        return repository.list_team_leave_requests(
-            auth.employee_id,
-            include_all_departments=(auth.role == "monitoring_admin"),
-        )
-
-    @app.post("/api/v1/manager/leave-requests/{request_id}/review", response_model=ManagerReviewResult)
-    def review_leave_request(
-        request_id: str,
-        payload: ManagerReviewRequest,
-        auth: AuthContext = Depends(manager_auth),
-    ) -> ManagerReviewResult:
-        raise HTTPException(
-            status_code=403,
-            detail="Persetujuan akhir hanya dilakukan manusia di sistem HRIS; semua pengajuan berstatus pending_manager_review",
-        )
-
     @app.get("/api/v1/analytics/overview")
     def analytics_overview(
         metric_focus: str = "overview",
         low_balance_threshold: int = Query(default=3, ge=1, le=30),
-        auth: AuthContext = Depends(manager_auth),
+        auth: AuthContext = Depends(admin_auth),
     ) -> dict[str, Any]:
         return repository.get_hr_analytics(
             auth,
@@ -462,19 +491,28 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
             try:
                 return repository.list_monitoring_rules()
             except Exception:
-                return []
+                raise HTTPException(status_code=503, detail="Monitoring rules unavailable")
         return []
 
     @app.get("/api/v1/monitoring/alerts")
     def monitoring_alerts(auth: AuthContext = Depends(admin_auth)) -> list[dict[str, Any]]:
-        summary = repository.monitoring_summary()
-        if hasattr(repository, "list_monitoring_rules"):
-            try:
-                rules = repository.list_monitoring_rules()
-            except Exception:
-                rules = []
-        else:
-            rules = []
+        try:
+            summary = repository.monitoring_summary()
+            rules = (
+                repository.list_monitoring_rules()
+                if hasattr(repository, "list_monitoring_rules")
+                else []
+            )
+        except Exception:
+            raise HTTPException(status_code=503, detail="Monitoring alerts unavailable")
+
+        ops = {
+            "gt": lambda v, t: v > t,
+            "gte": lambda v, t: v >= t,
+            "lt": lambda v, t: v < t,
+            "lte": lambda v, t: v <= t,
+            "eq": lambda v, t: v == t,
+        }
         alerts = []
         samples = summary.get("run_count", summary.get("total_traces", 0))
         for rule in rules:
@@ -485,8 +523,8 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
                 continue
             threshold = rule["threshold"]
             op = rule.get("operator", "gt")
-            triggered = (metric_val > threshold) if op == "gt" else (metric_val >= threshold)
-            if triggered:
+            cmp_fn = ops.get(op, ops["gt"])
+            if cmp_fn(metric_val, threshold):
                 alerts.append({
                     "rule_id": rule["rule_id"],
                     "metric": rule["metric"],
@@ -502,8 +540,6 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
         if hasattr(repository, "list_tickets"):
             if auth.role == "monitoring_admin":
                 return repository.list_tickets()
-            if auth.role == "manager":
-                return repository.list_tickets(manager_id=auth.employee_id)
             return repository.list_tickets(employee_id=auth.employee_id)
         return []
 
@@ -511,17 +547,16 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
     def update_ticket_status(
         ticket_id: str,
         payload: UpdateTicketStatusRequest,
-        auth: AuthContext = Depends(manager_auth),
+        auth: AuthContext = Depends(admin_auth),
     ) -> dict[str, Any]:
         if not hasattr(repository, "update_ticket_status"):
             raise HTTPException(status_code=501, detail="Update ticket status not supported")
         try:
-            allowed_manager_id = None if auth.role == "monitoring_admin" else auth.employee_id
             return repository.update_ticket_status(
                 ticket_id,
                 payload.status,
                 auth.employee_id,
-                allowed_manager_id=allowed_manager_id,
+                allowed_manager_id=None,
             )
         except KeyError:
             raise HTTPException(status_code=404, detail="Ticket not found")
@@ -558,7 +593,6 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
                 "chat": "/api/v1/chat",
                 "tickets": "/api/v1/tickets",
                 "leave_requests": "/api/v1/leave-requests/me",
-                "manager_leave_requests": "/api/v1/manager/leave-requests",
                 "monitoring_summary": "/api/v1/monitoring/summary",
                 "monitoring_rules": "/api/v1/monitoring/rules",
                 "monitoring_alerts": "/api/v1/monitoring/alerts",
@@ -567,15 +601,20 @@ def create_app(*, settings: Settings | None = None, repository=None, cache=None,
 
     if is_vercel or is_backend_only or os.getenv("PREFER_ROOT_API") or not (web_dir / "index.html").is_file():
         app.add_api_route("/", root_info, methods=["GET"])
+    else:
+        @app.get("/", include_in_schema=False)
+        def serve_spa_index() -> FileResponse:
+            return FileResponse(web_dir / "index.html")
+
+        if (web_dir / "app.js").is_file():
+            @app.get("/app.js", include_in_schema=False)
+            def serve_spa_script() -> FileResponse:
+                return FileResponse(web_dir / "app.js", media_type="application/javascript")
+
+        if (web_dir / "asset").is_dir():
+            app.mount("/asset", StaticFiles(directory=str(web_dir / "asset")), name="web_assets")
 
     if public_dir.is_dir():
         app.mount("/public", StaticFiles(directory=str(public_dir)), name="public")
-    if web_dir.is_dir():
-        app.mount("/web", StaticFiles(directory=str(web_dir)), name="web_assets")
-        if not is_vercel and not is_backend_only:
-            app.mount("/portal", StaticFiles(directory=str(web_dir), html=True), name="portal_web")
-            # Mount at root only if web index exists and neither vercel nor backend_only is active
-            if (web_dir / "index.html").is_file() and not os.getenv("PREFER_ROOT_API"):
-                app.mount("/", StaticFiles(directory=str(web_dir), html=True), name="portal")
 
     return app

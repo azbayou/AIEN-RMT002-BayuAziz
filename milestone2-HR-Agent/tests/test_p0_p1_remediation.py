@@ -329,9 +329,10 @@ def test_sick_leave_attachment_required_before_confirm_and_admin_blocked() -> No
     assert proposal is not None
     assert proposal.requires_attachment is True
 
+    # Web SPA path: X-Enforce-Sick-Attachment: true blocks /confirm with 409 until attachment is uploaded
     confirm_before = client.post(
         f"/api/v1/action-proposals/{proposal.proposal_id}/confirm",
-        headers=AUTH_ALYA,
+        headers={**AUTH_ALYA, "X-Enforce-Sick-Attachment": "true"},
         json={"idempotency_key": "sick-confirm-001"},
     )
     assert confirm_before.status_code == 409
@@ -351,7 +352,7 @@ def test_sick_leave_attachment_required_before_confirm_and_admin_blocked() -> No
 
     confirm_after = client.post(
         f"/api/v1/action-proposals/{proposal.proposal_id}/confirm",
-        headers=AUTH_ALYA,
+        headers={**AUTH_ALYA, "X-Enforce-Sick-Attachment": "true"},
         json={"idempotency_key": "sick-confirm-001"},
     )
     assert confirm_after.status_code == 200
@@ -371,13 +372,35 @@ def test_sick_leave_attachment_required_before_confirm_and_admin_blocked() -> No
     assert owner_att.status_code == 200
     assert base64.b64decode(owner_att.json()["content_base64"]) == pdf_bytes
 
+    # Starter Streamlit app.py path (no upload UI, no enforcement header): confirms cleanly to pending_manager_review
+    _, starter_prop = tools.execute(
+        "prepare_leave_request",
+        {
+            "start_date": "2026-11-04",
+            "end_date": "2026-11-06",
+            "leave_type": "sick",
+            "reason": "Pemulihan lanjutan",
+        },
+        auth,
+    )
+    assert starter_prop is not None and starter_prop.requires_attachment is True
+    starter_confirm = client.post(
+        f"/api/v1/action-proposals/{starter_prop.proposal_id}/confirm",
+        headers=AUTH_ALYA,
+        json={"idempotency_key": "sick-starter-002"},
+    )
+    assert starter_confirm.status_code == 200
+    assert starter_confirm.json()["status"] == "pending_manager_review"
+
 
 # (f) Auth boundaries & pending-only hard gate
 def test_auth_boundaries_and_pending_only_review_lock() -> None:
     repo = MemoryRepository()
     _, _, _, _, client = _build_runtime(repo, reference_date=date(2026, 10, 26))
 
-    assert client.get("/api/v1/policies/rules").status_code == 401
+    unauth_rules = client.get("/api/v1/policies/rules")
+    assert unauth_rules.status_code == 401
+    assert unauth_rules.headers.get("www-authenticate") == "Bearer"
     assert client.get("/api/v1/evaluation/cases").status_code == 401
 
     personas_resp = client.get("/auth/personas")
@@ -387,10 +410,18 @@ def test_auth_boundaries_and_pending_only_review_lock() -> None:
     for p in personas:
         assert "balances" not in p
         assert "demo_token" not in p
+        assert p["requires_password"] is True
 
+    # Demo session bypass is disabled by default (prevents cross-employee impersonation)
     demo_emp = client.post("/auth/demo-session", json={"employee_id": "EMP-001"})
-    assert demo_emp.status_code == 200
-    session_token = demo_emp.json()["access_token"]
+    assert demo_emp.status_code == 403
+    demo_admin = client.post("/auth/demo-session", json={"employee_id": "ADM-001"})
+    assert demo_admin.status_code == 403
+
+    # Password login succeeds and binds token strictly to authenticated employee
+    login_emp = client.post("/auth/login", json={"username": "alya", "password": "Password#123"})
+    assert login_emp.status_code == 200
+    session_token = login_emp.json()["access_token"]
     assert session_token.startswith("sess_")
     assert (
         client.get(
@@ -400,10 +431,7 @@ def test_auth_boundaries_and_pending_only_review_lock() -> None:
         == 200
     )
 
-    demo_admin = client.post("/auth/demo-session", json={"employee_id": "ADM-001"})
-    assert demo_admin.status_code == 403
-
-    # Pending-only hard gate: /review cannot approve any leave request
+    # Manager endpoints do not exist and cannot approve leave requests
     prop = ActionProposal(
         proposal_id="AP-GATE-1",
         leave_type="annual",
@@ -416,38 +444,23 @@ def test_auth_boundaries_and_pending_only_review_lock() -> None:
     repo.save_proposal("EMP-001", prop)
     confirmed = repo.confirm_proposal("EMP-001", "AP-GATE-1", "gate-key-0001", today=date(2026, 10, 26))
 
-    admin_review = client.post(
-        f"/api/v1/manager/leave-requests/{confirmed.request_id}/review",
-        headers=AUTH_ADMIN,
-        json={"decision": "approved", "review_note": "Attempt auto-approve"},
+    assert client.get("/api/v1/manager/leave-requests", headers=AUTH_ADMIN).status_code == 404
+    assert (
+        client.post(
+            f"/api/v1/manager/leave-requests/{confirmed.request_id}/review",
+            headers=AUTH_ADMIN,
+            json={"decision": "approved", "review_note": "Attempt auto-approve"},
+        ).status_code
+        == 404
     )
-    assert admin_review.status_code in (403, 404)
-    emp_review = client.post(
-        f"/api/v1/manager/leave-requests/{confirmed.request_id}/review",
-        headers=AUTH_ALYA,
-        json={"decision": "approved", "review_note": "Self-approve"},
+    assert (
+        client.post(
+            f"/api/v1/manager/leave-requests/{confirmed.request_id}/review",
+            headers=AUTH_ALYA,
+            json={"decision": "approved", "review_note": "Self-approve"},
+        ).status_code
+        == 404
     )
-    assert emp_review.status_code in (403, 404)
-
-    # Even a manager account cannot approve leave via the API (pending-only hard gate)
-    mgr_repo = MemoryRepository(employees=[
-        {
-            "employee_id": "MGR-001",
-            "username": "manager",
-            "display_name": "Manager",
-            "role": "manager",
-            "department": "Engineering",
-            "token": "token-mgr",
-            "balances": {},
-        }
-    ])
-    _, _, _, _, mgr_client = _build_runtime(mgr_repo, reference_date=date(2026, 10, 26))
-    mgr_review = mgr_client.post(
-        f"/api/v1/manager/leave-requests/{confirmed.request_id}/review",
-        headers={"Authorization": "Bearer token-mgr"},
-        json={"decision": "approved", "review_note": "Manager approve"},
-    )
-    assert mgr_review.status_code in (403, 404)
     assert repo.list_leave_requests("EMP-001")[0].status == "pending_manager_review"
 
 
@@ -846,17 +859,26 @@ def test_opik_trace_preserves_metadata_redacts_input_and_flushes_on_lifespan(
     assert fake_client.flush_calls >= 1
     assert flush_tracker_calls >= 1
 
-    # (b) Opik trace input["message"] is present and PII/medical-redacted
+    # (b) Opik trace input & LLM spans are strictly metadata-only (no prompt/answer/tool text)
     assert len(fake_client.traces) == 1
     opik_trace = fake_client.traces[0]
     trace_input = opik_trace.init_kwargs["input"]
-    assert "message" in trace_input
-    assert "[REDACTED_MEDICAL]" in trace_input["message"]
-    assert "[REDACTED_TOKEN]" in trace_input["message"]
-    assert "diabetes" not in trace_input["message"].casefold()
-    assert "secret_XYZ" not in trace_input["message"]
+    assert "message" not in trace_input
+    assert trace_input["message_length"] == len("Diagnosis: diabetes; token-secret_XYZ")
+    assert trace_input["role"] == "employee"
+    assert trace_input["employee_hash"] == stable_safety_id("EMP-001")
+    dumped_opik = json.dumps(
+        {
+            "trace_init": opik_trace.init_kwargs,
+            "trace_end": opik_trace.end_kwargs,
+            "spans": [{"init": s.init_kwargs, "end": s.end_kwargs} for s in opik_trace.spans],
+        },
+        default=str,
+    )
+    for forbidden_text in ("diabetes", "secret_XYZ", "hidden reasoning step", "Jatah cuti tahunan adalah"):
+        assert forbidden_text not in dumped_opik
 
-    # (a) Base metadata survives root_trace.end() merged with outcome/citations/tokens
+    # (a) Base metadata & tags survive root_trace.end() merged with outcome/citations/tokens
     assert opik_trace.end_kwargs is not None
     end_meta = opik_trace.end_kwargs["metadata"]
     assert end_meta["trace_id"] == payload["trace_id"]
@@ -866,14 +888,14 @@ def test_opik_trace_preserves_metadata_redacts_input_and_flushes_on_lifespan(
     assert end_meta["model"] == "gpt-5-mini"
     assert end_meta["outcome"] == "answered"
     assert end_meta["citations"] == ["HR-LEAVE-001"]
+    assert opik_trace.end_kwargs["tags"] == ["employee", "staging", "answered"]
 
-    # LLM spans include redacted latest_input preview without leaking reasoning/system prompt
+    # LLM spans contain only metadata counts & token usage, never latest_input or text
     llm_spans = [s for s in opik_trace.spans if s.init_kwargs.get("type") == "llm"]
     assert len(llm_spans) == 2
-    assert "[REDACTED_MEDICAL]" in llm_spans[0].init_kwargs["input"]["latest_input"]
-    assert "[REDACTED_TOKEN]" in llm_spans[0].init_kwargs["input"]["latest_input"]
-    assert "HR-LEAVE-001" in llm_spans[1].init_kwargs["input"]["latest_input"]
-    assert "hidden reasoning step" not in llm_spans[1].init_kwargs["input"]["latest_input"]
+    assert "latest_input" not in llm_spans[0].init_kwargs["input"]
+    assert llm_spans[0].init_kwargs["input"]["turn"] == 0
+    assert llm_spans[0].init_kwargs["input"]["message_count"] == 1
 
 
 def test_opik_llm_preview_extraction_and_non_blocking_debounced_flush(monkeypatch) -> None:
@@ -881,34 +903,18 @@ def test_opik_llm_preview_extraction_and_non_blocking_debounced_flush(monkeypatc
     import time
     from types import SimpleNamespace
     import opik
-    from src.opik_tracker import OpikTracker, _extract_latest_turn_preview
+    from src.opik_tracker import OpikTracker, _metadata_only_span_output
 
-    # Preview extraction never returns system prompts or raw SDK reasoning items
-    assert (
-        _extract_latest_turn_preview([
-            {"role": "system", "content": "CONFIDENTIAL SYSTEM PROMPT"},
-            SimpleNamespace(type="reasoning", summary=["internal thought"]),
-        ])
-        == ""
+    llm_meta = _metadata_only_span_output(
+        "llm",
+        {"text": "Secret response", "tool_calls_count": 1, "input_tokens": 10, "output_tokens": 5},
+        "ok",
     )
+    assert llm_meta == {"tool_calls_count": 1, "input_tokens": 10, "output_tokens": 5}
+    assert "text" not in llm_meta
 
-    long_msg = "A" * 450
-    preview_user = _extract_latest_turn_preview([
-        {"role": "system", "content": "SYSTEM"},
-        {"role": "user", "content": long_msg},
-        SimpleNamespace(type="reasoning", summary=["internal thought"]),
-    ])
-    assert preview_user == "A" * 300
-    assert len(preview_user) == 300
-
-    preview_tool = _extract_latest_turn_preview([
-        {"role": "user", "content": "Pertanyaan awal"},
-        {"type": "function_call", "call_id": "1", "name": "get_calendar", "arguments": "{}"},
-        {"type": "function_call_output", "call_id": "1", "output": "B" * 400},
-        SimpleNamespace(type="reasoning", summary=["post-tool thought"]),
-    ])
-    assert preview_tool == "B" * 300
-    assert len(preview_tool) == 300
+    tool_meta = _metadata_only_span_output("tool", [{"content": "Confidential policy"}], "ok")
+    assert tool_meta == {"status": "ok", "result_type": "list", "item_count": 1}
 
     # Debounced flush runs in daemon thread without blocking LiveOpikTrace.end()
     monkeypatch.setenv("OPIK_API_KEY", "test-opik-key")
@@ -1073,14 +1079,15 @@ def test_opik_atomic_span_emission_and_trace_id_upsert(monkeypatch) -> None:
     ) as llm_span:
         llm_span.set_output({"text": "Saldo Anda 8 hari.", "input_tokens": 50, "output_tokens": 12})
 
-    # Atomic emission happens once upon span exit with full attributes (no 2-step update race)
+    # Atomic emission happens once upon span exit with strictly metadata-only payloads
     assert len(span_calls) == 1
     sp = span_calls[0]
     assert sp["name"] == "llm:respond"
     assert sp["type"] == "llm"
     assert sp["start_time"] <= sp["end_time"]
-    assert sp["input"]["latest_input"] == "Berapa saldo saya?"
-    assert sp["output"]["text"] == "Saldo Anda 8 hari."
+    assert "latest_input" not in sp["input"]
+    assert sp["input"] == {"turn": 0, "role": "employee", "message_count": 1}
+    assert sp["output"] == {"tool_calls_count": 0, "input_tokens": 50, "output_tokens": 12}
     assert sp["usage"] == {"prompt_tokens": 50, "completion_tokens": 12, "total_tokens": 62}
     assert sp["model"] == "gpt-5-mini"
     assert sp["provider"] == "openai"
@@ -1094,9 +1101,522 @@ def test_opik_atomic_span_emission_and_trace_id_upsert(monkeypatch) -> None:
     assert upsert_call["id"] == "01900000-0000-7000-8000-000000000001"
     assert upsert_call["name"] == "HR Agent Turn"
     assert upsert_call["start_time"] <= upsert_call["end_time"]
-    assert upsert_call["input"] == {"message": "Berapa saldo saya?", "history_length": 0}
-    assert upsert_call["output"] == {"answer": "Saldo Anda 8 hari."}
+    assert "message" not in upsert_call["input"]
+    assert upsert_call["input"]["message_length"] == len("Berapa saldo saya?")
+    assert "answer" not in upsert_call["output"]
+    assert upsert_call["output"]["outcome"] == "answered"
+    assert upsert_call["output"]["answer_length"] == len("Saldo Anda 8 hari.")
     assert upsert_call["metadata"]["trace_id"] == "trace-atomic-1"
     assert upsert_call["metadata"]["outcome"] == "answered"
-    assert upsert_call["tags"] == ["answered"]
+    assert upsert_call["tags"] == ["employee", "development", "answered"]
+
+
+def test_monitoring_admin_analytics_are_strictly_anonymized() -> None:
+    repo = MemoryRepository()
+    _, _, tools, _, client = _build_runtime(repo, reference_date=date(2026, 10, 26))
+
+    assert client.get("/api/v1/analytics/overview", headers=AUTH_ALYA).status_code == 403
+    res = client.get("/api/v1/analytics/overview?low_balance_threshold=30", headers=AUTH_ADMIN)
+    assert res.status_code == 200
+    body = res.json()
+    assert body["low_balance_employees"] == []
+    assert body["low_balance_employee_count"] == 2
+    serialized = json.dumps(body)
+    for leaked in ("EMP-001", "EMP-002", "Alya Pratama", "Bima Santoso"):
+        assert leaked not in serialized
+
+    admin_auth = AuthContext(employee_id="ADM-001", display_name="Monitoring Admin", role="monitoring_admin")
+    tool_res, _ = tools.execute(
+        "get_team_hr_analytics",
+        {"metric_focus": "balance_risks", "low_balance_threshold": 30},
+        admin_auth,
+    )
+    assert tool_res["low_balance_employees"] == []
+    assert tool_res["low_balance_employee_count"] == 2
+    emp_auth = AuthContext(employee_id="EMP-001", display_name="Alya Pratama", role="employee")
+    with pytest.raises(DomainError):
+        tools.execute("get_team_hr_analytics", {"metric_focus": "overview", "low_balance_threshold": 3}, emp_auth)
+
+
+def test_security_redaction_extended_patterns_and_attachment_filenames(monkeypatch) -> None:
+    monkeypatch.setattr(security, "_CACHED_TERMS", None)
+    monkeypatch.setattr(security, "_LAST_DB_ATTEMPT", 9999999999.0)
+
+    sample = (
+        "token=sess_abcdef1234567890abcdef api_key=mySecretKey123 "
+        "redis=redis://user:redispass@redis:6379/0 phone=021-5551234 "
+        "intl=+1-415-555-2671 cond=pneumonia and cancer at rumah sakit"
+    )
+    cleaned = security.redact(sample)
+    for sensitive in ("sess_abcdef", "mySecretKey123", "redispass", "021-5551234", "+1-415-555-2671", "pneumonia", "cancer"):
+        assert sensitive.casefold() not in cleaned.casefold()
+    assert "rumah sakit" in cleaned.casefold()
+    assert "surat keterangan sakit" in security.redact("Bawa surat keterangan sakit").casefold()
+
+    repo = MemoryRepository()
+    _, _, tools, _, client = _build_runtime(repo, reference_date=date(2026, 10, 26))
+    auth = AuthContext(employee_id="EMP-001", display_name="Alya Pratama", role="employee")
+    _, prop = tools.execute(
+        "prepare_leave_request",
+        {
+            "start_date": "2026-10-27",
+            "end_date": "2026-10-28",
+            "leave_type": "sick",
+            "reason": "Sakit pneumonia hubungi alya@example.com",
+        },
+        auth,
+    )
+    assert prop is not None
+    assert "pneumonia" not in (prop.reason or "").casefold()
+    assert "alya@example.com" not in (prop.reason or "")
+
+    att_res = client.post(
+        f"/api/v1/action-proposals/{prop.proposal_id}/attachment",
+        headers=AUTH_ALYA,
+        json={
+            "filename": "diabetes_081234567890.pdf",
+            "content_type": "application/pdf",
+            "content_base64": base64.b64encode(b"%PDF-1.4\n%test\n").decode("ascii"),
+        },
+    )
+    assert att_res.status_code == 200
+    assert "diabetes" not in att_res.json()["filename"].casefold()
+    assert "081234567890" not in att_res.json()["filename"]
+
+
+def test_monitoring_alerts_operators_and_memory_p95_percentile() -> None:
+    repo = MemoryRepository()
+    for idx, latency in enumerate((100.0, 200.0, 300.0, 400.0, 9500.0)):
+        repo.save_trace({
+            "trace_id": f"trace-p95-{idx}",
+            "employee_id": "EMP-001",
+            "outcome": "answered",
+            "error": None,
+            "blocked_reason": None,
+            "retrieved_document_ids": [],
+            "citation_ids": [],
+            "tool_calls": [],
+            "usage": {"input_tokens": 10, "output_tokens": 5, "latency_ms": latency},
+        })
+    summary = repo.monitoring_summary()
+    assert summary["p95_latency_ms"] == 9500.0
+
+    repo.monitoring_rules.append({
+        "rule_id": "min-tool-calls",
+        "metric": "tool_calls",
+        "operator": "lt",
+        "threshold": 1.0,
+        "minimum_samples": 5,
+        "owner": "AI Platform",
+        "response": "Verify tool usage.",
+    })
+    _, _, _, _, client = _build_runtime(repo, reference_date=date(2026, 10, 26))
+    alerts_res = client.get("/api/v1/monitoring/alerts", headers=AUTH_ADMIN)
+    assert alerts_res.status_code == 200
+    alert_ids = {a["rule_id"] for a in alerts_res.json()}
+    assert "agent-latency-p95" in alert_ids
+    assert "min-tool-calls" in alert_ids
+    assert "agent-error-spike" not in alert_ids
+
+
+def test_resilient_cache_degrades_gracefully_when_redis_fails() -> None:
+    from redis.exceptions import RedisError
+    from src.cache import ResilientCache
+
+    class BrokenRedisClient:
+        def ping(self) -> bool:
+            raise RedisError("connection refused")
+
+        def get(self, key: str):
+            raise RedisError("read timeout")
+
+        def setex(self, key: str, ttl: int, value: str) -> None:
+            raise RedisError("write timeout")
+
+    cache = ResilientCache("redis://localhost:6379/0")
+    cache.client = BrokenRedisClient()
+    assert cache.health() is False
+    assert cache.get("retrieval:key") is None
+    cache.set("retrieval:key", {"ok": True}, 60)  # must not raise
+
+
+def test_retrieval_respects_as_of_effective_date_and_latest_version() -> None:
+    repo = MemoryRepository()
+    repo.chunks = [
+        PolicyChunk(
+            chunk_id="c-v1",
+            document_id="HR-LEAVE-001",
+            title="Kebijakan Cuti Tahunan",
+            section="Hak",
+            version="1.0",
+            effective_date=date(2026, 1, 1),
+            content="Versi lama 12 hari cuti tahunan.",
+        ),
+        PolicyChunk(
+            chunk_id="c-v2",
+            document_id="HR-LEAVE-001",
+            title="Kebijakan Cuti Tahunan",
+            section="Hak",
+            version="2.0",
+            effective_date=date(2026, 6, 1),
+            content="Versi aktif 14 hari cuti tahunan.",
+        ),
+        PolicyChunk(
+            chunk_id="c-v3-future",
+            document_id="HR-LEAVE-001",
+            title="Kebijakan Cuti Tahunan",
+            section="Hak",
+            version="3.0",
+            effective_date=date(2027, 1, 1),
+            content="Versi masa depan 20 hari cuti tahunan.",
+        ),
+    ]
+    retrieval = RetrievalService(repo, DeterministicProvider(), NullCache(), 0)
+    results_2026 = retrieval.search("cuti tahunan", top_k=3, as_of=date(2026, 10, 26))
+    assert [c.chunk_id for c in results_2026] == ["c-v2"]
+    results_early = retrieval.search("cuti tahunan", top_k=3, as_of=date(2026, 3, 1))
+    assert [c.chunk_id for c in results_early] == ["c-v1"]
+
+
+def test_repository_overlap_blocks_active_requests_and_allows_cancelled() -> None:
+    repo = MemoryRepository()
+    auth = AuthContext(employee_id="EMP-001", display_name="Alya Pratama", role="employee")
+    _, _, tools, _, _ = _build_runtime(repo, reference_date=date(2026, 10, 26))
+
+    # Pending request overlaps -> tool & confirm must reject
+    _, p1 = tools.execute(
+        "prepare_leave_request",
+        {
+            "start_date": "2026-11-02",
+            "end_date": "2026-11-03",
+            "leave_type": "annual",
+            "reason": "Cuti pertama",
+        },
+        auth,
+    )
+    assert p1 is not None
+    repo.confirm_proposal("EMP-001", p1.proposal_id, "overlap-key-001", today=date(2026, 10, 26))
+    assert repo.has_overlap("EMP-001", date(2026, 11, 3), date(2026, 11, 4)) is True
+
+    with pytest.raises(DomainError, match="bertumpang tindih"):
+        tools.execute(
+            "prepare_leave_request",
+            {
+                "start_date": "2026-11-03",
+                "end_date": "2026-11-04",
+                "leave_type": "annual",
+                "reason": "Overlap",
+            },
+            auth,
+        )
+
+    # Cancelled/rejected request on another range must NOT block new requests
+    cancelled_req = repo.list_leave_requests("EMP-001")[0].model_copy(
+        update={
+            "request_id": "LR-CANCEL-1",
+            "start_date": date(2026, 12, 1),
+            "end_date": date(2026, 12, 2),
+            "status": "cancelled",
+        }
+    )
+    repo.requests["EMP-001"].append(cancelled_req)
+    assert repo.has_overlap("EMP-001", date(2026, 12, 1), date(2026, 12, 2)) is False
+
+
+def test_policy_miss_followed_by_ticket_returns_escalated_and_persists_ticket(
+    repository: MemoryRepository,
+) -> None:
+    auth = AuthContext(employee_id="EMP-001", display_name="Alya Pratama", role="employee")
+    provider = ScriptedProvider([
+        ModelTurn(
+            response_id="esc-t1",
+            tool_calls=[
+                ModelToolCall(
+                    call_id="c-search",
+                    name="search_hr_policy",
+                    arguments={"query": "pengecualian khusus", "top_k": 3},
+                ),
+                ModelToolCall(
+                    call_id="c-ticket",
+                    name="create_hr_ticket",
+                    arguments={"category": "leave_exception", "summary": "Mohon pengecualian kebijakan"},
+                ),
+            ],
+        ),
+        ModelTurn(
+            response_id="esc-t2",
+            text="Permintaan pengecualian Anda telah dieskalasikan ke tim HR.",
+        ),
+    ])
+    _, _, _, agent, _ = _build_runtime(repository, provider=provider)
+    resp = agent.run(ChatRequest(message="Tolong eskalasikan pengecualian cuti"), auth)
+    assert resp.outcome == Outcome.escalated
+    assert len(repository.list_tickets("EMP-001")) == 1
+
+
+def test_save_trace_failure_degrades_safely_and_deferred_proposals_do_not_orphan() -> None:
+    repo = MemoryRepository()
+    auth = AuthContext(employee_id="EMP-001", display_name="Alya Pratama", role="employee")
+
+    # 1. Fake citation after prepare_leave_request -> abstained & zero orphaned proposals saved
+    fake_cit_provider = ScriptedProvider([
+        ModelTurn(
+            response_id="o1",
+            tool_calls=[
+                ModelToolCall(
+                    call_id="p1",
+                    name="prepare_leave_request",
+                    arguments={
+                        "start_date": "2026-10-29",
+                        "end_date": "2026-10-30",
+                        "leave_type": "annual",
+                        "reason": "Liburan",
+                    },
+                )
+            ],
+        ),
+        ModelTurn(response_id="o2", text="Cuti disiapkan berdasarkan [POLICY-999]."),
+    ])
+    _, _, _, agent1, _ = _build_runtime(repo, provider=fake_cit_provider)
+    resp1 = agent1.run(ChatRequest(message="Ajukan cuti 2026-10-29 sampai 2026-10-30"), auth)
+    assert resp1.outcome == Outcome.abstained
+    assert repo.proposals == {}
+
+    # 2. save_trace raising DB outage degrades to HTTP 200 abstained (not 500) & creates zero tickets
+    def broken_save_trace(trace):
+        raise RuntimeError("database write failed")
+
+    repo2 = MemoryRepository()
+    repo2.save_trace = broken_save_trace
+    ok_provider = ScriptedProvider([
+        ModelTurn(
+            response_id="st1",
+            tool_calls=[
+                ModelToolCall(
+                    call_id="tc1",
+                    name="create_hr_ticket",
+                    arguments={"category": "policy_question", "summary": "Pertanyaan eskalasi"},
+                )
+            ],
+        ),
+        ModelTurn(response_id="st2", text="Tiket dibuat."),
+    ])
+    _, _, _, _, client2 = _build_runtime(repo2, provider=ok_provider)
+    res2 = client2.post("/api/v1/chat", headers=AUTH_ALYA, json={"message": "Buat tiket HR"})
+    assert res2.status_code == 200
+    assert res2.json()["outcome"] == "abstained"
+    assert repo2.tickets == {}
+
+
+def test_agent_last_turn_guard_approval_claim_block_and_multidoc_citations() -> None:
+    repo = MemoryRepository()
+    auth = AuthContext(employee_id="EMP-001", display_name="Alya Pratama", role="employee")
+
+    # Final turn tool call must NOT execute mutating prepare_leave_request
+    turns = [
+        ModelTurn(
+            response_id=f"lt-{i}",
+            tool_calls=[
+                ModelToolCall(
+                    call_id=f"c-{i}",
+                    name="prepare_leave_request",
+                    arguments={
+                        "start_date": "2026-10-29",
+                        "end_date": "2026-10-30",
+                        "leave_type": "annual",
+                        "reason": "Uji batas turn",
+                    },
+                )
+            ],
+        )
+        for i in range(4)
+    ]
+    _, _, _, agent_lt, _ = _build_runtime(repo, provider=ScriptedProvider(turns))
+    resp_lt = agent_lt.run(ChatRequest(message="Ajukan cuti"), auth)
+    assert resp_lt.outcome == Outcome.abstained
+    assert len(resp_lt.tool_calls) == 3  # 4th turn blocked before execution
+    assert repo.proposals == {}
+
+    # Un-negated positive approval claim forces abstention
+    repo2 = MemoryRepository()
+    repo2.chunks = [
+        PolicyChunk(
+            chunk_id="c-ap-1",
+            document_id="HR-LEAVE-001",
+            title="Kebijakan Cuti Tahunan",
+            section="Hak",
+            version="2.1",
+            effective_date=date(2026, 1, 1),
+            content="Cuti tahunan membutuhkan konfirmasi dan tinjauan manajer.",
+        )
+    ]
+    approve_provider = ScriptedProvider([
+        ModelTurn(
+            response_id="ap1",
+            tool_calls=[
+                ModelToolCall(
+                    call_id="ap-s",
+                    name="search_hr_policy",
+                    arguments={"query": "cuti tahunan", "top_k": 3},
+                )
+            ],
+        ),
+        ModelTurn(response_id="ap2", text="Cuti Anda sudah disetujui otomatis [HR-LEAVE-001]."),
+    ])
+    _, _, _, agent_ap, _ = _build_runtime(repo2, provider=approve_provider)
+    resp_ap = agent_ap.run(ChatRequest(message="Setujui cuti saya"), auth)
+    assert resp_ap.outcome == Outcome.abstained
+    assert resp_ap.citations == []
+
+    # Comma-separated multi-citation list [HR-LEAVE-001, HR-LEAVE-002] resolves both citations
+    repo3 = MemoryRepository()
+    repo3.chunks = [
+        PolicyChunk(
+            chunk_id="c-mc-1",
+            document_id="HR-LEAVE-001",
+            title="Kebijakan Cuti Tahunan",
+            section="Hak",
+            version="2.1",
+            effective_date=date(2026, 1, 1),
+            content="Jatah cuti tahunan adalah 12 hari kerja.",
+        ),
+        PolicyChunk(
+            chunk_id="c-mc-2",
+            document_id="HR-LEAVE-002",
+            title="Kebijakan Cuti Sakit",
+            section="Surat Dokter",
+            version="1.4",
+            effective_date=date(2026, 1, 1),
+            content="Cuti sakit lebih dari dua hari memerlukan surat dokter.",
+        ),
+    ]
+    multi_provider = ScriptedProvider([
+        ModelTurn(
+            response_id="mc1",
+            tool_calls=[
+                ModelToolCall(
+                    call_id="mc-s",
+                    name="search_hr_policy",
+                    arguments={"query": "cuti tahunan sakit", "top_k": 5},
+                )
+            ],
+        ),
+        ModelTurn(response_id="mc2", text="Lihat aturan cuti [HR-LEAVE-001, HR-LEAVE-002]."),
+    ])
+    _, _, _, agent_mc, _ = _build_runtime(repo3, provider=multi_provider)
+    resp_mc = agent_mc.run(ChatRequest(message="Jelaskan cuti tahunan dan sakit"), auth)
+    assert resp_mc.outcome == Outcome.answered
+    assert {c.document_id for c in resp_mc.citations} == {"HR-LEAVE-001", "HR-LEAVE-002"}
+
+
+def test_run_evaluation_fifth_gate_and_http_error_denominators(tmp_path: Path, monkeypatch) -> None:
+    repo = MemoryRepository()
+    repo.evaluation_cases = [
+        {
+            "case_id": "policy-annual-001",
+            "category": "policy",
+            "input": "Berapa jatah cuti tahunan?",
+            "expected_documents": ["HR-LEAVE-001"],
+            "expected_tools": ["search_hr_policy"],
+            "hard_gate": False,
+        }
+    ]
+    _, _, _, _, test_client = _build_runtime(repo, reference_date=date(2026, 10, 26))
+
+    # Case 1: HTTP timeout keeps case in Recall@3 / Tool Accuracy / latency denominators
+    class _TimeoutClient:
+        def __init__(self, *args, **kwargs):
+            self._headers = kwargs.get("headers") or {}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url: str):
+            return test_client.get(url, headers=self._headers)
+
+        def post(self, url: str, json=None):
+            raise httpx.ReadTimeout("timed out")
+
+    monkeypatch.setattr(httpx, "Client", _TimeoutClient)
+    timeout_report = run_evaluation.run(
+        "http://testserver", "token-alya", cases_path=None, output_path=tmp_path / "timeout.json"
+    )
+    assert timeout_report["retrieval_recall_at_3"] == 0.0
+    assert timeout_report["citation_validity"] == 0.0
+    assert timeout_report["tool_selection_accuracy"] == 0.0
+    assert timeout_report["latency_ms"]["p95"] is not None
+    assert timeout_report["release_decision"] == "block"
+
+    # Case 2: System creating an approved leave request fails 5th release gate
+    ok_provider = ScriptedProvider([
+        ModelTurn(
+            response_id="g5-1",
+            tool_calls=[
+                ModelToolCall(
+                    call_id="g5-c",
+                    name="search_hr_policy",
+                    arguments={"query": "cuti tahunan", "top_k": 3},
+                )
+            ],
+        ),
+        ModelTurn(response_id="g5-2", text="Jatah cuti tahunan 12 hari kerja [HR-LEAVE-001]."),
+    ])
+    repo2 = MemoryRepository()
+    repo2.chunks = [
+        PolicyChunk(
+            chunk_id="c-g5-1",
+            document_id="HR-LEAVE-001",
+            title="Kebijakan Cuti Tahunan",
+            section="Hak",
+            version="2.1",
+            effective_date=date(2026, 1, 1),
+            content="Pegawai tetap memperoleh 12 hari kerja cuti tahunan.",
+        )
+    ]
+    repo2.evaluation_cases = repo.evaluation_cases
+    _, _, _, _, ok_client = _build_runtime(repo2, reference_date=date(2026, 10, 26), provider=ok_provider)
+
+    class _ApprovedLeakClient:
+        def __init__(self, *args, **kwargs):
+            self._headers = kwargs.get("headers") or {}
+            self._calls = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url: str):
+            if url == "/api/v1/leave-requests/me":
+                self._calls += 1
+                if self._calls > 1:
+                    return httpx.Response(
+                        200,
+                        json=[{"request_id": "LR-BAD", "status": "approved"}],
+                    )
+            return ok_client.get(url, headers=self._headers)
+
+        def post(self, url: str, json=None):
+            return ok_client.post(url, headers=self._headers, json=json)
+
+    monkeypatch.setattr(httpx, "Client", _ApprovedLeakClient)
+    leak_report = run_evaluation.run(
+        "http://testserver", "token-alya", cases_path=None, output_path=tmp_path / "leak.json"
+    )
+    assert leak_report["no_system_approved_requests"] is False
+    assert leak_report["release_decision"] == "block"
+
+
+def test_static_files_do_not_expose_vercel_json_or_405_unknown_post() -> None:
+    repo = MemoryRepository()
+    _, _, _, _, client = _build_runtime(repo, reference_date=date(2026, 10, 26))
+    assert client.get("/").status_code == 200
+    assert client.get("/vercel.json").status_code == 404
+    assert client.post("/api/v1/nonexistent").status_code == 404
+    assert client.post("/nonexistent").status_code == 404
+
 

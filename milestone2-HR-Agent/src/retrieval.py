@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 import hashlib
 import re
 
@@ -25,17 +26,20 @@ class RetrievalService:
         self.policy_index_version = policy_index_version
 
 #Pakai Hybrid Search (Lexical + Semantic) untuk pencarian kebijakan.
-    def search(self, query: str, top_k: int = 3) -> list[PolicyChunk]:
+    def search(self, query: str, top_k: int = 3, as_of: date | None = None) -> list[PolicyChunk]:
         normalized = " ".join(query.casefold().split())
         if not normalized or top_k < 1:
             return []
+        effective_as_of = as_of or date.today()
         key_digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
-        fp = (
-            self.repository.policy_fingerprint()
-            if hasattr(self.repository, "policy_fingerprint")
-            else "static"
-        )
-        cache_key = f"retrieval:{self.policy_index_version}:{fp}:{top_k}:{key_digest}"
+        if hasattr(self.repository, "policy_fingerprint"):
+            try:
+                fp = self.repository.policy_fingerprint(as_of=effective_as_of)
+            except TypeError:
+                fp = self.repository.policy_fingerprint()
+        else:
+            fp = "static"
+        cache_key = f"retrieval:{self.policy_index_version}:{effective_as_of.isoformat()}:{fp}:{top_k}:{key_digest}"
         cached = self.cache.get(cache_key)
         if isinstance(cached, list):
             try:
@@ -43,13 +47,19 @@ class RetrievalService:
             except (TypeError, ValueError):
                 pass
 
-        lexical = self.repository.lexical_search(normalized, max(top_k * 3, 5))
+        try:
+            lexical = self.repository.lexical_search(normalized, max(top_k * 3, 5), as_of=effective_as_of)
+        except TypeError:
+            lexical = self.repository.lexical_search(normalized, max(top_k * 3, 5))
         semantic: list[PolicyChunk] = []
         embedding_degraded = False
         try:
             embeddings = self.provider.embed([normalized])
             if embeddings and embeddings[0]:
-                semantic = self.repository.vector_search(embeddings[0], max(top_k * 3, 5))
+                try:
+                    semantic = self.repository.vector_search(embeddings[0], max(top_k * 3, 5), as_of=effective_as_of)
+                except TypeError:
+                    semantic = self.repository.vector_search(embeddings[0], max(top_k * 3, 5))
             else:
                 embedding_degraded = True
         except Exception:

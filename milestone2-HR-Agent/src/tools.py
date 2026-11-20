@@ -109,7 +109,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 MANAGER_ANALYTICS_TOOL_SCHEMA: dict[str, Any] = {
     "type": "function",
     "name": "get_team_hr_analytics",
-    "description": "Ambil ringkasan analitik SDM, tren cuti tim, risiko saldo rendah, dan metrik operasional (khusus Manager dan Admin).",
+    "description": "Ambil ringkasan analitik SDM agregat anonim, tren cuti perusahaan, jumlah risiko saldo rendah, dan metrik operasional (khusus Monitoring Admin; tanpa data individu pegawai).",
     "strict": True,
     "parameters": {
         "type": "object",
@@ -131,7 +131,7 @@ MANAGER_ANALYTICS_TOOL_SCHEMA: dict[str, Any] = {
 
 
 def get_tools_for_role(role: str) -> list[dict[str, Any]]:
-    if role in ("manager", "monitoring_admin"):
+    if role == "monitoring_admin":
         return [*TOOL_SCHEMAS, MANAGER_ANALYTICS_TOOL_SCHEMA]
     return list(TOOL_SCHEMAS)
 
@@ -173,10 +173,19 @@ class ToolExecutor:
         if not query:
             return None
         try:
-            chunks = self.retrieval.search(query, top_k=2)
+            try:
+                chunks = self.retrieval.search(query, top_k=2, as_of=active_today)
+            except TypeError:
+                chunks = self.retrieval.search(query, top_k=2)
             return "\n".join(c.content for c in chunks) if chunks else None
         except Exception:
             return None
+
+    def _get_balances_as_of(self, employee_id: str, today: date) -> list:
+        try:
+            return self.repository.get_balances(employee_id, as_of=today)
+        except TypeError:
+            return self.repository.get_balances(employee_id)
 
     def _build_leave_proposal(self, args: PrepareLeaveArgs, auth: AuthContext) -> ActionProposal:
         """Run deterministic domain validation and construct an unconfirmed leave proposal."""
@@ -184,20 +193,21 @@ class ToolExecutor:
         policy_text = self._lookup_leave_policy_text(args.leave_type, today=today)
         days, summary = validate_leave_request(
             args,
-            self.repository.get_balances(auth.employee_id),
+            self._get_balances_as_of(auth.employee_id, today),
             self.repository.has_overlap(auth.employee_id, args.start_date, args.end_date),
             today,
             policy_text=policy_text,
         )
         threshold = get_sick_leave_doc_threshold(policy_text)
         requires_att = (args.leave_type == "sick" and days > threshold)
+        clean_reason = redact(args.reason) if args.reason else None
         return ActionProposal(
             proposal_id=f"AP-{uuid4().hex[:12]}",
             leave_type=args.leave_type,
             start_date=args.start_date,
             end_date=args.end_date,
             business_days=days,
-            reason=args.reason,
+            reason=clean_reason,
             validation_summary=summary,
             expires_at=datetime.now(timezone.utc)
             + timedelta(minutes=self.settings.proposal_ttl_minutes),
@@ -210,17 +220,21 @@ class ToolExecutor:
         arguments: dict[str, Any],
         auth: AuthContext,
         defer_tickets: bool = False,
+        defer_proposals: bool = False,
     ) -> tuple[Any, ActionProposal | None]:
+        today = self._resolve_today()
         if name == "search_hr_policy":
             args = SearchPolicyArgs.model_validate(arguments)
-            return self.retrieval.search(args.query, args.top_k), None
+            try:
+                return self.retrieval.search(args.query, args.top_k, as_of=today), None
+            except TypeError:
+                return self.retrieval.search(args.query, args.top_k), None
         if name == "get_my_leave_balance":
             if arguments:
                 raise ValueError("get_my_leave_balance tidak menerima argumen")
-            return self.repository.get_balances(auth.employee_id), None
+            return self._get_balances_as_of(auth.employee_id, today), None
         if name == "get_calendar":
             args = CalendarArgs.model_validate(arguments)
-            today = self._resolve_today()
             annual_text = (
                 self.repository.get_policy_document_text("HR-LEAVE-001", as_of=today)
                 if hasattr(self.repository, "get_policy_document_text")
@@ -236,7 +250,7 @@ class ToolExecutor:
             sick_threshold = get_sick_leave_doc_threshold(sick_text)
             day_names = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
             items = []
-            for offset in range(args.days + 1):
+            for offset in range(args.days):
                 current = today + timedelta(days=offset)
                 items.append(
                     {
@@ -257,7 +271,8 @@ class ToolExecutor:
         if name == "prepare_leave_request":
             args = PrepareLeaveArgs.model_validate(arguments)
             proposal = self._build_leave_proposal(args, auth)
-            self.repository.save_proposal(auth.employee_id, proposal)
+            if not defer_proposals:
+                self.repository.save_proposal(auth.employee_id, proposal)
             return proposal, proposal
         if name == "create_hr_ticket":
             args = TicketArgs.model_validate(arguments)
@@ -285,9 +300,9 @@ class ToolExecutor:
                 "staged": True,
             }, None
         if name == "get_team_hr_analytics":
-            if auth.role not in ("manager", "monitoring_admin"):
+            if auth.role != "monitoring_admin":
                 from .domain import DomainError
-                raise DomainError("akses analitik hanya diizinkan untuk Manager atau HR Admin")
+                raise DomainError("akses analitik hanya diizinkan untuk Monitoring Admin")
             args = AnalyticsQueryArgs.model_validate(arguments)
             return self.repository.get_hr_analytics(auth, args.metric_focus, low_balance_threshold=args.low_balance_threshold), None
         raise ValueError(f"unknown tool: {name}")

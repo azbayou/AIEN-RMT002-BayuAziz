@@ -89,6 +89,7 @@ def reset_and_seed(reset: bool = False) -> None:
                     "policy_chunks, leave_balances, persona_tokens, medical_terms, monitoring_rules, employees CASCADE"
                 )
             cursor.execute("DROP TABLE IF EXISTS persona_tokens CASCADE")
+            cursor.execute("DROP TABLE IF EXISTS approval_audit_logs CASCADE")
             dimension = settings.embedding_dimensions
             cursor.execute("CREATE EXTENSION IF NOT EXISTS vector")
             cursor.execute(
@@ -98,7 +99,7 @@ def reset_and_seed(reset: bool = False) -> None:
                     username TEXT UNIQUE,
                     password_hash TEXT,
                     display_name TEXT NOT NULL,
-                    role TEXT NOT NULL CHECK (role IN ('employee', 'manager', 'monitoring_admin')),
+                    role TEXT NOT NULL CHECK (role IN ('employee', 'monitoring_admin')),
                     department TEXT,
                     manager_id TEXT,
                     token_hash TEXT NOT NULL UNIQUE
@@ -107,9 +108,10 @@ def reset_and_seed(reset: bool = False) -> None:
                 ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_hash TEXT;
                 ALTER TABLE employees ADD COLUMN IF NOT EXISTS department TEXT;
                 ALTER TABLE employees ADD COLUMN IF NOT EXISTS manager_id TEXT;
+                UPDATE employees SET role = 'employee' WHERE role = 'manager';
                 ALTER TABLE employees DROP CONSTRAINT IF EXISTS employees_role_check;
                 ALTER TABLE employees ADD CONSTRAINT employees_role_check
-                    CHECK (role IN ('employee', 'manager', 'monitoring_admin'));
+                    CHECK (role IN ('employee', 'monitoring_admin'));
                 CREATE TABLE IF NOT EXISTS auth_sessions (
                     session_token_hash TEXT PRIMARY KEY,
                     employee_id TEXT NOT NULL REFERENCES employees(employee_id) ON DELETE CASCADE,
@@ -205,15 +207,6 @@ def reset_and_seed(reset: bool = False) -> None:
                 ALTER TABLE leave_requests ADD CONSTRAINT leave_requests_status_check
                     CHECK (status IN ('pending_manager_review', 'approved', 'rejected', 'cancelled'));
 
-                CREATE TABLE IF NOT EXISTS approval_audit_logs (
-                    audit_id TEXT PRIMARY KEY,
-                    request_id TEXT NOT NULL REFERENCES leave_requests(request_id),
-                    reviewer_id TEXT NOT NULL REFERENCES employees(employee_id),
-                    previous_status TEXT NOT NULL,
-                    new_status TEXT NOT NULL CHECK (new_status IN ('approved', 'rejected')),
-                    review_note TEXT NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-                );
                 CREATE TABLE IF NOT EXISTS leave_attachments (
                     request_id TEXT PRIMARY KEY REFERENCES leave_requests(request_id) ON DELETE CASCADE,
                     employee_id TEXT NOT NULL REFERENCES employees(employee_id),
@@ -277,12 +270,6 @@ def reset_and_seed(reset: bool = False) -> None:
                         "UPDATE tickets SET updated_by = NULL "
                         "WHERE updated_by IS NOT NULL AND NOT (updated_by = ANY(%s::text[]))",
                         (valid_emp_ids,),
-                    )
-                    cursor.execute(
-                        "DELETE FROM approval_audit_logs "
-                        "WHERE NOT (reviewer_id = ANY(%s::text[])) "
-                        "OR request_id IN (SELECT request_id FROM leave_requests WHERE NOT (employee_id = ANY(%s::text[])))",
-                        (valid_emp_ids, valid_emp_ids),
                     )
                     cursor.execute(
                         "DELETE FROM leave_attachments "
@@ -496,6 +483,10 @@ def reset_and_seed(reset: bool = False) -> None:
             embeddings = provider.embed(
                 [f"{chunk['title']} - {chunk['section']}\n{chunk['content']}" for chunk in policies]
             )
+            if len(embeddings) != len(policies):
+                raise ValueError(
+                    f"embedding count mismatch: expected {len(policies)}, got {len(embeddings)}"
+                )
             if any(len(vector) != dimension for vector in embeddings):
                 raise ValueError("embedding dimensions do not match EMBEDDING_DIMENSIONS")
 

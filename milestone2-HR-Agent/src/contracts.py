@@ -17,7 +17,7 @@ class Outcome(str, Enum):
 class AuthContext(BaseModel):
     employee_id: str
     display_name: str
-    role: Literal["employee", "manager", "monitoring_admin"] = "employee"
+    role: Literal["employee", "monitoring_admin"] = "employee"
     department: str | None = None
     manager_id: str | None = None
 
@@ -217,21 +217,6 @@ class ProposalAttachmentView(BaseModel):
     content_type: str
     file_size_bytes: int
     uploaded_at: datetime
-
-
-class ManagerReviewRequest(BaseModel):
-    decision: Literal["approved", "rejected"]
-    review_note: str = Field(default="Reviewed by manager", min_length=3, max_length=300)
-
-
-class ManagerReviewResult(BaseModel):
-    request_id: str
-    employee_id: str
-    status: Literal["approved", "rejected"]
-    reviewed_by: str
-    review_note: str
-    reviewed_at: datetime
-    audit_reference: str
 
 
 class AudioTranscribeRequest(BaseModel):

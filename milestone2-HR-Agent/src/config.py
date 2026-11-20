@@ -13,6 +13,11 @@ class Settings(BaseSettings):
 
     app_name: str = "HR Policy and Leave Assistant"
     environment: str = "development"
+    allow_demo_session: bool = False
+    cors_origins: str = (
+        "http://localhost:8000,http://localhost:8501,"
+        "http://127.0.0.1:8000,http://127.0.0.1:8501"
+    )
     database_url: str = ""
     redis_url: str | None = "redis://redis:6379/0"
     openai_api_key: str | None = None
@@ -87,6 +92,16 @@ class Settings(BaseSettings):
         if "://" not in clean:
             raise ValueError("service URL must include a scheme")
         return clean
+
+    @property
+    def parsed_cors_origins(self) -> list[str]:
+        origins = [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+        return origins or [
+            "http://localhost:8000",
+            "http://localhost:8501",
+            "http://127.0.0.1:8000",
+            "http://127.0.0.1:8501",
+        ]
 
     @property
     def live_model_ready(self) -> bool:

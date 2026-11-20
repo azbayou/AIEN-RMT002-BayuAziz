@@ -45,6 +45,7 @@ class OpenAIProvider:
                 kwargs["base_url"] = base_url.strip()
             elif not (os.environ.get("OPENAI_BASE_URL") or "").strip():
                 kwargs["base_url"] = "https://api.openai.com/v1"
+            kwargs.setdefault("max_retries", 0)
             self.client = OpenAI(**kwargs)
 
     @staticmethod
@@ -92,15 +93,27 @@ class OpenAIProvider:
                 raw_args = getattr(item, "arguments", "{}")
                 if isinstance(raw_args, dict):
                     parsed_args = raw_args
-                elif isinstance(raw_args, str):
-                    try:
-                        parsed_args = json.loads(raw_args) if raw_args.strip() else {}
-                    except json.JSONDecodeError:
-                        parsed_args = {}
-                    if not isinstance(parsed_args, dict):
-                        parsed_args = {}
-                else:
+                elif raw_args is None:
                     parsed_args = {}
+                elif isinstance(raw_args, str):
+                    stripped_args = raw_args.strip()
+                    if not stripped_args:
+                        parsed_args = {}
+                    else:
+                        try:
+                            parsed_args = json.loads(stripped_args)
+                        except json.JSONDecodeError as err:
+                            raise ValueError(
+                                f"Malformed JSON tool arguments for {getattr(item, 'name', 'tool')}"
+                            ) from err
+                        if not isinstance(parsed_args, dict):
+                            raise ValueError(
+                                f"Tool arguments must be a JSON object for {getattr(item, 'name', 'tool')}"
+                            )
+                else:
+                    raise ValueError(
+                        f"Unsupported tool argument type for {getattr(item, 'name', 'tool')}"
+                    )
                 tool_calls.append(
                     {
                         "call_id": getattr(item, "call_id", getattr(item, "id", "")),
