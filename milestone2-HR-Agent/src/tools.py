@@ -91,7 +91,7 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "type": "function",
-        "name": "get_calendar",
+        "name": "get_calendar", #tambahan tool untuk menampilkan kalender
         "description": "Ambil daftar tanggal kalender, nama hari, dan status hari kerja atau akhir pekan mulai dari hari ini.",
         "strict": True,
         "parameters": {
