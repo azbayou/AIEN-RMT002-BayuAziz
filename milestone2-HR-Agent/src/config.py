@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_base_url: str | None = None
     gemini_api_key: str | None = None
-    gemini_stt_model: str = "gemini-2.5-flash"
+    gemini_stt_model: str = "gemini-3.5-flash-lite"
     agent_model: str = ""
     embedding_model: str = ""
     stt_model: str = "whisper-1"

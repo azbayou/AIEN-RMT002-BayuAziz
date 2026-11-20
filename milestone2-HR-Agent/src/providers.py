@@ -144,12 +144,13 @@ class OpenAIProvider:
 
         b64_audio = base64.b64encode(audio_bytes).decode("ascii")
 
-        # Models to try: configured Gemini STT model first, then standard Gemini Flash fallbacks
+        # Models to try: configured Gemini STT model first, then verified Gemini Flash fallbacks
         models_to_try: list[str] = []
         for candidate in (
             self.gemini_stt_model,
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.5-transcribe",
+            "gemini-3.5-flash",
         ):
             if candidate and isinstance(candidate, str):
                 clean_candidate = candidate.strip()
@@ -180,7 +181,11 @@ class OpenAIProvider:
                             },
                         ]
                     }
-                ]
+                ],
+                "generationConfig": {
+                    "temperature": 0.0,
+                    "topP": 0.1,
+                },
             }
             try:
                 resp = httpx.post(url, json=payload, headers=headers, timeout=25.0)
@@ -188,7 +193,11 @@ class OpenAIProvider:
                     data = resp.json()
                     candidates = data.get("candidates", [])
                     if candidates:
-                        content = candidates[0].get("content")
+                        cand = candidates[0]
+                        # Handle models (like gemini-3.5-transcribe) that return STOP without content on silence
+                        if cand.get("finishReason") in ("STOP", "MAX_TOKENS") and not cand.get("content"):
+                            return ""
+                        content = cand.get("content")
                         if content and isinstance(content, dict):
                             parts = content.get("parts", [])
                             text = "".join(p.get("text", "") for p in parts if isinstance(p, dict) and "text" in p).strip()

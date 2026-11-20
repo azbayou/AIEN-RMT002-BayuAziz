@@ -1079,7 +1079,11 @@ createApp({
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         audioChunks = [];
         const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 'audio/wav';
-        mediaRecorder = new MediaRecorder(stream);
+        try {
+          mediaRecorder = new MediaRecorder(stream, { mimeType });
+        } catch (_) {
+          mediaRecorder = new MediaRecorder(stream);
+        }
 
         mediaRecorder.ondataavailable = (e) => {
           if (e.data.size > 0) audioChunks.push(e.data);
