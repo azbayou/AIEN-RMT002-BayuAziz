@@ -20,7 +20,10 @@ s = get_settings()
 with connect_db(s.database_url) as conn:
     emp = conn.execute('SELECT COUNT(*) FROM employees').fetchone()[0]
     chunks = conn.execute('SELECT COUNT(*) FROM policy_chunks').fetchone()[0]
-sys.exit(0 if (emp > 0 and chunks > 0) else 1)
+    has_sessions = conn.execute(\"SELECT to_regclass('public.auth_sessions')\").fetchone()[0] is not None
+    has_prop_att = conn.execute(\"SELECT to_regclass('public.proposal_attachments')\").fetchone()[0] is not None
+    has_eval = conn.execute(\"SELECT to_regclass('public.evaluation_cases')\").fetchone()[0] is not None
+sys.exit(0 if (emp > 0 and chunks > 0 and has_sessions and has_prop_att and has_eval) else 1)
 " >/dev/null 2>&1; then
         echo "Running database schema migrations & setup..."
         python -m src.setup_lab || {
