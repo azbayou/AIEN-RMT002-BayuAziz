@@ -279,6 +279,19 @@
             </button>
           </div>
 
+          <div v-if="personasCatalog.length === 0"
+            class="bg-claude-surface border border-amber-500/30 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div class="flex items-start gap-2.5 text-claude-secondary">
+              <i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5"></i>
+              <span class="leading-relaxed">{{ personasError || 'Belum ada profil aktif yang dimuat dari server.' }}</span>
+            </div>
+            <button @click="fetchSystemInit()"
+              class="px-3 py-1.5 rounded-lg bg-claude-elevated hover:bg-blue-600 hover:text-white text-claude-text border border-claude-border font-semibold flex items-center gap-1.5 transition flex-shrink-0 self-start sm:self-center">
+              <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+              <span>Muat Ulang Profil</span>
+            </button>
+          </div>
+
           <div class="pt-4 flex items-center justify-between text-xs text-claude-muted">
             <span>Mengambil {{ personasCatalog.length }} profil aktif dari database</span>
             <button @click="openManualLoginModal" class="text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1">
@@ -1490,6 +1503,9 @@
             <div>
               <label class="block text-[11px] font-medium text-claude-secondary mb-1">Preset Cepat:</label>
               <div class="flex flex-wrap gap-1.5">
+                <button @click="tempApiUrl = ''" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
+                  Same-Origin (Default)
+                </button>
                 <button @click="tempApiUrl = 'http://localhost:8000'" class="px-2 py-1 rounded-lg bg-claude-elevated hover:bg-claude-blue-subtle hover:text-blue-400 border border-claude-border text-[10px] font-mono transition">
                   Localhost (8000)
                 </button>
@@ -1529,6 +1545,6 @@
 
   </div>
 
-  <script src="./app.js?v=3.3"></script>
+  <script src="./app.js?v=3.4"></script>
 </body>
 </html>

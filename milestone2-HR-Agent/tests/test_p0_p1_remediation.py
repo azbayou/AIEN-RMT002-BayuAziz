@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 import httpx
+import psycopg
 import pytest
 
 from src.agent import AgentService
@@ -30,7 +31,7 @@ from src.domain import (
     validate_leave_request,
 )
 from src.providers import DeterministicProvider
-from src.repository import MemoryRepository, redact_trace
+from src.repository import MemoryRepository, PostgresRepository, redact_trace
 from src.retrieval import RetrievalService
 from src import run_evaluation
 from src import security
@@ -1618,5 +1619,129 @@ def test_static_files_do_not_expose_vercel_json_or_405_unknown_post() -> None:
     assert client.get("/vercel.json").status_code == 404
     assert client.post("/api/v1/nonexistent").status_code == 404
     assert client.post("/nonexistent").status_code == 404
+
+
+def test_cors_preflight_allows_vercel_frontend_and_blocks_unknown_origin() -> None:
+    repo = MemoryRepository()
+    settings = Settings(
+        _env_file=None,
+        model_mode="fake",
+        opik_enabled=False,
+        environment="production",
+        allow_demo_session=False,
+        reference_date=date(2026, 10, 26),
+    )
+    provider = DeterministicProvider()
+    cache = NullCache()
+    retrieval = RetrievalService(repo, provider, cache, 0)
+    tools = ToolExecutor(repo, retrieval, settings, today_factory=lambda: date(2026, 10, 26))
+    agent = AgentService(repo, provider, tools, settings)
+    client = TestClient(create_app(settings=settings, repository=repo, cache=cache, agent=agent))
+
+    for path in ("/auth/login", "/api/v1/chat"):
+        ok_resp = client.options(
+            path,
+            headers={
+                "Origin": "https://miyo-hr-web.vercel.app",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type,authorization",
+            },
+        )
+        assert ok_resp.status_code == 200
+        assert ok_resp.headers.get("access-control-allow-origin") == "https://miyo-hr-web.vercel.app"
+
+    gh_resp = client.options(
+        "/auth/login",
+        headers={
+            "Origin": "https://azbayou.github.io",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,authorization",
+        },
+    )
+    assert gh_resp.status_code == 200
+    assert gh_resp.headers.get("access-control-allow-origin") == "https://azbayou.github.io"
+
+    evil_resp = client.options(
+        "/auth/login",
+        headers={
+            "Origin": "https://evil.example.com",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,authorization",
+        },
+    )
+    assert evil_resp.status_code == 400
+
+    personas_resp = client.get(
+        "/auth/personas",
+        headers={"Origin": "https://miyo-hr-web.vercel.app"},
+    )
+    assert personas_resp.status_code == 200
+    assert personas_resp.headers.get("access-control-allow-origin") == "https://miyo-hr-web.vercel.app"
+    personas = personas_resp.json()
+    assert len(personas) == 3
+    assert all(p["requires_password"] is True for p in personas)
+
+
+def test_postgres_list_personas_retries_transient_operational_error() -> None:
+    rows = [
+        {
+            "employee_id": "ADM-001",
+            "username": "admin",
+            "display_name": "Monitoring Admin",
+            "role": "monitoring_admin",
+            "department": "HR & People Ops",
+        },
+        {
+            "employee_id": "EMP-001",
+            "username": "alya",
+            "display_name": "Alya Pratama",
+            "role": "employee",
+            "department": "Engineering",
+        },
+        {
+            "employee_id": "EMP-002",
+            "username": "bima",
+            "display_name": "Bima Santoso",
+            "role": "employee",
+            "department": "Engineering",
+        },
+    ]
+
+    class _FakeCursor:
+        def fetchall(self):
+            return rows
+
+    class _FakeConn:
+        def __init__(self, should_fail: bool) -> None:
+            self._should_fail = should_fail
+
+        def __enter__(self):
+            if self._should_fail:
+                raise psycopg.OperationalError("connection closed during NeonDB cold start")
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def execute(self, sql: str):
+            return _FakeCursor()
+
+    class _FakePool:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def connection(self):
+            self.calls += 1
+            return _FakeConn(should_fail=(self.calls == 1))
+
+    pg_repo = PostgresRepository.__new__(PostgresRepository)
+    pg_repo.pool = _FakePool()
+
+    personas = pg_repo.list_personas(allow_demo_session=False)
+    assert pg_repo.pool.calls == 2
+    assert len(personas) == 3
+    assert [p["employee_id"] for p in personas] == ["ADM-001", "EMP-001", "EMP-002"]
+    assert all(p["requires_password"] is True for p in personas)
+
 
 

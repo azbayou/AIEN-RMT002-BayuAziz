@@ -66,10 +66,33 @@ createApp({
         const resp = await fetch(`${targetUrl}/readyz`, { method: 'GET', headers: { 'Accept': 'application/json' } });
         if (resp.ok) {
           const data = await resp.json();
-          connectionTestResult.value = {
-            success: true,
-            message: `Koneksi Berhasil! Status: ${data.status || 'ready'} (Database: ${data.dependencies?.database ? 'Online' : 'Degraded'})`
-          };
+          try {
+            const pResp = await fetch(`${targetUrl}/auth/personas`, { method: 'GET', headers: { 'Accept': 'application/json' } });
+            if (pResp.ok) {
+              const pData = await pResp.json().catch(() => null);
+              if (Array.isArray(pData)) {
+                connectionTestResult.value = {
+                  success: true,
+                  message: `Koneksi Berhasil! Status: ${data.status || 'ready'} (Database: ${data.dependencies?.database ? 'Online' : 'Degraded'}, ${pData.length} profil aktif ditemukan)`
+                };
+              } else {
+                connectionTestResult.value = {
+                  success: false,
+                  message: `Backend ready, tetapi format respons /auth/personas tidak valid.`
+                };
+              }
+            } else {
+              connectionTestResult.value = {
+                success: false,
+                message: `Health /readyz OK, tetapi /auth/personas merespon HTTP ${pResp.status}${pResp.status === 404 ? ' (jika localhost, rebuild container Docker Anda)' : ''}.`
+              };
+            }
+          } catch (pErr) {
+            connectionTestResult.value = {
+              success: false,
+              message: `Health /readyz OK, tetapi gagal mengakses /auth/personas (${pErr.message || 'Network / CORS Error'}).`
+            };
+          }
         } else {
           connectionTestResult.value = {
             success: false,
@@ -194,6 +217,8 @@ createApp({
     // --- DYNAMIC PERSONAS & AUTHENTICATION STATE ---
     const personasCatalog = ref([]);
     const isLoadingPersonas = ref(true);
+    const personasError = ref('');
+    let personasRequestSeq = 0;
     const activePersona = ref(null);
     const selectedPersonaId = ref('');
 
@@ -240,16 +265,57 @@ createApp({
     }
 
     async function fetchSystemInit() {
+      const reqSeq = ++personasRequestSeq;
       isLoadingPersonas.value = true;
+      personasError.value = '';
       try {
-        const personasRes = await fetch(`${getApiBase()}/auth/personas`)
-          .then(r => (r.ok ? r.json() : []))
-          .catch(() => []);
+        const retryDelaysMs = [1200, 2500];
+        let personasRes = null;
+        let lastPersonasErr = '';
 
-        personasCatalog.value = (personasRes || []).map(p => ({
-          ...p,
-          label: `${p.display_name} — ${p.department || p.role}`
-        }));
+        for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
+          if (reqSeq !== personasRequestSeq) return;
+          try {
+            const resp = await fetch(`${getApiBase()}/auth/personas`, {
+              headers: { 'Accept': 'application/json' }
+            });
+            if (resp.ok) {
+              const json = await resp.json().catch(() => null);
+              if (Array.isArray(json)) {
+                personasRes = json;
+                lastPersonasErr = '';
+                break;
+              }
+              lastPersonasErr = 'Format daftar profil dari server tidak valid.';
+            } else if (resp.status === 404) {
+              lastPersonasErr = 'Endpoint /auth/personas tidak ditemukan (HTTP 404). Jika memakai localhost, rebuild container Docker agar versi API terbaru aktif.';
+              break;
+            } else {
+              lastPersonasErr = `Server mengembalikan HTTP ${resp.status} saat mengambil daftar profil.`;
+            }
+          } catch (err) {
+            lastPersonasErr = `Gagal menghubungi server (${err?.message || 'Network / CORS error'}).`;
+          }
+
+          if (attempt < retryDelaysMs.length) {
+            await new Promise(resolve => setTimeout(resolve, retryDelaysMs[attempt]));
+          }
+        }
+
+        if (reqSeq !== personasRequestSeq) return;
+
+        if (Array.isArray(personasRes)) {
+          personasCatalog.value = personasRes.map(p => ({
+            ...p,
+            label: `${p.display_name} — ${p.department || p.role}`
+          }));
+          personasError.value = personasRes.length === 0
+            ? 'Database terhubung, namun belum ada akun pengguna yang ter-seed di tabel employees.'
+            : '';
+        } else {
+          personasCatalog.value = [];
+          personasError.value = lastPersonasErr || 'Gagal memuat daftar profil aktif dari server.';
+        }
 
         // Validate and restore previous session token against authenticated endpoint
         const savedSession = sessionStorage.getItem('miyo_active_session');
@@ -260,6 +326,7 @@ createApp({
               const validateRes = await fetch(`${getApiBase()}/api/v1/leave-balances/me`, {
                 headers: { 'Authorization': `Bearer ${parsed.demo_token}` }
               });
+              if (reqSeq !== personasRequestSeq) return;
               if (validateRes.ok) {
                 const balancesData = await validateRes.json().catch(() => []);
                 activePersona.value = parsed;
@@ -280,9 +347,14 @@ createApp({
         }
       } catch (err) {
         console.error('Failed to load initial system catalog:', err);
+        if (reqSeq === personasRequestSeq) {
+          personasError.value = `Gagal memuat profil: ${err?.message || 'Error tidak terduga'}`;
+        }
       } finally {
-        isLoadingPersonas.value = false;
-        refreshIcons();
+        if (reqSeq === personasRequestSeq) {
+          isLoadingPersonas.value = false;
+          refreshIcons();
+        }
       }
     }
 
@@ -1501,6 +1573,12 @@ createApp({
       });
     }
 
+    watch(isBackendReady, (ready) => {
+      if (ready && !isAuthenticated.value && personasCatalog.value.length === 0 && !isLoadingPersonas.value) {
+        fetchSystemInit();
+      }
+    });
+
     onMounted(() => {
       checkHealth();
       setInterval(checkHealth, 15000);
@@ -1530,6 +1608,8 @@ createApp({
       currentDateFormatted,
       personasCatalog,
       isLoadingPersonas,
+      personasError,
+      fetchSystemInit,
       activePersona,
       selectedPersonaId,
       selectSsoPersona,

@@ -916,8 +916,10 @@ class PostgresRepository:
             conninfo=active_url,
             min_size=1,
             max_size=8,
-            timeout=10,
-            kwargs={"row_factory": dict_row, "connect_timeout": 5},
+            timeout=20,
+            max_idle=120,
+            reconnect_timeout=30,
+            kwargs={"row_factory": dict_row, "connect_timeout": 15},
             check=ConnectionPool.check_connection,
             open=True,
         )
@@ -1024,14 +1026,26 @@ class PostgresRepository:
         )
 
     def list_personas(self, allow_demo_session: bool = False) -> list[dict[str, Any]]:
-        with self.pool.connection() as connection:
-            rows = connection.execute(
-                """
-                SELECT employee_id, username, display_name, role, department
-                FROM employees
-                ORDER BY employee_id
-                """
-            ).fetchall()
+        last_error: Exception | None = None
+        rows: list[dict[str, Any]] = []
+        for attempt in range(2):
+            try:
+                with self.pool.connection() as connection:
+                    rows = connection.execute(
+                        """
+                        SELECT employee_id, username, display_name, role, department
+                        FROM employees
+                        ORDER BY employee_id
+                        """
+                    ).fetchall()
+                last_error = None
+                break
+            except (psycopg.OperationalError, psycopg.InterfaceError) as err:
+                last_error = err
+                if attempt == 1:
+                    raise
+        if last_error is not None:
+            raise last_error
 
         result: list[dict[str, Any]] = []
         for r in rows:

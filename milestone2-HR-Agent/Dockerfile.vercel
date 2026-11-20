@@ -5,6 +5,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     BACKEND_ONLY=true \
     ENVIRONMENT=production \
     ALLOW_DEMO_SESSION=false \
+    CORS_ORIGINS="http://localhost:8000,http://localhost:8501,http://127.0.0.1:8000,http://127.0.0.1:8501,https://miyo-hr-web.vercel.app,https://azbayou.github.io" \
     PORT=8000
 
 WORKDIR /app

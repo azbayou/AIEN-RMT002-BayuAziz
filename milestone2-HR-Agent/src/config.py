@@ -16,7 +16,8 @@ class Settings(BaseSettings):
     allow_demo_session: bool = False
     cors_origins: str = (
         "http://localhost:8000,http://localhost:8501,"
-        "http://127.0.0.1:8000,http://127.0.0.1:8501"
+        "http://127.0.0.1:8000,http://127.0.0.1:8501,"
+        "https://miyo-hr-web.vercel.app,https://azbayou.github.io"
     )
     database_url: str = ""
     redis_url: str | None = "redis://redis:6379/0"
@@ -101,6 +102,8 @@ class Settings(BaseSettings):
             "http://localhost:8501",
             "http://127.0.0.1:8000",
             "http://127.0.0.1:8501",
+            "https://miyo-hr-web.vercel.app",
+            "https://azbayou.github.io",
         ]
 
     @property

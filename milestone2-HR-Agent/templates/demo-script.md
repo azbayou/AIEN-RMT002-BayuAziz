@@ -46,7 +46,7 @@
   - **Ekspektasi:** Buka trace via `GET /api/v1/traces/{trace_id}` atau dashboard monitoring → Istilah medis (`diabetes`, `darah tinggi`), email, dan nomor telepon tersamarkan otomatis (`[REDACTED_MEDICAL]`, `[REDACTED_EMAIL]`, `[REDACTED_PHONE]`), sementara frasa legal `"cuti sakit"` dan `"rumah sakit"` tetap terjaga utuh berkat negative lookbehind.
 
 ## 7. Monitoring Evidence & Anonymized Admin Analytics — 45 detik
-- **Aktor:** Login sebagai `Monitoring Admin` (`ADM-001`) via `POST /auth/login` (password `AdminPassword123!`).
+- **Aktor:** Login sebagai `Monitoring Admin` (`ADM-001`) via `POST /auth/login` (password `Password#123`).
 - **Aksi 1 (Anonymized Aggregate Overview):** Buka Tab Monitoring Sistem atau panggil `GET /api/v1/analytics/overview`:
   - Menampilkan ringkasan agregat anonim: `total_employees: 2`, `total_leave_requests: 2`, `low_balance_employee_count: 2`.
   - Daftar individual `low_balance_employees` dikosongkan (`[]`) untuk mencegah kebocoran saldo pegawai lain ke admin monitoring.

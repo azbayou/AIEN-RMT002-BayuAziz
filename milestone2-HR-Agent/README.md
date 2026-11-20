@@ -70,8 +70,8 @@ Semua nama pegawai, saldo, password, dan token di bawah ini 100% data sintetis u
 
 | Nama | ID | Role | Cara Masuk di UI | Token CLI / Curl | Saldo Awal |
 |---|---|---|---|---|---|
-| Alya Pratama | `EMP-001` | `employee` | 1-klik demo session di Web SPA, atau login `alya` / `Password#123` | `token-alya` | Annual 8, Sick 10, Parental 60 |
-| Bima Santoso | `EMP-002` | `employee` | 1-klik demo session di Web SPA, atau login `bima` / `Password#123` | `token-bima` | Annual 3, Sick 10, Parental 60 |
+| Alya Pratama | `EMP-001` | `employee` | Login password `alya` / `Password#123` (verifikasi sandi; demo session nonaktif) | `token-alya` | Annual 8, Sick 10, Parental 60 |
+| Bima Santoso | `EMP-002` | `employee` | Login password `bima` / `Password#123` (verifikasi sandi; demo session nonaktif) | `token-bima` | Annual 3, Sick 10, Parental 60 |
 | Monitoring Admin | `ADM-001` | `monitoring_admin` | Wajib login password `admin` / `Password#123` (demo session ditolak `403`) | `token-admin` | - |
 
 ## 3. Demo Manual di UI (Web SPA & Streamlit)
@@ -79,7 +79,7 @@ Semua nama pegawai, saldo, password, dan token di bawah ini 100% data sintetis u
 ### A. Alur Utama Demo
 
 1. **Login dan cek koneksi.**
-   Buka `https://miyo-hr-web.vercel.app/` atau `http://localhost:8000/`, masuk 1-klik sebagai Alya (`EMP-001`), lalu pastiin badge koneksi backend di atas berwarna hijau. Kalau mau cek kontrak UI Streamlit juga, buka `http://localhost:8501` dan pilih Alya di sidebar.
+   Buka `https://miyo-hr-web.vercel.app/` atau `http://localhost:8000/`, pilih Alya (`EMP-001`) lalu masukkan sandi `Password#123`, dan pastiin badge koneksi backend di atas berwarna hijau. Kalau mau cek kontrak UI Streamlit juga, buka `http://localhost:8501` dan pilih Alya di sidebar.
 
 2. **Tanya kebijakan HR dan cek sitasi.**
    Kirim pertanyaan: `"Berapa jatah cuti tahunan saya dan gimana aturan bawa sisa cuti ke tahun depan?"`.
